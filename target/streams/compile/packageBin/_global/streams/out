@@ -1,0 +1,27 @@
+[0m[[0m[0mdebug[0m] [0m[0mPackaging /Users/kpudlik/Projects/constellation-labs/fs2-aws-snapshot-mapper/target/scala-2.12/cl-snapshot-streaming_2.12-0.1.0.jar ...[0m
+[0m[[0m[0mdebug[0m] [0m[0mInput file mappings:[0m
+[0m[[0m[0mdebug[0m] [0m[0m	Config$CliConfig$.class[0m
+[0m[[0m[0mdebug[0m] [0m[0m	  /Users/kpudlik/Projects/constellation-labs/fs2-aws-snapshot-mapper/target/scala-2.12/classes/Config$CliConfig$.class[0m
+[0m[[0m[0mdebug[0m] [0m[0m	SnapshotMapper$.class[0m
+[0m[[0m[0mdebug[0m] [0m[0m	  /Users/kpudlik/Projects/constellation-labs/fs2-aws-snapshot-mapper/target/scala-2.12/classes/SnapshotMapper$.class[0m
+[0m[[0m[0mdebug[0m] [0m[0m	s3[0m
+[0m[[0m[0mdebug[0m] [0m[0m	  /Users/kpudlik/Projects/constellation-labs/fs2-aws-snapshot-mapper/target/scala-2.12/classes/s3[0m
+[0m[[0m[0mdebug[0m] [0m[0m	s3/S3StreamClient.class[0m
+[0m[[0m[0mdebug[0m] [0m[0m	  /Users/kpudlik/Projects/constellation-labs/fs2-aws-snapshot-mapper/target/scala-2.12/classes/s3/S3StreamClient.class[0m
+[0m[[0m[0mdebug[0m] [0m[0m	s3/S3StreamClient$.class[0m
+[0m[[0m[0mdebug[0m] [0m[0m	  /Users/kpudlik/Projects/constellation-labs/fs2-aws-snapshot-mapper/target/scala-2.12/classes/s3/S3StreamClient$.class[0m
+[0m[[0m[0mdebug[0m] [0m[0m	serializer[0m
+[0m[[0m[0mdebug[0m] [0m[0m	  /Users/kpudlik/Projects/constellation-labs/fs2-aws-snapshot-mapper/target/scala-2.12/classes/serializer[0m
+[0m[[0m[0mdebug[0m] [0m[0m	serializer/KryoSerializer.class[0m
+[0m[[0m[0mdebug[0m] [0m[0m	  /Users/kpudlik/Projects/constellation-labs/fs2-aws-snapshot-mapper/target/scala-2.12/classes/serializer/KryoSerializer.class[0m
+[0m[[0m[0mdebug[0m] [0m[0m	serializer/Serializer.class[0m
+[0m[[0m[0mdebug[0m] [0m[0m	  /Users/kpudlik/Projects/constellation-labs/fs2-aws-snapshot-mapper/target/scala-2.12/classes/serializer/Serializer.class[0m
+[0m[[0m[0mdebug[0m] [0m[0m	SnapshotMapper.class[0m
+[0m[[0m[0mdebug[0m] [0m[0m	  /Users/kpudlik/Projects/constellation-labs/fs2-aws-snapshot-mapper/target/scala-2.12/classes/SnapshotMapper.class[0m
+[0m[[0m[0mdebug[0m] [0m[0m	Config$.class[0m
+[0m[[0m[0mdebug[0m] [0m[0m	  /Users/kpudlik/Projects/constellation-labs/fs2-aws-snapshot-mapper/target/scala-2.12/classes/Config$.class[0m
+[0m[[0m[0mdebug[0m] [0m[0m	Config.class[0m
+[0m[[0m[0mdebug[0m] [0m[0m	  /Users/kpudlik/Projects/constellation-labs/fs2-aws-snapshot-mapper/target/scala-2.12/classes/Config.class[0m
+[0m[[0m[0mdebug[0m] [0m[0m	Config$CliConfig.class[0m
+[0m[[0m[0mdebug[0m] [0m[0m	  /Users/kpudlik/Projects/constellation-labs/fs2-aws-snapshot-mapper/target/scala-2.12/classes/Config$CliConfig.class[0m
+[0m[[0m[0mdebug[0m] [0m[0mDone packaging.[0m
