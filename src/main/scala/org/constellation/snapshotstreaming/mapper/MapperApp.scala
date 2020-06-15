@@ -6,21 +6,26 @@ import cats.implicits._
 import scala.concurrent.duration._
 import fs2.Stream
 import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
-import org.constellation.snapshotstreaming.Config
-import org.constellation.snapshotstreaming.Config.CliConfig
-import org.constellation.snapshotstreaming.mapper.SnapshotMapper.startingHeight
+import org.constellation.snapshotstreaming.Configuration
+import org.constellation.snapshotstreaming.mapper.MapperApp.startingHeight
+import org.constellation.snapshotstreaming.output.ElasticSearchSender
 import org.constellation.snapshotstreaming.s3.S3StreamClient
 import org.constellation.snapshotstreaming.serializer.KryoSerializer
 
 import scala.concurrent.duration.FiniteDuration
 
-object SnapshotMapper extends IOApp {
+object MapperApp extends IOApp {
   private val startingHeight = 2L
   private val serializer = new KryoSerializer
+  private val configLoader = new Configuration
+  private val storedSnapshotMapper = new StoredSnapshotMapper
+  private val es =
+    new ElasticSearchSender[IO](storedSnapshotMapper, configLoader)
   private val logger = Slf4jLogger.getLogger[IO]
 
   def run(args: List[String]): IO[ExitCode] = {
     main(args).compile.drain
+      .flatTap(_ => logger.debug("Done!"))
       .map(_ => ExitCode.Success)
       .handleError(_ => ExitCode.Error)
   }
@@ -30,30 +35,51 @@ object SnapshotMapper extends IOApp {
       config <- getConfig[IO](args)
       _ <- Stream.eval(
         logger.info(
-          s"Streaming snapshots from bucket: ${config.bucket} (${config.region})"
+          s"Streaming snapshots from bucket: ${config.bucketName} (${config.bucketRegion})"
         )
       )
       run = emit(config) _
-      _ <- run(710L)
-//      _ <- Stream(run(2L, 40L, 1), run(42L, 80L, 2), run(82L, 122L, 3))
+      _ <- run(config.startingHeight, config.endingHeight)
+      // TODO: Parallel
+//      _ <- Stream(run(2L, 40L, run(42L, 80L, run(82L, 122L)
 //        .parJoin(3)
     } yield ()
 
-  def emit(config: CliConfig)(startingHeight: Long): Stream[IO, Unit] =
+  def emit(
+    config: Configuration
+  )(startingHeight: Long, endingHeight: Option[Long] = None): Stream[IO, Unit] =
     for {
-      height <- getHeights[IO](startingHeight)
-      client <- getStreamClient[IO](config.bucket, config.region)
+      height <- getHeights[IO](
+        startingHeight = startingHeight,
+        endingHeight = endingHeight
+      )
+      client <- getStreamClient[IO](config.bucketName, config.bucketRegion)
       snapshot <- client
         .getSnapshot(height)
         .handleErrorWith(
           e =>
             Stream
-              .eval(logger.error(s"❌ $height failed. Retrying...: $e")) >> Stream
+              .eval(
+                logger
+                  .error(s"(S3) $height failed. Retrying...: ${e.getMessage}")
+              ) >> Stream
               .raiseError[IO](e)
         )
         .through(retryInfinitely(5.seconds))
       _ <- Stream.eval(
-        logger.info(s"✅ ${snapshot.height} - ${snapshot.snapshot.hash}")
+        logger.info(s"(S3) ${snapshot.height} - ${snapshot.snapshot.hash}")
+      )
+      _ <- es
+        .mapAndSendToElasticSearch(snapshot)
+        .handleErrorWith(
+          e =>
+            Stream.eval(
+              logger.error(s"(ES) $height failed. Retrying...: ${e.getMessage}")
+            ) >> Stream.raiseError[IO](e)
+        )
+        .through(retryInfinitely(5.seconds))
+      _ <- Stream.eval(
+        logger.info(s"(ES) ${snapshot.height} - ${snapshot.snapshot.hash}\n")
       )
     } yield ()
 
@@ -91,9 +117,9 @@ object SnapshotMapper extends IOApp {
 
   private def getConfig[F[_]: Concurrent](
     args: List[String]
-  ): Stream[F, CliConfig] =
+  ): Stream[F, Configuration] =
     for {
-      cliConfig <- Stream.eval(Config.loadCliParams(args))
+      cliConfig <- Stream.emit(new Configuration)
     } yield cliConfig
 
 }

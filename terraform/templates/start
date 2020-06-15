@@ -1,0 +1,2 @@
+#!/bin/sh
+java -Dconfig.file=/home/ec2-user/snapshot-streaming/application.conf -jar snapshot-streaming.jar

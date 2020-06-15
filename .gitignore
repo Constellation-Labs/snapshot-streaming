@@ -22,3 +22,4 @@ terraform/aws/whitelisting-*
 .metals/
 .bloop/
 project/metals.sbt
+*.tfvars

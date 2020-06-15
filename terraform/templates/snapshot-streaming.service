@@ -1,0 +1,14 @@
+[Unit]
+Description=Constellation Snapshot-Streaming
+
+[Service]
+User=ec2-user
+WorkingDirectory=/home/ec2-user/snapshot-streaming
+ExecStart=/home/ec2-user/snapshot-streaming/start
+SuccessExitStatus=143
+TimeoutStopSec=20
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
