@@ -53,16 +53,20 @@ class ElasticSearchClient[F[_]: Concurrent: ConcurrentEffect: Parallel](
     val balances = snapshotInfoMapper.mapAddressBalances(snapshotInfo)
 
     for {
-      _ <- Stream.eval(sendSnapshot(snapshot.hash, snapshot))
-      _ <- Stream.eval(sendBalances(snapshot.hash, balances))
-      _ <- Stream.eval {
-        checkpointBlocks.toList
-          .map(b => sendCheckpointBlock(b.hash, b))
-          .parSequence
-      }
-      _ <- Stream.eval {
-        transactions.toList.map(t => sendTransaction(t.hash, t)).parSequence
-      }
+      _ <- Stream
+        .emits(transactions)
+        .map(t => sendTransaction(t.hash, t))
+        .parJoinUnbounded
+
+      _ <- Stream
+        .emits(checkpointBlocks)
+        .map(b => sendCheckpointBlock(b.hash, b))
+        .parJoinUnbounded
+
+      _ <- Stream(
+        sendSnapshot(snapshot.hash, snapshot),
+        sendBalances(snapshot.hash, balances)
+      ).parJoinUnbounded
     } yield ()
   }
 
@@ -93,24 +97,21 @@ class ElasticSearchClient[F[_]: Concurrent: ConcurrentEffect: Parallel](
       balances
     )
 
-  // TODO: Make it Stream[F, Response[F]] maybe and use parJoinUnbounded
   private def sendToElasticSearch[T](id: String, index: String, entity: T)(
     implicit w: EntityEncoder[F, T]
-  ): F[Unit] =
+  ): Stream[F, Response[F]] =
     for {
-      r <- client.use { c =>
-        val request = Request[F]()
-          .withUri(
-            Uri.unsafeFromString(
-              s"${config.elasticsearchUrl}/$index/_doc/$id?op_type=index"
-            )
+      client <- BlazeClientBuilder[F](global).stream
+      request = Request[F]()
+        .withUri(
+          Uri.unsafeFromString(
+            s"${config.elasticsearchUrl}/$index/_doc/$id?op_type=index"
           )
-          .withEntity(entity)
-          .withContentType(`Content-Type`(MediaType.application.json))
-          .removeHeader(`Content-Length`)
-          .withMethod(Method.PUT)
-
-        c.expect[Unit](request)
-      }
-    } yield r
+        )
+        .withEntity(entity)
+        .withContentType(`Content-Type`(MediaType.application.json))
+        .removeHeader(`Content-Length`)
+        .withMethod(Method.PUT)
+      response <- client.stream(request)
+    } yield response
 }
