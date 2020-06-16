@@ -10,7 +10,7 @@ class Configuration {
   private val elasticsearch =
     config.getConfig("snapshot-streaming.elasticsearch")
   private val bucket = config.getConfig("snapshot-streaming.bucket")
-  private val interval = config.getConfig("interval")
+  private val interval = config.getConfig("snapshot-streaming.interval")
 
   val startingHeight: Long = Try(interval.getLong("start")).getOrElse(2L)
   val endingHeight: Option[Long] = Try(interval.getLong("end")).toOption
@@ -29,6 +29,9 @@ class Configuration {
 
   val elasticsearchSnapshotsIndex: String =
     elasticsearch.getString("indexes.snapshots")
+
+  val elasticsearchBalancesIndex: String =
+    elasticsearch.getString("indexes.balances")
 
   val bucketRegion: String =
     bucket.getString("region")

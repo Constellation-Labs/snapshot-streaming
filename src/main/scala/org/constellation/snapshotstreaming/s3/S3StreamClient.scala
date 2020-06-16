@@ -12,9 +12,18 @@ import com.amazonaws.services.s3.{AmazonS3, AmazonS3ClientBuilder}
 import com.amazonaws.util.IOUtils
 import fs2._
 import org.constellation.consensus.StoredSnapshot
+import org.constellation.domain.snapshot.SnapshotInfo
 import org.constellation.snapshotstreaming.serializer.Serializer
 
 import scala.collection.JavaConverters._
+
+case class S3SummariesResult(height: Long,
+                             snapshot: S3ObjectSummary,
+                             snapshotInfo: S3ObjectSummary)
+
+case class S3DeserializedResult(height: Long,
+                                snapshot: StoredSnapshot,
+                                snapshotInfo: SnapshotInfo)
 
 case class S3StreamClient[F[_]: RaiseThrowable](
   region: String,
@@ -23,15 +32,16 @@ case class S3StreamClient[F[_]: RaiseThrowable](
 )(implicit val F: Concurrent[F]) {
 
   private val prefix = "snapshots/"
-  private val suffix = "snapshot"
+  private val snapshotSuffix = "snapshot"
+  private val snapshotInfoSuffix = "snapshot_info"
 
-  def getSnapshot(height: Long): Stream[F, StoredSnapshot] =
+  def get(height: Long): Stream[F, S3DeserializedResult] =
     for {
-      summary <- getSnapshotObjectSummary(height)
-      snapshot <- getObjectDeserialized[StoredSnapshot](summary.getKey)
-    } yield snapshot
+      summaries <- getObjectSummaries(height)
+      deserialized <- deserializeResult(summaries)
+    } yield deserialized
 
-  def getSnapshotObjectSummary(height: Long): Stream[F, S3ObjectSummary] =
+  private def getObjectSummaries(height: Long): Stream[F, S3SummariesResult] =
     for {
       client <- getClient
       data <- Stream.eval(
@@ -44,31 +54,31 @@ case class S3StreamClient[F[_]: RaiseThrowable](
           )
         )
       )
+      summaries = data.getObjectSummaries.asScala
+
       snapshot <- Stream.emit(
-        data.getObjectSummaries.asScala.find(_.getKey.endsWith(suffix)).get
+        summaries
+          .find(_.getKey.endsWith(snapshotSuffix))
+          .get
       )
+      snapshotInfo <- Stream.emit(
+        summaries
+          .find(_.getKey.endsWith(snapshotInfoSuffix))
+          .get
+      )
+    } yield S3SummariesResult(height, snapshot, snapshotInfo)
 
-    } yield snapshot
-
-  def getSnapshotObjectsSummaries: Stream[F, List[S3ObjectSummary]] =
+  private def deserializeResult(
+    result: S3SummariesResult
+  ): Stream[F, S3DeserializedResult] =
     for {
-      client <- getClient
-      request <- Stream.emit {
-        new ListObjectsV2Request()
-          .withPrefix(prefix)
-          .withBucketName(bucket)
-      }
-      firstChunk <- Stream.eval(F.delay(client.listObjectsV2(request)))
-      allChunks <- Stream.emit(firstChunk) ++ Stream.unfoldEval(
-        continuation(firstChunk)
-      )(next(client, request))
-      snapshots <- Stream.emit(
-        allChunks.getObjectSummaries.asScala.toList
-          .filter(_.getKey.endsWith(suffix))
+      snapshot <- getObjectDeserialized[StoredSnapshot](result.snapshot.getKey)
+      snapshotInfo <- getObjectDeserialized[SnapshotInfo](
+        result.snapshotInfo.getKey
       )
-    } yield snapshots
+    } yield S3DeserializedResult(result.height, snapshot, snapshotInfo)
 
-  def getObjectDeserialized[A](
+  private def getObjectDeserialized[A](
     key: String
   )(implicit F: Concurrent[F]): Stream[F, A] =
     for {
@@ -88,21 +98,6 @@ case class S3StreamClient[F[_]: RaiseThrowable](
         serializer.deserialize[A](consumed)
       })
     } yield deserialized
-
-  private def continuation(response: ListObjectsV2Result): Option[String] =
-    Some(response).filter(_.isTruncated).map(_.getContinuationToken)
-
-  private def next(client: AmazonS3, request: ListObjectsV2Request)(
-    continuationToken: Option[String]
-  ): F[Option[(ListObjectsV2Result, Option[String])]] =
-    (for {
-      continuationToken <- OptionT.fromOption[F](continuationToken)
-      continuationRequest = request.withContinuationToken(continuationToken)
-      response <- OptionT.liftF(F.delay {
-        client.listObjectsV2(continuationRequest)
-      })
-      nextContinuationToken = continuation(response)
-    } yield (response, nextContinuationToken)).value
 
   private def getClient(implicit F: Concurrent[F]): Stream[F, AmazonS3] =
     Stream.bracket {
