@@ -17,7 +17,7 @@ class SnapshotInfoMapper {
     snapshotInfo.addressCacheData.mapValues(
       data =>
         AddressBalance(
-          balance = data.balance,
+          balance = data.balanceByLatestSnapshot,
           rewardsBalance = data.rewardsBalance
       )
     )

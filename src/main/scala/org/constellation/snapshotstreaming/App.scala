@@ -1,8 +1,17 @@
 package org.constellation.snapshotstreaming
 
 import cats.Parallel
-import cats.effect.{Concurrent, ConcurrentEffect, ExitCode, IO, IOApp, Timer}
+import cats.effect.{
+  Concurrent,
+  ConcurrentEffect,
+  ExitCode,
+  IO,
+  IOApp,
+  LiftIO,
+  Timer
+}
 import cats.implicits._
+import com.amazonaws.services.s3.AmazonS3ClientBuilder
 
 import scala.concurrent.duration._
 import fs2.{RaiseThrowable, Stream}
@@ -11,13 +20,12 @@ import org.constellation.snapshotstreaming.mapper.{
   SnapshotInfoMapper,
   StoredSnapshotMapper
 }
-import org.constellation.snapshotstreaming.es.ElasticSearchClient
-import org.constellation.snapshotstreaming.s3.{
-  S3DeserializedResult,
-  S3StreamClient
-}
+import org.constellation.snapshotstreaming.es.ElasticSearchDAO
+import org.constellation.snapshotstreaming.s3.{S3DAO, S3DeserializedResult}
 import org.constellation.snapshotstreaming.serializer.KryoSerializer
+import org.http4s.client.blaze.BlazeClientBuilder
 
+import scala.concurrent.ExecutionContext.global
 import scala.concurrent.duration.FiniteDuration
 
 object App extends IOApp {
@@ -36,72 +44,84 @@ object App extends IOApp {
 
   def main(args: List[String]): Stream[IO, Unit] =
     for {
-      config <- getConfig[IO](args)
+      esClient <- BlazeClientBuilder[IO](global).stream
+      s3Client <- Stream.bracket(
+        IO(
+          AmazonS3ClientBuilder
+            .standard()
+            .withRegion(configuration.bucketRegion)
+            .build()
+        )
+      )(c => IO(c.shutdown()))
+
+      elasticSearchDAO = ElasticSearchDAO[IO](esClient)(
+        storedSnapshotMapper,
+        snapshotInfoMapper,
+        configuration
+      )
+
+      s3DAO = S3DAO[IO](s3Client)(configuration.bucketName, serializer)
 
       _ <- Stream.eval(
         logger.info(
-          s"Streaming from bucket (${config.bucketName}, ${config.bucketRegion}) to elasticsearch (${config.elasticsearchUrl})"
+          s"Streaming from bucket (${configuration.bucketName}, ${configuration.bucketRegion}) to elasticsearch (${configuration.elasticsearchUrl})"
         )
       )
-      _ <- transfer[IO](configuration)
-    } yield ()
 
-  def transfer[F[_]: Concurrent: ConcurrentEffect: Timer: Parallel](
-    configuration: Configuration
-  ): Stream[F, Unit] =
-    for {
-      s3Result <- getFromS3(configuration)
-      _ <- putToES(configuration)(s3Result)
+      s3Object <- getFromS3(s3DAO)
+      _ <- s3Object.map(putToES(elasticSearchDAO)).getOrElse(Stream.emit(()))
     } yield ()
 
   private def getFromS3[F[_]: Concurrent: Timer: RaiseThrowable](
-    configuration: Configuration
-  ): Stream[F, S3DeserializedResult] =
+    s3DAO: S3DAO[F]
+  ): Stream[F, Option[S3DeserializedResult]] = {
     for {
-      client <- getS3Client[F](
-        configuration.bucketName,
-        configuration.bucketRegion
-      )
-      logger = Slf4jLogger.getLogger[F]
       height <- getHeights[F](
         startingHeight = configuration.startingHeight,
         endingHeight = configuration.endingHeight
       )
-      result <- client
+      result <- s3DAO
         .get(height)
+        .flatMap(
+          o =>
+            Stream.eval(
+              LiftIO[F].liftIO(logger.info(s"[S3 ->] Height $height succeeded"))
+            ) >> Stream.emit(Some(o))
+        )
         .handleErrorWith(
           e =>
             Stream.eval[F, Unit](
-              logger
-                .error(s"[S3 ->] Height $height failed: ${e.getMessage}")
-            ) >> Stream.raiseError(e)
+              LiftIO[F].liftIO(
+                logger
+                  .error(e)(s"[S3 ->] Height $height failed")
+              )
+            ) >> Stream.emit(None)
         )
-        .through(retryInfinitely(5.seconds))
 
-      _ <- Stream.eval(logger.info(s"[S3 ->] Height $height succeeded"))
     } yield result
+  }
 
-  private def putToES[F[_]: Concurrent: ConcurrentEffect: Timer: RaiseThrowable: Parallel](
-    configuration: Configuration
+  private def putToES[F[_]: ConcurrentEffect: Timer: RaiseThrowable: Parallel](
+    elasticSearchDAO: ElasticSearchDAO[F]
   )(result: S3DeserializedResult): Stream[F, Unit] =
-    for {
-      client <- getESClient(configuration)
-      logger = Slf4jLogger.getLogger[F]
-      _ <- client
-        .mapAndSendToElasticSearch(result.snapshot, result.snapshotInfo)
-        .handleErrorWith(
-          e =>
-            Stream.eval[F, Unit](
-              logger.error(s"[-> ES] ${result.height} failed: ${e.getMessage}")
-            ) >> Stream.raiseError(e)
+    elasticSearchDAO
+      .mapAndSendToElasticSearch(result.snapshot, result.snapshotInfo)
+      .flatMap(
+        _ =>
+          Stream.eval(
+            LiftIO[F]
+              .liftIO(logger.info(s"[-> ES] Height ${result.height} succeeded"))
         )
-        .through(retryInfinitely(5.seconds))
-
-      _ <- Stream.eval(
-        logger.info(s"[-> ES] Height ${result.height} succeeded")
       )
-
-    } yield ()
+      .handleErrorWith(
+        e =>
+          Stream.eval[F, Unit](
+            LiftIO[F].liftIO(
+              logger
+                .error(e)(s"[-> ES] ${result.height} failed")
+            )
+        )
+      )
 
   private def retryInfinitely[F[_]: Concurrent: Timer, A](
     delay: FiniteDuration
@@ -128,21 +148,4 @@ object App extends IOApp {
       endingHeight => heightsIterator.takeWhile(_ <= endingHeight)
     )
   }
-
-  private def getS3Client[F[_]: Concurrent](
-    bucket: String,
-    region: String
-  ): Stream[F, S3StreamClient[F]] =
-    Stream.emit(S3StreamClient[F](region, bucket, serializer))
-
-  private def getESClient[F[_]: Concurrent: ConcurrentEffect: Parallel](
-    config: Configuration
-  ): Stream[F, ElasticSearchClient[F]] = Stream.emit(
-    new ElasticSearchClient[F](storedSnapshotMapper, snapshotInfoMapper, config)
-  )
-
-  private def getConfig[F[_]: Concurrent](
-    args: List[String]
-  ): Stream[F, Configuration] = Stream.emit(new Configuration)
-
 }

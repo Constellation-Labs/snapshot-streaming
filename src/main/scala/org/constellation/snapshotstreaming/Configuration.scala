@@ -12,8 +12,10 @@ class Configuration {
   private val bucket = config.getConfig("snapshot-streaming.bucket")
   private val interval = config.getConfig("snapshot-streaming.interval")
 
-  val startingHeight: Long = Try(interval.getLong("start")).getOrElse(2L)
-  val endingHeight: Option[Long] = Try(interval.getLong("end")).toOption
+  val startingHeight: Long =
+    Try(interval.getLong("startingHeight")).getOrElse(2L)
+  val endingHeight
+    : Option[Long] = Try(interval.getLong("endingHeight")).toOption
 
   val elasticsearchUrl: String =
     elasticsearch.getString("url")

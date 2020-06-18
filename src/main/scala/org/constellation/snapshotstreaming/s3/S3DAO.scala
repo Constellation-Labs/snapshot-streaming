@@ -1,13 +1,14 @@
 package org.constellation.snapshotstreaming.s3
 
 import cats.data.OptionT
-import cats.effect.Concurrent
+import cats.effect.{Concurrent, IO}
 import cats.implicits._
 import com.amazonaws.services.s3.model.{
   ListObjectsV2Request,
   ListObjectsV2Result,
   S3ObjectSummary
 }
+import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 import com.amazonaws.services.s3.{AmazonS3, AmazonS3ClientBuilder}
 import com.amazonaws.util.IOUtils
 import fs2._
@@ -25,8 +26,7 @@ case class S3DeserializedResult(height: Long,
                                 snapshot: StoredSnapshot,
                                 snapshotInfo: SnapshotInfo)
 
-case class S3StreamClient[F[_]: RaiseThrowable](
-  region: String,
+case class S3DAO[F[_]: RaiseThrowable](client: AmazonS3)(
   bucket: String,
   serializer: Serializer
 )(implicit val F: Concurrent[F]) {
@@ -34,6 +34,7 @@ case class S3StreamClient[F[_]: RaiseThrowable](
   private val prefix = "snapshots/"
   private val snapshotSuffix = "snapshot"
   private val snapshotInfoSuffix = "snapshot_info"
+  private val logger = Slf4jLogger.getLogger[F]
 
   def get(height: Long): Stream[F, S3DeserializedResult] =
     for {
@@ -43,7 +44,6 @@ case class S3StreamClient[F[_]: RaiseThrowable](
 
   private def getObjectSummaries(height: Long): Stream[F, S3SummariesResult] =
     for {
-      client <- getClient
       data <- Stream.eval(
         F.delay(
           client.listObjectsV2(
@@ -82,7 +82,6 @@ case class S3StreamClient[F[_]: RaiseThrowable](
     key: String
   )(implicit F: Concurrent[F]): Stream[F, A] =
     for {
-      client <- getClient
       is <- Stream.eval(F.delay {
         client.getObject(bucket, key).getObjectContent
       })
@@ -99,17 +98,4 @@ case class S3StreamClient[F[_]: RaiseThrowable](
       })
     } yield deserialized
 
-  private def getClient(implicit F: Concurrent[F]): Stream[F, AmazonS3] =
-    Stream.bracket {
-      AmazonS3ClientBuilder
-        .standard()
-        .withRegion(region)
-        .build()
-        .pure[F]
-    }(
-      c =>
-        F.delay {
-          c.shutdown()
-      }
-    )
 }

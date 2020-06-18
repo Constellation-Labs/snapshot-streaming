@@ -34,5 +34,5 @@ variable "bucket-name" {
 
 variable "instance-type" {
   type = string
-  default = "t2.micro"
+  default = "t2.medium"
 }
