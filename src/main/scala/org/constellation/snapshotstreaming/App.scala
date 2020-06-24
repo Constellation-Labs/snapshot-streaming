@@ -84,16 +84,16 @@ object App extends IOApp {
         .get(height)
         .flatMap(
           o =>
-            Stream.eval(
-              LiftIO[F].liftIO(logger.info(s"[S3 ->] Height $height succeeded"))
-            ) >> Stream.emit(Some(o))
+            Stream
+              .eval(LiftIO[F].liftIO(logger.info(s"[S3 ->] $height OK"))) >> Stream
+              .emit(Some(o))
         )
         .handleErrorWith(
           e =>
             Stream.eval[F, Unit](
               LiftIO[F].liftIO(
                 logger
-                  .error(e)(s"[S3 ->] Height $height failed")
+                  .error(e)(s"[S3 ->] $height ERROR")
               )
             ) >> Stream.emit(None)
         )
@@ -110,7 +110,7 @@ object App extends IOApp {
         _ =>
           Stream.eval(
             LiftIO[F]
-              .liftIO(logger.info(s"[-> ES] Height ${result.height} succeeded"))
+              .liftIO(logger.info(s"[-> ES] ${result.height} OK"))
         )
       )
       .handleErrorWith(
@@ -118,7 +118,7 @@ object App extends IOApp {
           Stream.eval[F, Unit](
             LiftIO[F].liftIO(
               logger
-                .error(e)(s"[-> ES] ${result.height} failed")
+                .error(e)(s"[-> ES] ${result.height} ERROR")
             )
         )
       )
@@ -139,7 +139,7 @@ object App extends IOApp {
   }
 
   private def getHeights[F[_]: Concurrent](
-    startingHeight: Long = 2L,
+    startingHeight: Long,
     snapshotInterval: Long = 2L,
     endingHeight: Option[Long] = None
   ): Stream[F, Long] = {
