@@ -4,6 +4,8 @@ import com.typesafe.config.{Config, ConfigFactory}
 
 import scala.util.Try
 
+import scala.collection.JavaConverters._
+
 class Configuration {
 
   private val config: Config = ConfigFactory.load().resolve()
@@ -38,6 +40,6 @@ class Configuration {
   val bucketRegion: String =
     bucket.getString("region")
 
-  val bucketName: String =
-    bucket.getString("url")
+  val bucketNames: List[String] =
+    bucket.getStringList("urls").asScala.toList
 }

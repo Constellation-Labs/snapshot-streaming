@@ -60,28 +60,49 @@ object App extends IOApp {
         configuration
       )
 
-      s3DAO = S3DAO[IO](s3Client)(configuration.bucketName, serializer)
+      s3DAOs = configuration.bucketNames.map(S3DAO[IO](s3Client)(_, serializer))
 
-      _ <- Stream.eval(
-        logger.info(
-          s"Streaming from bucket (${configuration.bucketName}, ${configuration.bucketRegion}) to elasticsearch (${configuration.elasticsearchUrl})"
-        )
-      )
-
-      s3Object <- getFromS3(s3DAO)
+      s3Object <- getFromS3(s3DAOs)
       _ <- s3Object.map(putToES(elasticSearchDAO)).getOrElse(Stream.emit(()))
     } yield ()
 
   private def getFromS3[F[_]: Concurrent: Timer: RaiseThrowable](
-    s3DAO: S3DAO[F]
+    s3DAOs: List[S3DAO[F]]
   ): Stream[F, Option[S3DeserializedResult]] = {
+
+    def getWithFallback(height: Long,
+                        daos: List[S3DAO[F]],
+    ): Stream[F, S3DeserializedResult] =
+      daos match {
+        case Nil =>
+          Stream.raiseError(
+            new Throwable("[S3 ->] ERROR. No buckets available.")
+          )
+        case head :: Nil => head.get(height)
+        case head :: tail =>
+          head
+            .get(height)
+            .handleErrorWith { e =>
+              for {
+                _ <- Stream.eval(
+                  LiftIO[F].liftIO(
+                    logger.error(e)(
+                      s"[S3 ->] $height ERROR. Trying another bucket (${head.getBucketName} -> ${tail.head.getBucketName})."
+                    )
+                  )
+                )
+                resultB <- getWithFallback(height, tail)
+              } yield resultB
+            }
+      }
+
     for {
       height <- getHeights[F](
         startingHeight = configuration.startingHeight,
         endingHeight = configuration.endingHeight
       )
-      result <- s3DAO
-        .get(height)
+
+      result <- getWithFallback(height, s3DAOs)
         .flatMap(
           o =>
             Stream
@@ -93,7 +114,9 @@ object App extends IOApp {
             Stream.eval[F, Unit](
               LiftIO[F].liftIO(
                 logger
-                  .error(e)(s"[S3 ->] $height ERROR")
+                  .error(e)(
+                    s"[S3 ->] $height ERROR. Skipping and going to next height."
+                  )
               )
             ) >> Stream.emit(None)
         )

@@ -31,6 +31,8 @@ case class ElasticSearchDAO[F[_]: Concurrent: ConcurrentEffect: Parallel](
   config: Configuration,
 ) {
 
+  val logger = Slf4jLogger.getLogger[F]
+
   def mapAndSendToElasticSearch(storedSnapshot: StoredSnapshot,
                                 snapshotInfo: SnapshotInfo): Stream[F, Unit] = {
     val snapshot = storedSnapshotMapper.mapSnapshot(storedSnapshot)
@@ -38,7 +40,6 @@ case class ElasticSearchDAO[F[_]: Concurrent: ConcurrentEffect: Parallel](
       storedSnapshotMapper.mapCheckpointBlock(storedSnapshot)
     val transactions = storedSnapshotMapper.mapTransaction(storedSnapshot)
     val balances = snapshotInfoMapper.mapAddressBalances(snapshotInfo)
-    val logger = Slf4jLogger.getLogger[F]
 
     for {
       _ <- Stream.eval(
@@ -73,15 +74,22 @@ case class ElasticSearchDAO[F[_]: Concurrent: ConcurrentEffect: Parallel](
       checkpointHash,
       config.elasticsearchCheckpointBlocksIndex,
       checkpointBlock
-    )
+    ).flatTap(_ => logger.debug(s"[cb -> ES] $checkpointHash OK"))
+      .handleErrorWith(e => {
+        logger.error(e)(s"[cb -> ES] $checkpointHash ERROR")
+      })
 
-  private def sendTransaction(client: Client[F])(transactionHash: String,
-                                                 transaction: Transaction) =
+  private def sendTransaction(
+    client: Client[F]
+  )(transactionHash: String, transaction: Transaction): F[Unit] =
     sendToElasticSearch(client)(
       transactionHash,
       config.elasticsearchTransactionsIndex,
       transaction
-    )
+    ).flatTap(_ => logger.debug(s"[tx -> ES] $transactionHash OK"))
+      .handleErrorWith(e => {
+        logger.error(e)(s"[tx -> ES] $transactionHash ERROR")
+      })
 
   private def sendBalances(
     client: Client[F]
@@ -90,13 +98,16 @@ case class ElasticSearchDAO[F[_]: Concurrent: ConcurrentEffect: Parallel](
       snapshotHash,
       config.elasticsearchBalancesIndex,
       balances
-    )
+    ).flatTap(_ => logger.debug(s"[balances -> ES] $snapshotHash OK"))
+      .handleErrorWith(e => {
+        logger.error(e)(s"[balances -> ES] $snapshotHash ERROR")
+      })
 
   private def sendToElasticSearch[T](client: Client[F])(
     id: String,
     index: String,
     entity: T
-  )(implicit w: EntityEncoder[F, T]): F[Status] = {
+  )(implicit w: EntityEncoder[F, T]): F[Unit] = {
     val request = Request[F]()
       .withUri(
         Uri.unsafeFromString(
@@ -108,7 +119,7 @@ case class ElasticSearchDAO[F[_]: Concurrent: ConcurrentEffect: Parallel](
       .removeHeader(`Content-Length`)
       .withMethod(Method.PUT)
 
-    client.status(request)
+    client.status(request).void
   }
 
 }

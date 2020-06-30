@@ -36,6 +36,8 @@ case class S3DAO[F[_]: RaiseThrowable](client: AmazonS3)(
   private val snapshotInfoSuffix = "snapshot_info"
   private val logger = Slf4jLogger.getLogger[F]
 
+  def getBucketName: String = bucket
+
   def get(height: Long): Stream[F, S3DeserializedResult] =
     for {
       summaries <- getObjectSummaries(height)
