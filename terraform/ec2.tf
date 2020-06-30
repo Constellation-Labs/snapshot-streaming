@@ -15,6 +15,7 @@ data "aws_ami" "amzn2-ami" {
 }
 
 resource "aws_instance" "snapshot-streaming" {
+  count = 4
   associate_public_ip_address = true
   ami = data.aws_ami.amzn2-ami.id
   instance_type = var.instance-type
@@ -27,7 +28,7 @@ resource "aws_instance" "snapshot-streaming" {
   iam_instance_profile = aws_iam_instance_profile.ec2-snapshot-streaming-profile.name
 
   tags = {
-    Name = "cl-snapshot-streaming-${var.env}"
+    Name = "cl-snapshot-streaming-${var.env}-${count.index}"
     Env = var.env
     Workspace = terraform.workspace
   }
@@ -76,7 +77,6 @@ resource "aws_instance" "snapshot-streaming" {
       "sudo chmod 774 /home/ec2-user/snapshot-streaming/start",
       "sudo mv /tmp/snapshot-streaming.service /etc/systemd/system/multi-user.target.wants/snapshot-streaming.service",
       "sudo chmod 774 /etc/systemd/system/multi-user.target.wants/snapshot-streaming.service",
-      "sudo rm -rf /tmp/snapshot-streaming.service",
       "sudo systemctl daemon-reload",
       "sudo systemctl enable snapshot-streaming.service",
       "sudo systemctl start snapshot-streaming.service"
