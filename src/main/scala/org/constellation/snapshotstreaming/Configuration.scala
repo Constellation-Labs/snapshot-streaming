@@ -37,6 +37,9 @@ class Configuration {
   val elasticsearchBalancesIndex: String =
     elasticsearch.getString("indexes.balances")
 
+  val maxParallelRequests: Int = elasticsearch.getInt("maxParallelRequests")
+  val maxWaitQueueLimit: Int = elasticsearch.getInt("maxWaitQueueLimit")
+
   val bucketRegion: String =
     bucket.getString("region")
 

@@ -44,7 +44,9 @@ object App extends IOApp {
 
   def main(args: List[String]): Stream[IO, Unit] =
     for {
-      esClient <- BlazeClientBuilder[IO](global).stream
+      esClient <- BlazeClientBuilder[IO](global)
+        .withMaxWaitQueueLimit(configuration.maxWaitQueueLimit)
+        .stream
       s3Client <- Stream.bracket(
         IO(
           AmazonS3ClientBuilder
@@ -106,7 +108,12 @@ object App extends IOApp {
         .flatMap(
           o =>
             Stream
-              .eval(LiftIO[F].liftIO(logger.info(s"[S3 ->] $height OK"))) >> Stream
+              .eval(
+                LiftIO[F].liftIO(
+                  logger
+                    .info(s"[S3 ->] $height (${o.snapshot.snapshot.hash}) OK")
+                )
+              ) >> Stream
               .emit(Some(o))
         )
         .handleErrorWith(

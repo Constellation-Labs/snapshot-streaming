@@ -44,15 +44,27 @@ case class ElasticSearchDAO[F[_]: Concurrent: ConcurrentEffect: Parallel](
     for {
       _ <- Stream.eval(
         transactions
-          .map(t => sendTransaction(client)(t.hash, t))
+          .grouped(config.maxParallelRequests)
           .toList
-          .parSequence
+          .traverse(
+            part =>
+              part
+                .map(t => sendTransaction(client)(t.hash, t, snapshot))
+                .toList
+                .parSequence
+          )
       )
       _ <- Stream.eval(
         checkpointBlocks
-          .map(t => sendCheckpointBlock(client)(t.hash, t))
+          .grouped(config.maxParallelRequests)
           .toList
-          .parSequence
+          .traverse(
+            part =>
+              part
+                .map(t => sendCheckpointBlock(client)(t.hash, t, snapshot))
+                .toList
+                .parSequence
+          )
       )
       _ <- Stream.eval(sendBalances(client)(snapshot.hash, balances))
       _ <- Stream.eval(sendSnapshot(client)(snapshot.hash, snapshot))
@@ -65,30 +77,49 @@ case class ElasticSearchDAO[F[_]: Concurrent: ConcurrentEffect: Parallel](
       hash,
       config.elasticsearchSnapshotsIndex,
       snapshot
-    )
+    ).flatTap(
+        _ =>
+          logger.debug(s"[snapshot -> ES] $hash (height ${snapshot.height}) OK")
+      )
+      .handleErrorWith(e => {
+        logger.error(e)(s"[cb -> ES] $hash (height ${snapshot.height}) ERROR")
+      })
 
-  private def sendCheckpointBlock(
-    client: Client[F]
-  )(checkpointHash: String, checkpointBlock: CheckpointBlock) =
+  private def sendCheckpointBlock(client: Client[F])(
+    checkpointHash: String,
+    checkpointBlock: CheckpointBlock,
+    snapshot: Snapshot
+  ) =
     sendToElasticSearch(client)(
       checkpointHash,
       config.elasticsearchCheckpointBlocksIndex,
       checkpointBlock
-    ).flatTap(_ => logger.debug(s"[cb -> ES] $checkpointHash OK"))
+    ).flatTap(
+        _ =>
+          logger.debug(
+            s"[cb -> ES] $checkpointHash for snapshot ${snapshot.hash} OK"
+        )
+      )
       .handleErrorWith(e => {
-        logger.error(e)(s"[cb -> ES] $checkpointHash ERROR")
+        logger.error(e)(
+          s"[cb -> ES] $checkpointHash for snapshot ${snapshot.hash} ERROR"
+        )
       })
 
-  private def sendTransaction(
-    client: Client[F]
-  )(transactionHash: String, transaction: Transaction): F[Unit] =
+  private def sendTransaction(client: Client[F])(transactionHash: String,
+                                                 transaction: Transaction,
+                                                 snapshot: Snapshot): F[Unit] =
     sendToElasticSearch(client)(
       transactionHash,
       config.elasticsearchTransactionsIndex,
       transaction
-    ).flatTap(_ => logger.debug(s"[tx -> ES] $transactionHash OK"))
+    ).flatTap(
+        _ =>
+          logger.debug(s"[tx -> ES] $transactionHash for snapshot $snapshot OK")
+      )
       .handleErrorWith(e => {
-        logger.error(e)(s"[tx -> ES] $transactionHash ERROR")
+        logger
+          .error(e)(s"[tx -> ES] $transactionHash for snapshot $snapshot ERROR")
       })
 
   private def sendBalances(
@@ -98,9 +129,11 @@ case class ElasticSearchDAO[F[_]: Concurrent: ConcurrentEffect: Parallel](
       snapshotHash,
       config.elasticsearchBalancesIndex,
       balances
-    ).flatTap(_ => logger.debug(s"[balances -> ES] $snapshotHash OK"))
+    ).flatTap(
+        _ => logger.debug(s"[balances -> ES] for snapshot $snapshotHash OK")
+      )
       .handleErrorWith(e => {
-        logger.error(e)(s"[balances -> ES] $snapshotHash ERROR")
+        logger.error(e)(s"[balances -> ES] for snapshot $snapshotHash ERROR")
       })
 
   private def sendToElasticSearch[T](client: Client[F])(
