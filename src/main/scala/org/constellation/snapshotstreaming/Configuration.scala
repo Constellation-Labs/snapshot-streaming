@@ -45,4 +45,8 @@ class Configuration {
 
   val bucketNames: List[String] =
     bucket.getStringList("urls").asScala.toList
+
+  val skipHeightOnFailure: Boolean = bucket.getBoolean("skipHeightOnFailure")
+
+  val retryIntervalInSeconds: Int = bucket.getInt("retryIntervalInSeconds")
 }

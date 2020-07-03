@@ -64,7 +64,11 @@ object App extends IOApp {
 
       s3DAOs = configuration.bucketNames.map(S3DAO[IO](s3Client)(_, serializer))
 
-      s3Object <- getFromS3(s3DAOs)
+      s3Object <- getFromS3(s3DAOs).through(
+        s =>
+          if (configuration.skipHeightOnFailure) s
+          else retryInfinitely(configuration.retryIntervalInSeconds.seconds)(s)
+      )
       _ <- s3Object.map(putToES(elasticSearchDAO)).getOrElse(Stream.emit(()))
     } yield ()
 
@@ -118,14 +122,16 @@ object App extends IOApp {
         )
         .handleErrorWith(
           e =>
-            Stream.eval[F, Unit](
-              LiftIO[F].liftIO(
-                logger
-                  .error(e)(
-                    s"[S3 ->] $height ERROR. Skipping and going to next height."
-                  )
-              )
-            ) >> Stream.emit(None)
+            if (configuration.skipHeightOnFailure) {
+              Stream.eval[F, Unit](
+                LiftIO[F].liftIO(
+                  logger
+                    .error(e)(
+                      s"[S3 ->] $height ERROR. Skipping and going to next height."
+                    )
+                )
+              ) >> Stream.emit(None)
+            } else Stream.raiseError(e)
         )
 
     } yield result
