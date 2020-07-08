@@ -64,11 +64,7 @@ object App extends IOApp {
 
       s3DAOs = configuration.bucketNames.map(S3DAO[IO](s3Client)(_, serializer))
 
-      s3Object <- getFromS3(s3DAOs).through(
-        s =>
-          if (configuration.skipHeightOnFailure) s
-          else retryInfinitely(configuration.retryIntervalInSeconds.seconds)(s)
-      )
+      s3Object <- getFromS3(s3DAOs)
       _ <- s3Object.map(putToES(elasticSearchDAO)).getOrElse(Stream.emit(()))
     } yield ()
 
@@ -80,26 +76,32 @@ object App extends IOApp {
                         daos: List[S3DAO[F]],
     ): Stream[F, S3DeserializedResult] =
       daos match {
-        case Nil =>
-          Stream.raiseError(
-            new Throwable("[S3 ->] ERROR. No buckets available.")
-          )
-        case head :: Nil => head.get(height)
-        case head :: tail =>
-          head
+        case List(bucket) =>
+          bucket.get(height).handleErrorWith { e =>
+            Stream.eval(
+              LiftIO[F].liftIO(logger.error(e)(s"[S3 ->] $height ERROR."))
+            ) >> Stream
+              .raiseError(e)
+          }
+        case bucket :: otherBuckets =>
+          bucket
             .get(height)
             .handleErrorWith { e =>
               for {
                 _ <- Stream.eval(
                   LiftIO[F].liftIO(
                     logger.error(e)(
-                      s"[S3 ->] $height ERROR. Trying another bucket (${head.getBucketName} -> ${tail.head.getBucketName})."
+                      s"[S3 ->] $height ERROR. Trying another bucket (${bucket.getBucketName} -> ${otherBuckets.head.getBucketName})."
                     )
                   )
                 )
-                resultB <- getWithFallback(height, tail)
+                resultB <- getWithFallback(height, otherBuckets)
               } yield resultB
             }
+        case Nil =>
+          Stream.raiseError(
+            new Throwable("[S3 ->] ERROR. No buckets available.")
+          )
       }
 
     for {
@@ -109,6 +111,12 @@ object App extends IOApp {
       )
 
       result <- getWithFallback(height, s3DAOs)
+        .through(
+          s =>
+            if (configuration.skipHeightOnFailure) s
+            else
+              retryInfinitely(configuration.retryIntervalInSeconds.seconds)(s)
+        )
         .flatMap(
           o =>
             Stream

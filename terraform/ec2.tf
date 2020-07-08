@@ -15,7 +15,7 @@ data "aws_ami" "amzn2-ami" {
 }
 
 resource "aws_instance" "snapshot-streaming" {
-  count = 4
+  count = 1
   associate_public_ip_address = true
   ami = data.aws_ami.amzn2-ami.id
   instance_type = var.instance-type
