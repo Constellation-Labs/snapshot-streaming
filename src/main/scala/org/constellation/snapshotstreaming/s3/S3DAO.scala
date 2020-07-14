@@ -1,5 +1,7 @@
 package org.constellation.snapshotstreaming.s3
 
+import java.util.Date
+
 import cats.data.OptionT
 import cats.effect.{Concurrent, IO}
 import cats.implicits._
@@ -24,7 +26,8 @@ case class S3SummariesResult(height: Long,
 
 case class S3DeserializedResult(height: Long,
                                 snapshot: StoredSnapshot,
-                                snapshotInfo: SnapshotInfo)
+                                snapshotInfo: SnapshotInfo,
+                                lastModified: Date)
 
 case class S3DAO[F[_]: RaiseThrowable](client: AmazonS3)(
   bucket: String,
@@ -78,7 +81,12 @@ case class S3DAO[F[_]: RaiseThrowable](client: AmazonS3)(
       snapshotInfo <- getObjectDeserialized[SnapshotInfo](
         result.snapshotInfo.getKey
       )
-    } yield S3DeserializedResult(result.height, snapshot, snapshotInfo)
+      lastModified = Seq(
+        result.snapshot.getLastModified,
+        result.snapshotInfo.getLastModified
+      ).max
+    } yield
+      S3DeserializedResult(result.height, snapshot, snapshotInfo, lastModified)
 
   private def getObjectDeserialized[A](
     key: String

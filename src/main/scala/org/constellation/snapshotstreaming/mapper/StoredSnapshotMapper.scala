@@ -1,5 +1,7 @@
 package org.constellation.snapshotstreaming.mapper
 
+import java.util.Date
+
 import org.constellation.consensus.StoredSnapshot
 import org.constellation.snapshotstreaming.schema.{
   CheckpointBlock,
@@ -70,7 +72,8 @@ class StoredSnapshotMapper {
       isTest = transaction.isTest
     )
 
-  def mapTransaction(storedSnapshot: StoredSnapshot): Seq[Transaction] =
+  def mapTransaction(storedSnapshot: StoredSnapshot,
+                     timestamp: Date): Seq[Transaction] =
     storedSnapshot.checkpointCache.flatMap(
       b =>
         b.checkpointBlock.transactions.map(t => {
@@ -84,12 +87,14 @@ class StoredSnapshotMapper {
             LastTransactionRef(t.lastTxRef.prevHash, t.lastTxRef.ordinal),
             storedSnapshot.snapshot.hash,
             b.checkpointBlock.baseHash,
-            mapOriginalTransaction(t)
+            mapOriginalTransaction(t),
+            timestamp
           )
         })
     )
 
-  def mapCheckpointBlock(storedSnapshot: StoredSnapshot): Seq[CheckpointBlock] =
+  def mapCheckpointBlock(storedSnapshot: StoredSnapshot,
+                         timestamp: Date): Seq[CheckpointBlock] =
     storedSnapshot.checkpointCache.map(checkpointCache => {
       CheckpointBlock(
         checkpointCache.checkpointBlock.baseHash,
@@ -102,14 +107,16 @@ class StoredSnapshotMapper {
         checkpointCache.children.toLong,
         storedSnapshot.snapshot.hash,
         checkpointCache.checkpointBlock.soeHash,
-        checkpointCache.checkpointBlock.parentSOEHashes
+        checkpointCache.checkpointBlock.parentSOEHashes,
+        timestamp
       )
     })
 
-  def mapSnapshot(storedSnapshot: StoredSnapshot): Snapshot =
+  def mapSnapshot(storedSnapshot: StoredSnapshot, timestamp: Date): Snapshot =
     Snapshot(
       storedSnapshot.snapshot.hash,
       storedSnapshot.height,
-      storedSnapshot.snapshot.checkpointBlocks
+      storedSnapshot.snapshot.checkpointBlocks,
+      timestamp
     )
 }

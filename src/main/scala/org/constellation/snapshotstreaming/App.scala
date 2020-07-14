@@ -149,7 +149,7 @@ object App extends IOApp {
     elasticSearchDAO: ElasticSearchDAO[F]
   )(result: S3DeserializedResult): Stream[F, Unit] =
     elasticSearchDAO
-      .mapAndSendToElasticSearch(result.snapshot, result.snapshotInfo)
+      .mapAndSendToElasticSearch(result)
       .flatMap(
         _ =>
           Stream.eval(

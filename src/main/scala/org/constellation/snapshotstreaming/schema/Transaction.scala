@@ -1,5 +1,7 @@
 package org.constellation.snapshotstreaming.schema
 
+import java.util.Date
+
 import enumeratum._
 import io.circe.Encoder
 import io.circe.generic.semiauto.deriveEncoder
@@ -88,8 +90,11 @@ case class Transaction(hash: String,
                        lastTransactionRef: LastTransactionRef,
                        snapshotHash: String,
                        checkpointBlock: String,
-                       transactionOriginal: TransactionOriginal)
+                       transactionOriginal: TransactionOriginal,
+                       timestamp: Date)
 
 object Transaction {
   implicit val transactionEncoder: Encoder[Transaction] = deriveEncoder
+  implicit val dateEncoder: Encoder[Date] =
+    Encoder.encodeString.contramap(date => date.toInstant.toString)
 }

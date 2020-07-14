@@ -14,6 +14,7 @@ import org.constellation.snapshotstreaming.mapper.{
   SnapshotInfoMapper,
   StoredSnapshotMapper
 }
+import org.constellation.snapshotstreaming.s3.S3DeserializedResult
 import org.constellation.snapshotstreaming.schema.{
   CheckpointBlock,
   Snapshot,
@@ -24,22 +25,29 @@ import org.http4s.circe.CirceEntityEncoder._
 import org.http4s.client._
 import org.http4s.headers.{`Content-Length`, `Content-Type`}
 
-case class ElasticSearchDAO[F[_]: Concurrent: ConcurrentEffect: Parallel](
-  client: Client[F]
-)(storedSnapshotMapper: StoredSnapshotMapper,
+case class ElasticSearchDAO[F[_]: ConcurrentEffect: Parallel](client: Client[F])(
+  storedSnapshotMapper: StoredSnapshotMapper,
   snapshotInfoMapper: SnapshotInfoMapper,
   config: Configuration,
-) {
+)(implicit F: Concurrent[F]) {
 
   val logger = Slf4jLogger.getLogger[F]
 
-  def mapAndSendToElasticSearch(storedSnapshot: StoredSnapshot,
-                                snapshotInfo: SnapshotInfo): Stream[F, Unit] = {
-    val snapshot = storedSnapshotMapper.mapSnapshot(storedSnapshot)
+  def mapAndSendToElasticSearch(
+    s3Result: S3DeserializedResult
+  ): Stream[F, Unit] = {
+    val snapshot =
+      storedSnapshotMapper.mapSnapshot(s3Result.snapshot, s3Result.lastModified)
     val checkpointBlocks =
-      storedSnapshotMapper.mapCheckpointBlock(storedSnapshot)
-    val transactions = storedSnapshotMapper.mapTransaction(storedSnapshot)
-    val balances = snapshotInfoMapper.mapAddressBalances(snapshotInfo)
+      storedSnapshotMapper.mapCheckpointBlock(
+        s3Result.snapshot,
+        s3Result.lastModified
+      )
+    val transactions = storedSnapshotMapper.mapTransaction(
+      s3Result.snapshot,
+      s3Result.lastModified
+    )
+    val balances = snapshotInfoMapper.mapAddressBalances(s3Result.snapshotInfo)
 
     for {
       _ <- Stream.eval(
@@ -82,7 +90,9 @@ case class ElasticSearchDAO[F[_]: Concurrent: ConcurrentEffect: Parallel](
           logger.debug(s"[snapshot -> ES] $hash (height ${snapshot.height}) OK")
       )
       .handleErrorWith(e => {
-        logger.error(e)(s"[cb -> ES] $hash (height ${snapshot.height}) ERROR")
+        logger
+          .error(e)(s"[cb -> ES] $hash (height ${snapshot.height}) ERROR") >> F
+          .raiseError(e)
       })
 
   private def sendCheckpointBlock(client: Client[F])(
@@ -103,7 +113,7 @@ case class ElasticSearchDAO[F[_]: Concurrent: ConcurrentEffect: Parallel](
       .handleErrorWith(e => {
         logger.error(e)(
           s"[cb -> ES] $checkpointHash for snapshot ${snapshot.hash} ERROR"
-        )
+        ) >> F.raiseError(e)
       })
 
   private def sendTransaction(client: Client[F])(transactionHash: String,
@@ -117,10 +127,14 @@ case class ElasticSearchDAO[F[_]: Concurrent: ConcurrentEffect: Parallel](
         _ =>
           logger.debug(s"[tx -> ES] $transactionHash for snapshot $snapshot OK")
       )
-      .handleErrorWith(e => {
-        logger
-          .error(e)(s"[tx -> ES] $transactionHash for snapshot $snapshot ERROR")
-      })
+      .handleErrorWith(
+        e => {
+          logger
+            .error(e)(
+              s"[tx -> ES] $transactionHash for snapshot $snapshot ERROR"
+            ) >> F.raiseError(e)
+        }
+      )
 
   private def sendBalances(
     client: Client[F]
@@ -133,7 +147,9 @@ case class ElasticSearchDAO[F[_]: Concurrent: ConcurrentEffect: Parallel](
         _ => logger.debug(s"[balances -> ES] for snapshot $snapshotHash OK")
       )
       .handleErrorWith(e => {
-        logger.error(e)(s"[balances -> ES] for snapshot $snapshotHash ERROR")
+        logger
+          .error(e)(s"[balances -> ES] for snapshot $snapshotHash ERROR") >> F
+          .raiseError(e)
       })
 
   private def sendToElasticSearch[T](client: Client[F])(
