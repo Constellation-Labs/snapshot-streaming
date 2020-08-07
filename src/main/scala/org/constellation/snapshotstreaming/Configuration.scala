@@ -23,6 +23,8 @@ class Configuration {
     Try(interval.getLong("startingHeight")).getOrElse(2L)
   val endingHeight
     : Option[Long] = Try(interval.getLong("endingHeight")).toOption
+  val fileWithHeights: Option[String] =
+    Try(interval.getString("fileWithHeights")).toOption
 
   val elasticsearchUrl: String =
     elasticsearch.getString("url")

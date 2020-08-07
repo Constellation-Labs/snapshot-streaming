@@ -1,8 +1,7 @@
-output "instance_ips" {
+output "instance_ip" {
   value = aws_instance.snapshot-streaming.*.public_ip
 }
 
-output "instance_ips_grafana" {
-  // TODO: hardcoded application port
-  value = "[${join(",", aws_instance.snapshot-streaming.*.public_ip)}]"
+output "gap_filling_instance_ips" {
+  value = module.gap-filling.instance_ips
 }

@@ -12,21 +12,20 @@ import cats.effect.{
 }
 import cats.implicits._
 import com.amazonaws.services.s3.AmazonS3ClientBuilder
-
-import scala.concurrent.duration._
 import fs2.{RaiseThrowable, Stream}
 import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
+import org.constellation.snapshotstreaming.es.ElasticSearchDAO
 import org.constellation.snapshotstreaming.mapper.{
   SnapshotInfoMapper,
   StoredSnapshotMapper
 }
-import org.constellation.snapshotstreaming.es.ElasticSearchDAO
 import org.constellation.snapshotstreaming.s3.{S3DAO, S3DeserializedResult, S3GenesisDeserializedResult}
 import org.constellation.snapshotstreaming.serializer.KryoSerializer
 import org.http4s.client.blaze.BlazeClientBuilder
 
 import scala.concurrent.ExecutionContext.global
-import scala.concurrent.duration.FiniteDuration
+import scala.concurrent.duration.{FiniteDuration, _}
+import scala.io.Source
 
 object App extends IOApp {
   private val logger = Slf4jLogger.getLogger[IO]
@@ -167,10 +166,12 @@ object App extends IOApp {
       }
 
     for {
-      height <- getHeights[F](
-        startingHeight = configuration.startingHeight,
-        endingHeight = configuration.endingHeight
-      )
+      height <- configuration.fileWithHeights.fold(
+        getHeights[F](
+          startingHeight = configuration.startingHeight,
+          endingHeight = configuration.endingHeight
+        )
+      )(getHeightsFromFile[F](_))
 
       result <- getWithFallback(height, s3DAOs)
         .through(
@@ -265,6 +266,17 @@ object App extends IOApp {
       .map(_.get)
       .rethrow
   }
+
+  private def getHeightsFromFile[F[_]: Concurrent](
+    path: String
+  ): Stream[F, Long] =
+    for {
+      source <- Stream.emit(Source.fromFile(path))
+      line <- Stream.fromIterator(source.getLines().map(_.toLong))
+      _ <- Stream.eval(Concurrent[F].delay {
+        source.close()
+      })
+    } yield line
 
   private def getHeights[F[_]: Concurrent](
     startingHeight: Long,

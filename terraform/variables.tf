@@ -28,11 +28,20 @@ variable "elasticsearch-url" {
   type = string
 }
 
-variable "bucket-name" {
-  type = string
+variable "bucket-names" {
+  type = list(string)
 }
 
 variable "instance-type" {
   type = string
   default = "t2.medium"
+}
+
+variable "starting-height" {
+  type = number
+}
+
+variable "snapshot-interval" {
+  type = number
+  default = 2
 }
