@@ -9,10 +9,15 @@ import scala.collection.JavaConverters._
 class Configuration {
 
   private val config: Config = ConfigFactory.load().resolve()
+  private val mode = config.getConfig("snapshot-streaming.mode")
   private val elasticsearch =
     config.getConfig("snapshot-streaming.elasticsearch")
   private val bucket = config.getConfig("snapshot-streaming.bucket")
   private val interval = config.getConfig("snapshot-streaming.interval")
+
+  val getGenesis: Boolean = mode.getBoolean("getGenesis")
+
+  val getSnapshots: Boolean = mode.getBoolean("getSnapshots")
 
   val startingHeight: Long =
     Try(interval.getLong("startingHeight")).getOrElse(2L)

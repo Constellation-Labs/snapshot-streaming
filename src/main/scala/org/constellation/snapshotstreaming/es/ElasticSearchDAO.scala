@@ -6,24 +6,29 @@ import cats.implicits._
 import cats.effect.implicits._
 import fs2.Stream
 import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
-import org.constellation.consensus.StoredSnapshot
+import org.constellation.consensus.{StoredSnapshot, Snapshot => OriginalSnapshot}
 import org.constellation.domain.snapshot.SnapshotInfo
+import org.constellation.primitives.Schema.{CheckpointCache, Height}
+import org.constellation.schema.Id
 import org.constellation.snapshotstreaming.Configuration
 import org.constellation.snapshotstreaming.mapper.{
   AddressBalance,
   SnapshotInfoMapper,
   StoredSnapshotMapper
 }
-import org.constellation.snapshotstreaming.s3.S3DeserializedResult
+import org.constellation.snapshotstreaming.s3.{S3DeserializedResult, S3GenesisDeserializedResult}
 import org.constellation.snapshotstreaming.schema.{
   CheckpointBlock,
   Snapshot,
   Transaction
 }
+import org.http4s.Uri.{Authority, RegName, Scheme}
 import org.http4s._
 import org.http4s.circe.CirceEntityEncoder._
 import org.http4s.client._
 import org.http4s.headers.{`Content-Length`, `Content-Type`}
+
+import scala.collection.SortedMap
 
 case class ElasticSearchDAO[F[_]: ConcurrentEffect: Parallel](client: Client[F])(
   storedSnapshotMapper: StoredSnapshotMapper,
@@ -32,6 +37,41 @@ case class ElasticSearchDAO[F[_]: ConcurrentEffect: Parallel](client: Client[F])
 )(implicit F: Concurrent[F]) {
 
   val logger = Slf4jLogger.getLogger[F]
+
+  def mapGenesisAndSendToElasticSearch(
+    s3Result: S3GenesisDeserializedResult
+  ): Stream[F, Unit] = {
+    val genesisCb = s3Result.genesisObservation.genesis
+    val initialDistributionCb = s3Result.genesisObservation.initialDistribution
+    val initialDistribution2Cb = s3Result.genesisObservation.initialDistribution2
+    val checkpointBlocks = Seq(
+      genesisCb,
+      initialDistributionCb,
+      initialDistribution2Cb
+    )
+    val cbHashes = checkpointBlocks.map(_.baseHash)
+    val checkpointCaches = Seq(
+      CheckpointCache(genesisCb, height = Height(0L, 0L).some),
+      CheckpointCache(initialDistributionCb, height = Height(1L, 1L).some),
+      CheckpointCache(initialDistribution2Cb, height = Height(1L, 1L).some)
+    )
+
+    val storedSnapshot =
+      StoredSnapshot(
+        snapshot = OriginalSnapshot("", cbHashes, SortedMap.empty[Id, Double]),
+        checkpointCache = checkpointCaches
+      )
+
+    val mockedS3SnapshotResult =
+      S3DeserializedResult(
+        height = 1L,
+        snapshot = storedSnapshot,
+        snapshotInfo = SnapshotInfo(storedSnapshot),
+        s3Result.lastModified
+      )
+
+    mapAndSendToElasticSearch(mockedS3SnapshotResult)
+  }
 
   def mapAndSendToElasticSearch(
     s3Result: S3DeserializedResult
@@ -57,7 +97,7 @@ case class ElasticSearchDAO[F[_]: ConcurrentEffect: Parallel](client: Client[F])
           .traverse(
             part =>
               part
-                .map(t => sendTransaction(client)(t.hash, t, snapshot))
+                .map(t => sendTransaction(client)(t.hash, t, snapshot.hash))
                 .toList
                 .parSequence
           )
@@ -69,7 +109,7 @@ case class ElasticSearchDAO[F[_]: ConcurrentEffect: Parallel](client: Client[F])
           .traverse(
             part =>
               part
-                .map(t => sendCheckpointBlock(client)(t.hash, t, snapshot))
+                .map(t => sendCheckpointBlock(client)(t.hash, t, snapshot.hash))
                 .toList
                 .parSequence
           )
@@ -98,7 +138,7 @@ case class ElasticSearchDAO[F[_]: ConcurrentEffect: Parallel](client: Client[F])
   private def sendCheckpointBlock(client: Client[F])(
     checkpointHash: String,
     checkpointBlock: CheckpointBlock,
-    snapshot: Snapshot
+    snapshotHash: String
   ) =
     sendToElasticSearch(client)(
       checkpointHash,
@@ -107,31 +147,31 @@ case class ElasticSearchDAO[F[_]: ConcurrentEffect: Parallel](client: Client[F])
     ).flatTap(
         _ =>
           logger.debug(
-            s"[cb -> ES] $checkpointHash for snapshot ${snapshot.hash} OK"
+            s"[cb -> ES] $checkpointHash for snapshot $snapshotHash OK"
         )
       )
       .handleErrorWith(e => {
         logger.error(e)(
-          s"[cb -> ES] $checkpointHash for snapshot ${snapshot.hash} ERROR"
+          s"[cb -> ES] $checkpointHash for snapshot $snapshotHash ERROR"
         ) >> F.raiseError(e)
       })
 
   private def sendTransaction(client: Client[F])(transactionHash: String,
                                                  transaction: Transaction,
-                                                 snapshot: Snapshot): F[Unit] =
+                                                 snapshotHash: String): F[Unit] =
     sendToElasticSearch(client)(
       transactionHash,
       config.elasticsearchTransactionsIndex,
       transaction
     ).flatTap(
         _ =>
-          logger.debug(s"[tx -> ES] $transactionHash for snapshot $snapshot OK")
+          logger.debug(s"[tx -> ES] $transactionHash for snapshot $snapshotHash OK")
       )
       .handleErrorWith(
         e => {
           logger
             .error(e)(
-              s"[tx -> ES] $transactionHash for snapshot $snapshot ERROR"
+              s"[tx -> ES] $transactionHash for snapshot $snapshotHash ERROR"
             ) >> F.raiseError(e)
         }
       )
@@ -152,6 +192,10 @@ case class ElasticSearchDAO[F[_]: ConcurrentEffect: Parallel](client: Client[F])
           .raiseError(e)
       })
 
+  private def getUri(path: String): Uri =
+    Uri(scheme = Some(Scheme.http), authority = Some(Authority(host = RegName(config.elasticsearchUrl), port = Some(config.elasticsearchPort))))
+      .addPath(path)
+
   private def sendToElasticSearch[T](client: Client[F])(
     id: String,
     index: String,
@@ -159,9 +203,8 @@ case class ElasticSearchDAO[F[_]: ConcurrentEffect: Parallel](client: Client[F])
   )(implicit w: EntityEncoder[F, T]): F[Unit] = {
     val request = Request[F]()
       .withUri(
-        Uri.unsafeFromString(
-          s"${config.elasticsearchUrl}/$index/_doc/$id?op_type=index"
-        )
+        getUri(s"$index/_doc/$id")
+          .withQueryParam("op_type", "index")
       )
       .withEntity(entity)
       .withContentType(`Content-Type`(MediaType.application.json))

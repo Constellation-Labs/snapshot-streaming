@@ -21,7 +21,7 @@ import org.constellation.snapshotstreaming.mapper.{
   StoredSnapshotMapper
 }
 import org.constellation.snapshotstreaming.es.ElasticSearchDAO
-import org.constellation.snapshotstreaming.s3.{S3DAO, S3DeserializedResult}
+import org.constellation.snapshotstreaming.s3.{S3DAO, S3DeserializedResult, S3GenesisDeserializedResult}
 import org.constellation.snapshotstreaming.serializer.KryoSerializer
 import org.http4s.client.blaze.BlazeClientBuilder
 
@@ -64,9 +64,71 @@ object App extends IOApp {
 
       s3DAOs = configuration.bucketNames.map(S3DAO[IO](s3Client)(_, serializer))
 
+      _ <-
+        if (configuration.getGenesis)
+          getAndSendGenesisToES(s3DAOs, elasticSearchDAO)
+        else
+          Stream.eval(LiftIO[IO].liftIO(().pure[IO]))
+
+      _ <-
+        if (configuration.getSnapshots)
+          getAndSendSnapshotsToES(s3DAOs, elasticSearchDAO)
+        else
+          Stream.eval(LiftIO[IO].liftIO(().pure[IO]))
+    } yield ()
+
+  private def getAndSendGenesisToES[F[_]: Timer: RaiseThrowable: ConcurrentEffect: Parallel](
+    s3DAOs: List[S3DAO[F]], elasticSearchDAO: ElasticSearchDAO[F]
+  ): Stream[F, Unit] =
+    for {
+      genesis <- getGenesisFromS3(s3DAOs)
+      _ <- putGenesisToES(elasticSearchDAO)(genesis)
+    } yield ()
+
+  private def getAndSendSnapshotsToES[F[_]: Timer: RaiseThrowable: ConcurrentEffect: Parallel](
+    s3DAOs: List[S3DAO[F]], elasticSearchDAO: ElasticSearchDAO[F]
+  ): Stream[F, Unit] =
+    for {
       s3Object <- getFromS3(s3DAOs)
       _ <- s3Object.map(putToES(elasticSearchDAO)).getOrElse(Stream.emit(()))
     } yield ()
+
+  private def getGenesisFromS3[F[_]: Concurrent: Timer: RaiseThrowable](
+    s3DAOs: List[S3DAO[F]]
+  ): Stream[F, S3GenesisDeserializedResult] = {
+    s3DAOs match {
+      case List(bucket) =>
+        bucket.getGenesis().handleErrorWith { e =>
+          Stream.eval(
+            LiftIO[F].liftIO(logger.error(e)(s"[S3-Genesis ->] ERROR. While getting Genesis from bucket=${bucket.getBucketName}."))
+          ) >> Stream.raiseError(e)
+        }
+      case bucket :: otherBuckets =>
+        bucket.getGenesis().handleErrorWith { e =>
+          for {
+            _ <- Stream.eval(
+              LiftIO[F].liftIO(
+                logger.error(e)(
+                  s"[S3-Genesis ->] ERROR. Trying another bucket (${bucket.getBucketName} -> ${otherBuckets.head.getBucketName})."
+                )
+              )
+            )
+            resultB <- getGenesisFromS3(otherBuckets)
+          } yield resultB
+        }
+      case Nil =>
+        val e = new Throwable("[S3-Genesis ->] ERROR. No buckets available.")
+        Stream.eval(
+          LiftIO[F].liftIO(logger.error(e)(e.getMessage))
+        ) >> Stream.raiseError(e)
+    }
+  }
+    .flatMap { o =>
+      Stream.eval(
+        LiftIO[F].liftIO(logger.info("[S3-Genesis ->] OK."))
+      ) >>
+        Stream.emit(o)
+    }
 
   private def getFromS3[F[_]: Concurrent: Timer: RaiseThrowable](
     s3DAOs: List[S3DAO[F]]
@@ -144,6 +206,28 @@ object App extends IOApp {
 
     } yield result
   }
+
+  private def putGenesisToES[F[_]: ConcurrentEffect: Timer: RaiseThrowable: Parallel](
+    elasticSearchDAO: ElasticSearchDAO[F]
+  )(result: S3GenesisDeserializedResult): Stream[F, Unit] =
+    elasticSearchDAO
+      .mapGenesisAndSendToElasticSearch(result)
+      .flatMap(
+        _ =>
+          Stream.eval(
+            LiftIO[F]
+              .liftIO(logger.info(s"[Genesis -> ES] OK"))
+          )
+      )
+      .handleErrorWith(
+        e =>
+          Stream.eval[F, Unit](
+            LiftIO[F].liftIO(
+              logger
+                .error(e)(s"[Genesis -> ES] ERROR")
+            )
+          )
+      )
 
   private def putToES[F[_]: ConcurrentEffect: Timer: RaiseThrowable: Parallel](
     elasticSearchDAO: ElasticSearchDAO[F]
