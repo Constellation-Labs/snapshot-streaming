@@ -22,7 +22,14 @@ lazy val versions = new {
   val log4cats = "1.1.1"
   val scalaLogging = "3.9.2"
   val http4s = "0.21.2"
+  val elastic4sVersion              =       "7.3.1"
 }
+
+lazy val elastic4sDependencies = Seq(
+  "com.sksamuel.elastic4s"          %% "elastic4s-core",
+  "com.sksamuel.elastic4s"          %% "elastic4s-client-esjava",
+  "com.sksamuel.elastic4s"          %% "elastic4s-http-streams",
+).map(_ % versions.elastic4sVersion)
 
 lazy val http4sDependencies = Seq(
   "org.http4s" %% "http4s-blaze-client",
@@ -37,7 +44,8 @@ lazy val dependencies = Seq(
   "co.fs2" %% "fs2-core" % versions.fs2,
   "com.spinoco" %% "fs2-http" % versions.fs2http,
   "com.github.scopt" %% "scopt" % versions.scopt,
-  "org.constellation" %% "cl-node" % versions.constellation from s"https://github.com/Constellation-Labs/constellation/releases/download/v${versions.constellation}/cl-node.jar"
+  "org.constellation" %% "cl-node" % versions.constellation from s"https://github.com/Constellation-Labs/constellation/releases/download/v${versions.constellation}/cl-node.jar",
+  "com.sksamuel.elastic4s" %% "elastic4s-circe" % "6.7.8"
 )
 
 lazy val loggerDependencies = Seq(
@@ -46,4 +54,4 @@ lazy val loggerDependencies = Seq(
   "io.chrisdavenport" %% "log4cats-slf4j" % versions.log4cats,
 )
 
-libraryDependencies ++= (dependencies ++ loggerDependencies ++ http4sDependencies)
+libraryDependencies ++= (dependencies ++ loggerDependencies ++ http4sDependencies ++ elastic4sDependencies)

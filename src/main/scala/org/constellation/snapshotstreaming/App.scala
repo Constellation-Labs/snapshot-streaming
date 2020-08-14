@@ -1,29 +1,21 @@
 package org.constellation.snapshotstreaming
 
 import cats.Parallel
-import cats.effect.{
-  Concurrent,
-  ConcurrentEffect,
-  ExitCode,
-  IO,
-  IOApp,
-  LiftIO,
-  Timer
-}
+import cats.effect.{Concurrent, ConcurrentEffect, ExitCode, IO, IOApp, LiftIO, Timer}
 import cats.implicits._
 import com.amazonaws.services.s3.AmazonS3ClientBuilder
 import fs2.{RaiseThrowable, Stream}
 import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 import org.constellation.snapshotstreaming.es.ElasticSearchDAO
+import org.constellation.snapshotstreaming.mapper.{SnapshotInfoMapper, StoredSnapshotMapper}
+import org.constellation.snapshotstreaming.s3.{S3DAO, S3DeserializedResult}
 import org.constellation.snapshotstreaming.mapper.{
   SnapshotInfoMapper,
   StoredSnapshotMapper
 }
 import org.constellation.snapshotstreaming.s3.{S3DAO, S3DeserializedResult, S3GenesisDeserializedResult}
 import org.constellation.snapshotstreaming.serializer.KryoSerializer
-import org.http4s.client.blaze.BlazeClientBuilder
 
-import scala.concurrent.ExecutionContext.global
 import scala.concurrent.duration.{FiniteDuration, _}
 import scala.io.Source
 
@@ -43,9 +35,6 @@ object App extends IOApp {
 
   def main(args: List[String]): Stream[IO, Unit] =
     for {
-      esClient <- BlazeClientBuilder[IO](global)
-        .withMaxWaitQueueLimit(configuration.maxWaitQueueLimit)
-        .stream
       s3Client <- Stream.bracket(
         IO(
           AmazonS3ClientBuilder
@@ -55,7 +44,7 @@ object App extends IOApp {
         )
       )(c => IO(c.shutdown()))
 
-      elasticSearchDAO = ElasticSearchDAO[IO](esClient)(
+      elasticSearchDAO = ElasticSearchDAO[IO](
         storedSnapshotMapper,
         snapshotInfoMapper,
         configuration
