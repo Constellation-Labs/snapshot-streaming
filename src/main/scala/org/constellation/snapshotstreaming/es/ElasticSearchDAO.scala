@@ -8,7 +8,7 @@ import com.sksamuel.elastic4s.ElasticDsl.{bulk, _}
 import com.sksamuel.elastic4s.circe._
 import com.sksamuel.elastic4s.http.JavaClient
 import com.sksamuel.elastic4s.requests.bulk.BulkResponse
-import com.sksamuel.elastic4s.{ElasticClient, ElasticProperties, Response}
+import com.sksamuel.elastic4s.{ElasticClient, ElasticProperties, RequestFailure, RequestSuccess, Response}
 import fs2.Stream
 import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 import org.constellation.consensus.{StoredSnapshot, Snapshot => OriginalSnapshot}
@@ -31,7 +31,7 @@ case class ElasticSearchDAO[F[_]: ConcurrentEffect: Parallel](
   config: Configuration,
 )(implicit F: Concurrent[F]) {
 
-  val eclient: ElasticClient = ElasticClient(
+  val esClient: ElasticClient = ElasticClient(
     JavaClient(ElasticProperties(s"${config.elasticsearchUrl}:${config.elasticsearchPort}"))
   )
 
@@ -88,13 +88,17 @@ case class ElasticSearchDAO[F[_]: ConcurrentEffect: Parallel](
     )
     val balances = snapshotInfoMapper.mapAddressBalances(s3Result.snapshotInfo)
 
-
     Stream.eval {
       F.async[Response[BulkResponse]] { cb =>
-        eclient.execute {
+        esClient.execute {
           bulkSendToElasticSearch(transactions, checkpointBlocks, snapshot, balances)
         }.onComplete {
-          case Success(a) => cb(Right(a))
+          case Success(a) => a match {
+            case RequestSuccess(_, _, _, result) if result.errors => cb(Left(new Throwable(s"Bulk request failed: ${result.failures}")))
+            case RequestSuccess(_, _, _, result) if !result.errors => cb(Right(a))
+            case RequestFailure(_, _, _, error) => cb(Left(new Throwable(error.reason)))
+            case _ => cb(Left(new Throwable("Unexpected error")))
+          }
           case Failure(e) => cb(Left(e))
         }
       }
@@ -110,7 +114,8 @@ case class ElasticSearchDAO[F[_]: ConcurrentEffect: Parallel](
     bulk(
       transactions.map(t => updateById(config.elasticsearchTransactionsIndex, t.hash).docAsUpsert(t))
         ++ checkpointBlocks.map(b => updateById(config.elasticsearchCheckpointBlocksIndex, b.hash).docAsUpsert(b))
-        ++ Seq(updateById(config.elasticsearchBalancesIndex, snapshot.hash).docAsUpsert(balances))
+      // TODO: Fix mappings for Map[String, AddressBalance]
+//        ++ Seq(updateById(config.elasticsearchBalancesIndex, snapshot.hash).docAsUpsert(balances))
         ++ Seq(updateById(config.elasticsearchSnapshotsIndex, snapshot.hash).docAsUpsert(snapshot))
     )
 }

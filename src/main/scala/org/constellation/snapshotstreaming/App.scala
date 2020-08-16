@@ -1,7 +1,9 @@
 package org.constellation.snapshotstreaming
 
+import java.nio.file.{Path, Paths}
+
 import cats.Parallel
-import cats.effect.{Concurrent, ConcurrentEffect, ExitCode, IO, IOApp, LiftIO, Timer}
+import cats.effect.{Blocker, Concurrent, ConcurrentEffect, ContextShift, ExitCode, IO, IOApp, LiftIO, Timer}
 import cats.implicits._
 import com.amazonaws.services.s3.AmazonS3ClientBuilder
 import fs2.{RaiseThrowable, Stream}
@@ -9,15 +11,13 @@ import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 import org.constellation.snapshotstreaming.es.ElasticSearchDAO
 import org.constellation.snapshotstreaming.mapper.{SnapshotInfoMapper, StoredSnapshotMapper}
 import org.constellation.snapshotstreaming.s3.{S3DAO, S3DeserializedResult}
-import org.constellation.snapshotstreaming.mapper.{
-  SnapshotInfoMapper,
-  StoredSnapshotMapper
-}
+import org.constellation.snapshotstreaming.mapper.{SnapshotInfoMapper, StoredSnapshotMapper}
 import org.constellation.snapshotstreaming.s3.{S3DAO, S3DeserializedResult, S3GenesisDeserializedResult}
 import org.constellation.snapshotstreaming.serializer.KryoSerializer
 
 import scala.concurrent.duration.{FiniteDuration, _}
 import scala.io.Source
+import fs2._
 
 object App extends IOApp {
   private val logger = Slf4jLogger.getLogger[IO]
@@ -30,7 +30,7 @@ object App extends IOApp {
     main(args).compile.drain
       .flatTap(_ => logger.debug("Done!"))
       .map(_ => ExitCode.Success)
-      .handleError(_ => ExitCode.Error)
+      .handleErrorWith(e => logger.error(e)(e.getMessage).map(_ => ExitCode.Error))
   }
 
   def main(args: List[String]): Stream[IO, Unit] =
@@ -49,6 +49,7 @@ object App extends IOApp {
         snapshotInfoMapper,
         configuration
       )
+
 
       s3DAOs = configuration.bucketNames.map(S3DAO[IO](s3Client)(_, serializer))
 
@@ -73,7 +74,7 @@ object App extends IOApp {
       _ <- putGenesisToES(elasticSearchDAO)(genesis)
     } yield ()
 
-  private def getAndSendSnapshotsToES[F[_]: Timer: RaiseThrowable: ConcurrentEffect: Parallel](
+  private def getAndSendSnapshotsToES[F[_]: Timer: RaiseThrowable: ConcurrentEffect: Parallel: ContextShift](
     s3DAOs: List[S3DAO[F]], elasticSearchDAO: ElasticSearchDAO[F]
   ): Stream[F, Unit] =
     for {
@@ -118,7 +119,7 @@ object App extends IOApp {
         Stream.emit(o)
     }
 
-  private def getFromS3[F[_]: Concurrent: Timer: RaiseThrowable](
+  private def getFromS3[F[_]: Concurrent: Timer: RaiseThrowable: ContextShift](
     s3DAOs: List[S3DAO[F]]
   ): Stream[F, Option[S3DeserializedResult]] = {
 
@@ -256,16 +257,16 @@ object App extends IOApp {
       .rethrow
   }
 
-  private def getHeightsFromFile[F[_]: Concurrent](
+  private def getHeightsFromFile[F[_]: Concurrent: ContextShift](
     path: String
   ): Stream[F, Long] =
-    for {
-      source <- Stream.emit(Source.fromFile(path))
-      line <- Stream.fromIterator(source.getLines().map(_.toLong))
-      _ <- Stream.eval(Concurrent[F].delay {
-        source.close()
-      })
-    } yield line
+    Stream.resource(Blocker[F]).flatMap { blocker: Blocker =>
+      fs2.io.file.readAll(Paths.get(path), blocker, 4 * 4096)
+        .through(text.utf8Decode)
+        .through(text.lines)
+        .filter(_.nonEmpty)
+        .map(_.toLong)
+    }
 
   private def getHeights[F[_]: Concurrent](
     startingHeight: Long,
