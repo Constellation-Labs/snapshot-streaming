@@ -32,6 +32,9 @@ class Configuration {
   val elasticsearchPort: Int =
     elasticsearch.getInt("port")
 
+  val elasticsearchTimeout: Int =
+    elasticsearch.getInt("timeoutInSeconds")
+
   val elasticsearchTransactionsIndex: String =
     elasticsearch.getString("indexes.transactions")
 

@@ -3,6 +3,7 @@ package org.constellation.snapshotstreaming.es
 import cats.Parallel
 import cats.effect.{Concurrent, ConcurrentEffect}
 import cats.implicits._
+import scala.concurrent.duration._
 import com.sksamuel.elastic4s.ElasticApi.updateById
 import com.sksamuel.elastic4s.ElasticDsl.{bulk, _}
 import com.sksamuel.elastic4s.circe._
@@ -91,7 +92,7 @@ case class ElasticSearchDAO[F[_]: ConcurrentEffect: Parallel](
     Stream.eval {
       F.async[Response[BulkResponse]] { cb =>
         esClient.execute {
-          bulkSendToElasticSearch(transactions, checkpointBlocks, snapshot, balances)
+          bulkSendToElasticSearch(transactions, checkpointBlocks, snapshot, balances).timeout(config.elasticsearchTimeout.seconds)
         }.onComplete {
           case Success(a) => a match {
             case RequestSuccess(_, _, _, result) if result.errors => cb(Left(new Throwable(s"Bulk request failed: ${result.failures}")))
