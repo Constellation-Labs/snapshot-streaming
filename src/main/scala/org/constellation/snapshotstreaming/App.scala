@@ -1,23 +1,20 @@
 package org.constellation.snapshotstreaming
 
-import java.nio.file.{Path, Paths}
+import java.nio.file.Paths
 
 import cats.Parallel
 import cats.effect.{Blocker, Concurrent, ConcurrentEffect, ContextShift, ExitCode, IO, IOApp, LiftIO, Timer}
 import cats.implicits._
 import com.amazonaws.services.s3.AmazonS3ClientBuilder
-import fs2.{RaiseThrowable, Stream}
 import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
+import fs2.{RaiseThrowable, Stream, _}
 import org.constellation.snapshotstreaming.es.ElasticSearchDAO
-import org.constellation.snapshotstreaming.mapper.{SnapshotInfoMapper, StoredSnapshotMapper}
-import org.constellation.snapshotstreaming.s3.{S3DAO, S3DeserializedResult}
 import org.constellation.snapshotstreaming.mapper.{SnapshotInfoMapper, StoredSnapshotMapper}
 import org.constellation.snapshotstreaming.s3.{S3DAO, S3DeserializedResult, S3GenesisDeserializedResult}
 import org.constellation.snapshotstreaming.serializer.KryoSerializer
+import org.constellation.snapshotstreaming.validation.BalanceValidator
 
 import scala.concurrent.duration.{FiniteDuration, _}
-import scala.io.Source
-import fs2._
 
 object App extends IOApp {
   private val logger = Slf4jLogger.getLogger[IO]
@@ -25,13 +22,13 @@ object App extends IOApp {
   private val configuration = new Configuration
   private val storedSnapshotMapper = new StoredSnapshotMapper
   private val snapshotInfoMapper = new SnapshotInfoMapper
+  private val balanceValidator = new BalanceValidator[IO](Map.empty)
 
-  def run(args: List[String]): IO[ExitCode] = {
+  def run(args: List[String]): IO[ExitCode] =
     main(args).compile.drain
       .flatTap(_ => logger.debug("Done!"))
       .map(_ => ExitCode.Success)
       .handleErrorWith(e => logger.error(e)(e.getMessage).map(_ => ExitCode.Error))
-  }
 
   def main(args: List[String]): Stream[IO, Unit] =
     for {
@@ -50,24 +47,22 @@ object App extends IOApp {
         configuration
       )
 
-
       s3DAOs = configuration.bucketNames.map(S3DAO[IO](s3Client)(_, serializer))
 
-      _ <-
-        if (configuration.getGenesis)
-          getAndSendGenesisToES(s3DAOs, elasticSearchDAO)
-        else
-          Stream.eval(LiftIO[IO].liftIO(().pure[IO]))
+      _ <- if (configuration.getGenesis)
+        getAndSendGenesisToES(s3DAOs, elasticSearchDAO)
+      else
+        Stream.eval(LiftIO[IO].liftIO(().pure[IO]))
 
-      _ <-
-        if (configuration.getSnapshots)
-          getAndSendSnapshotsToES(s3DAOs, elasticSearchDAO)
-        else
-          Stream.eval(LiftIO[IO].liftIO(().pure[IO]))
+      _ <- if (configuration.getSnapshots)
+        getAndSendSnapshotsToES(s3DAOs, elasticSearchDAO)
+      else
+        Stream.eval(LiftIO[IO].liftIO(().pure[IO]))
     } yield ()
 
   private def getAndSendGenesisToES[F[_]: Timer: RaiseThrowable: ConcurrentEffect: Parallel](
-    s3DAOs: List[S3DAO[F]], elasticSearchDAO: ElasticSearchDAO[F]
+    s3DAOs: List[S3DAO[F]],
+    elasticSearchDAO: ElasticSearchDAO[F]
   ): Stream[F, Unit] =
     for {
       genesis <- getGenesisFromS3(s3DAOs)
@@ -75,11 +70,19 @@ object App extends IOApp {
     } yield ()
 
   private def getAndSendSnapshotsToES[F[_]: Timer: RaiseThrowable: ConcurrentEffect: Parallel: ContextShift](
-    s3DAOs: List[S3DAO[F]], elasticSearchDAO: ElasticSearchDAO[F]
+    s3DAOs: List[S3DAO[F]],
+    elasticSearchDAO: ElasticSearchDAO[F]
   ): Stream[F, Unit] =
     for {
       s3Object <- getFromS3(s3DAOs)
-      _ <- s3Object.map(putToES(elasticSearchDAO)).getOrElse(Stream.emit(()))
+
+      _ <- s3Object
+        .map(putToES(elasticSearchDAO))
+        .getOrElse(Stream.emit(()))
+
+      _ <- s3Object
+        .map(r => Stream.eval(LiftIO[F].liftIO(balanceValidator.validate(r))))
+        .getOrElse(Stream.emit(()))
     } yield ()
 
   private def getGenesisFromS3[F[_]: Concurrent: Timer: RaiseThrowable](
@@ -89,7 +92,9 @@ object App extends IOApp {
       case List(bucket) =>
         bucket.getGenesis().handleErrorWith { e =>
           Stream.eval(
-            LiftIO[F].liftIO(logger.error(e)(s"[S3-Genesis ->] ERROR. While getting Genesis from bucket=${bucket.getBucketName}."))
+            LiftIO[F].liftIO(
+              logger.error(e)(s"[S3-Genesis ->] ERROR. While getting Genesis from bucket=${bucket.getBucketName}.")
+            )
           ) >> Stream.raiseError(e)
         }
       case bucket :: otherBuckets =>
@@ -111,50 +116,57 @@ object App extends IOApp {
           LiftIO[F].liftIO(logger.error(e)(e.getMessage))
         ) >> Stream.raiseError(e)
     }
+  }.flatMap { o =>
+    Stream.eval(
+      LiftIO[F].liftIO(logger.info("[S3-Genesis ->] OK."))
+    ) >>
+      Stream.emit(o)
   }
-    .flatMap { o =>
-      Stream.eval(
-        LiftIO[F].liftIO(logger.info("[S3-Genesis ->] OK."))
-      ) >>
-        Stream.emit(o)
-    }
 
-  private def getFromS3[F[_]: Concurrent: Timer: RaiseThrowable: ContextShift](
-    s3DAOs: List[S3DAO[F]]
-  ): Stream[F, Option[S3DeserializedResult]] = {
-
-    def getWithFallback(height: Long,
-                        daos: List[S3DAO[F]],
-    ): Stream[F, S3DeserializedResult] =
-      daos match {
-        case List(bucket) =>
-          bucket.get(height).handleErrorWith { e =>
+  private def getWithFallback[F[_]: Concurrent: RaiseThrowable](
+    height: Long,
+    daos: List[S3DAO[F]]
+  ): Stream[F, S3DeserializedResult] =
+    daos match {
+      case List(bucket) =>
+        bucket
+          .get(height)
+          .flatMap(
+            r =>
+              Stream.eval(
+                LiftIO[F].liftIO(logger.info(s"${height} OK from ${bucket.getBucketName}"))
+              ) >> Stream.emit(r)
+          )
+          .handleErrorWith { e =>
             Stream.eval(
               LiftIO[F].liftIO(logger.error(e)(s"[S3 ->] $height ERROR."))
             ) >> Stream
               .raiseError(e)
           }
-        case bucket :: otherBuckets =>
-          bucket
-            .get(height)
-            .handleErrorWith { e =>
-              for {
-                _ <- Stream.eval(
-                  LiftIO[F].liftIO(
-                    logger.error(e)(
-                      s"[S3 ->] $height ERROR. Trying another bucket (${bucket.getBucketName} -> ${otherBuckets.head.getBucketName})."
-                    )
+      case bucket :: otherBuckets =>
+        bucket
+          .get(height)
+          .handleErrorWith { e =>
+            for {
+              _ <- Stream.eval(
+                LiftIO[F].liftIO(
+                  logger.error(
+                    s"[S3 ->] $height ERROR. Trying another bucket (${bucket.getBucketName} -> ${otherBuckets.head.getBucketName})."
                   )
                 )
-                resultB <- getWithFallback(height, otherBuckets)
-              } yield resultB
-            }
-        case Nil =>
-          Stream.raiseError(
-            new Throwable("[S3 ->] ERROR. No buckets available.")
-          )
-      }
+              )
+              resultB <- getWithFallback(height, otherBuckets)
+            } yield resultB
+          }
+      case Nil =>
+        Stream.raiseError(
+          new Throwable("[S3 ->] ERROR. No buckets available.")
+        )
+    }
 
+  private def getFromS3[F[_]: Concurrent: Timer: RaiseThrowable: ContextShift](
+    s3DAOs: List[S3DAO[F]]
+  ): Stream[F, Option[S3DeserializedResult]] =
     for {
       height <- configuration.fileWithHeights.fold(
         getHeights[F](
@@ -196,7 +208,6 @@ object App extends IOApp {
         )
 
     } yield result
-  }
 
   private def putGenesisToES[F[_]: ConcurrentEffect: Timer: RaiseThrowable: Parallel](
     elasticSearchDAO: ElasticSearchDAO[F]
@@ -230,7 +241,7 @@ object App extends IOApp {
           Stream.eval(
             LiftIO[F]
               .liftIO(logger.info(s"[-> ES] ${result.height} OK"))
-        )
+          )
       )
       .handleErrorWith(
         e =>
@@ -239,29 +250,27 @@ object App extends IOApp {
               logger
                 .error(e)(s"[-> ES] ${result.height} ERROR")
             )
-        )
+          )
       )
 
   private def retryInfinitely[F[_]: Concurrent: Timer, A](
     delay: FiniteDuration
-  )(stream: Stream[F, A]): Stream[F, A] = {
-    stream
-      .attempts {
-        Stream
-          .unfold(delay)(d => Some(d -> delay))
-          .covary[F]
-      }
-      .takeThrough(_.fold(scala.util.control.NonFatal.apply, _ => false))
+  )(stream: Stream[F, A]): Stream[F, A] =
+    stream.attempts {
+      Stream
+        .unfold(delay)(d => Some(d -> delay))
+        .covary[F]
+    }.takeThrough(_.fold(scala.util.control.NonFatal.apply, _ => false))
       .last
       .map(_.get)
       .rethrow
-  }
 
   private def getHeightsFromFile[F[_]: Concurrent: ContextShift](
     path: String
   ): Stream[F, Long] =
     Stream.resource(Blocker[F]).flatMap { blocker: Blocker =>
-      fs2.io.file.readAll(Paths.get(path), blocker, 4 * 4096)
+      fs2.io.file
+        .readAll(Paths.get(path), blocker, 4 * 4096)
         .through(text.utf8Decode)
         .through(text.lines)
         .filter(_.nonEmpty)

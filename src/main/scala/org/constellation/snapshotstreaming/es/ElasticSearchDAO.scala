@@ -8,7 +8,7 @@ import com.sksamuel.elastic4s.ElasticApi.updateById
 import com.sksamuel.elastic4s.ElasticDsl.{bulk, _}
 import com.sksamuel.elastic4s.circe._
 import com.sksamuel.elastic4s.http.JavaClient
-import com.sksamuel.elastic4s.requests.bulk.BulkResponse
+import com.sksamuel.elastic4s.requests.bulk.{BulkRequest, BulkResponse}
 import com.sksamuel.elastic4s.{ElasticClient, ElasticProperties, RequestFailure, RequestSuccess, Response}
 import fs2.Stream
 import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
@@ -29,7 +29,7 @@ import scala.util.{Failure, Success}
 case class ElasticSearchDAO[F[_]: ConcurrentEffect: Parallel](
   storedSnapshotMapper: StoredSnapshotMapper,
   snapshotInfoMapper: SnapshotInfoMapper,
-  config: Configuration,
+  config: Configuration
 )(implicit F: Concurrent[F]) {
 
   val esClient: ElasticClient = ElasticClient(
@@ -39,8 +39,8 @@ case class ElasticSearchDAO[F[_]: ConcurrentEffect: Parallel](
   val logger = Slf4jLogger.getLogger[F]
 
   def mapGenesisAndSendToElasticSearch(
-                                        s3Result: S3GenesisDeserializedResult
-                                      ): Stream[F, Response[BulkResponse]] = {
+    s3Result: S3GenesisDeserializedResult
+  ): Stream[F, Response[BulkResponse]] = {
     val genesisCb = s3Result.genesisObservation.genesis
     val initialDistributionCb = s3Result.genesisObservation.initialDistribution
     val initialDistribution2Cb = s3Result.genesisObservation.initialDistribution2
@@ -94,12 +94,14 @@ case class ElasticSearchDAO[F[_]: ConcurrentEffect: Parallel](
         esClient.execute {
           bulkSendToElasticSearch(transactions, checkpointBlocks, snapshot, balances).timeout(config.elasticsearchTimeout.seconds)
         }.onComplete {
-          case Success(a) => a match {
-            case RequestSuccess(_, _, _, result) if result.errors => cb(Left(new Throwable(s"Bulk request failed: ${result.failures}")))
-            case RequestSuccess(_, _, _, result) if !result.errors => cb(Right(a))
-            case RequestFailure(_, _, _, error) => cb(Left(new Throwable(error.reason)))
-            case _ => cb(Left(new Throwable("Unexpected error")))
-          }
+          case Success(a) =>
+            a match {
+              case RequestSuccess(_, _, _, result) if result.errors =>
+                cb(Left(new Throwable(s"Bulk request failed: ${result.failures}")))
+              case RequestSuccess(_, _, _, result) if !result.errors => cb(Right(a))
+              case RequestFailure(_, _, _, error)                    => cb(Left(new Throwable(error.reason)))
+              case _                                                 => cb(Left(new Throwable("Unexpected error")))
+            }
           case Failure(e) => cb(Left(e))
         }
       }
@@ -110,8 +112,8 @@ case class ElasticSearchDAO[F[_]: ConcurrentEffect: Parallel](
     transactions: Seq[Transaction],
     checkpointBlocks: Seq[CheckpointBlock],
     snapshot: Snapshot,
-    balances: Map[String, AddressBalance],
-  ) =
+    balances: Map[String, AddressBalance]
+  ): BulkRequest =
     bulk(
       transactions.map(t => updateById(config.elasticsearchTransactionsIndex, t.hash).docAsUpsert(t))
         ++ checkpointBlocks.map(b => updateById(config.elasticsearchCheckpointBlocksIndex, b.hash).docAsUpsert(b))

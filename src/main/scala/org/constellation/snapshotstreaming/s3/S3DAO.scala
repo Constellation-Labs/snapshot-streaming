@@ -4,11 +4,7 @@ import java.util.Date
 
 import cats.effect.Concurrent
 import cats.implicits._
-import com.amazonaws.services.s3.model.{
-  GetObjectRequest,
-  ListObjectsV2Request,
-  S3ObjectSummary
-}
+import com.amazonaws.services.s3.model.{GetObjectRequest, ListObjectsV2Request, S3ObjectSummary}
 import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 import com.amazonaws.services.s3.AmazonS3
 import com.amazonaws.util.IOUtils
@@ -20,17 +16,11 @@ import org.constellation.snapshotstreaming.serializer.Serializer
 
 import scala.collection.JavaConverters._
 
-case class S3SummariesResult(height: Long,
-                             snapshot: S3ObjectSummary,
-                             snapshotInfo: S3ObjectSummary)
+case class S3SummariesResult(height: Long, snapshot: S3ObjectSummary, snapshotInfo: S3ObjectSummary)
 
-case class S3DeserializedResult(height: Long,
-                                snapshot: StoredSnapshot,
-                                snapshotInfo: SnapshotInfo,
-                                lastModified: Date)
+case class S3DeserializedResult(height: Long, snapshot: StoredSnapshot, snapshotInfo: SnapshotInfo, lastModified: Date)
 
-case class S3GenesisDeserializedResult(genesisObservation: GenesisObservation,
-                                       lastModified: Date)
+case class S3GenesisDeserializedResult(genesisObservation: GenesisObservation, lastModified: Date)
 
 case class S3DAO[F[_]: RaiseThrowable](client: AmazonS3)(
   bucket: String,
@@ -116,8 +106,7 @@ case class S3DAO[F[_]: RaiseThrowable](client: AmazonS3)(
         result.snapshot.getLastModified,
         result.snapshotInfo.getLastModified
       ).max
-    } yield
-      S3DeserializedResult(result.height, snapshot, snapshotInfo, lastModified)
+    } yield S3DeserializedResult(result.height, snapshot, snapshotInfo, lastModified)
 
   private def getObjectDeserialized[A](
     key: String
@@ -132,7 +121,7 @@ case class S3DAO[F[_]: RaiseThrowable](client: AmazonS3)(
         _ =>
           F.delay {
             is.close()
-        }
+          }
       )
       deserialized <- Stream.eval(F.delay {
         serializer.deserialize[A](consumed)
