@@ -21,8 +21,8 @@ class Configuration {
 
   val startingHeight: Long =
     Try(interval.getLong("startingHeight")).getOrElse(2L)
-  val endingHeight
-    : Option[Long] = Try(interval.getLong("endingHeight")).toOption
+  val endingHeight: Option[Long] = Try(interval.getLong("endingHeight")).toOption
+
   val fileWithHeights: Option[String] =
     Try(interval.getString("fileWithHeights")).toOption
 
@@ -32,8 +32,8 @@ class Configuration {
   val elasticsearchPort: Int =
     elasticsearch.getInt("port")
 
-  val elasticsearchTimeout: Int =
-    elasticsearch.getInt("timeoutInSeconds")
+  val elasticsearchTimeout: String =
+    elasticsearch.getString("timeout")
 
   val elasticsearchTransactionsIndex: String =
     elasticsearch.getString("indexes.transactions")

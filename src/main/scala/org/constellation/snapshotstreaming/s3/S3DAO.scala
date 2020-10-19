@@ -76,11 +76,14 @@ case class S3DAO[F[_]: RaiseThrowable](client: AmazonS3)(
             new ListObjectsV2Request()
               .withPrefix(s"$prefix$height-")
               .withBucketName(bucket)
-              .withMaxKeys(2) // Limit to snapshot and snapshot_info
           )
         )
       )
       summaries = data.getObjectSummaries.asScala
+
+      _ <- if (summaries.size > 2) {
+        Stream.raiseError(HeightDuplicatedInBucket(height, bucket, summaries.map(_.getKey).toSet))
+      } else Stream.emit(())
 
       snapshot <- Stream.emit(
         summaries
@@ -92,7 +95,16 @@ case class S3DAO[F[_]: RaiseThrowable](client: AmazonS3)(
           .find(_.getKey.endsWith(snapshotInfoSuffix))
           .get
       )
+
+      _ <- if (!areHashesTheSame(snapshot.getKey, snapshotInfo.getKey)) {
+        Stream.raiseError(HashInconsistency(height, snapshotInfo.getKey, snapshot.getKey))
+      } else Stream.emit(())
+
     } yield S3SummariesResult(height, snapshot, snapshotInfo)
+
+  private def areHashesTheSame(snapshotKey: String, snapshotInfoKey: String): Boolean =
+    snapshotKey.slice(0, snapshotKey.lastIndexOf(snapshotSuffix)) == snapshotInfoKey
+      .slice(0, snapshotInfoKey.lastIndexOf(snapshotInfoSuffix))
 
   private def deserializeResult(
     result: S3SummariesResult

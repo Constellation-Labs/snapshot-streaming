@@ -92,7 +92,9 @@ case class ElasticSearchDAO[F[_]: ConcurrentEffect: Parallel](
     Stream.eval {
       F.async[Response[BulkResponse]] { cb =>
         esClient.execute {
-          bulkSendToElasticSearch(transactions, checkpointBlocks, snapshot, balances).timeout(config.elasticsearchTimeout.seconds)
+          bulkSendToElasticSearch(transactions, checkpointBlocks, snapshot, balances).timeout(
+            config.elasticsearchTimeout
+          )
         }.onComplete {
           case Success(a) =>
             a match {
