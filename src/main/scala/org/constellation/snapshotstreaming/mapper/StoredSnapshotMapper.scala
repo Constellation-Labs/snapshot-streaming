@@ -2,7 +2,7 @@ package org.constellation.snapshotstreaming.mapper
 
 import java.util.Date
 
-import org.constellation.consensus.StoredSnapshot
+import org.constellation.schema.snapshot.StoredSnapshot
 import org.constellation.snapshotstreaming.schema.{
   CheckpointBlock,
   EdgeHashType,
@@ -21,10 +21,12 @@ import org.constellation.snapshotstreaming.schema.{
   TypedEdgeHash
 }
 
+import org.constellation.schema.transaction.{Transaction => OriginalTransaction}
+
 class StoredSnapshotMapper {
 
   def mapOriginalTransaction(
-    transaction: org.constellation.primitives.Transaction
+    transaction: OriginalTransaction
   ): TransactionOriginal =
     TransactionOriginal(
       edge = TransactionEdge(
@@ -37,7 +39,7 @@ class StoredSnapshotMapper {
                   p.hashReference,
                   EdgeHashType.AddressHash,
                   p.baseHash
-              )
+                )
             ),
             TypedEdgeHash(
               oe.data.hashReference,
@@ -72,8 +74,7 @@ class StoredSnapshotMapper {
       isTest = transaction.isTest
     )
 
-  def mapTransaction(storedSnapshot: StoredSnapshot,
-                     timestamp: Date): Seq[Transaction] =
+  def mapTransaction(storedSnapshot: StoredSnapshot, timestamp: Date): Seq[Transaction] =
     storedSnapshot.checkpointCache.flatMap(
       b =>
         b.checkpointBlock.transactions.map(t => {
@@ -93,8 +94,7 @@ class StoredSnapshotMapper {
         })
     )
 
-  def mapCheckpointBlock(storedSnapshot: StoredSnapshot,
-                         timestamp: Date): Seq[CheckpointBlock] =
+  def mapCheckpointBlock(storedSnapshot: StoredSnapshot, timestamp: Date): Seq[CheckpointBlock] =
     storedSnapshot.checkpointCache.map(checkpointCache => {
       CheckpointBlock(
         checkpointCache.checkpointBlock.baseHash,

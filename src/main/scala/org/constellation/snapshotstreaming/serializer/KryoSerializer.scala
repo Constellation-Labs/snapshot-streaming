@@ -1,7 +1,7 @@
 package org.constellation.snapshotstreaming.serializer
 
 import com.twitter.chill.{KryoPool, ScalaKryoInstantiator}
-import org.constellation.serializer.ConstellationKryoRegistrar
+import org.constellation.schema.ConstellationKryoRegistrar
 
 class KryoSerializer extends Serializer {
 

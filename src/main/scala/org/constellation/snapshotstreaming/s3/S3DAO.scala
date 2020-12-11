@@ -3,15 +3,13 @@ package org.constellation.snapshotstreaming.s3
 import java.util.Date
 
 import cats.effect.Concurrent
-import cats.implicits._
-import com.amazonaws.services.s3.model.{GetObjectRequest, ListObjectsV2Request, S3ObjectSummary}
-import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 import com.amazonaws.services.s3.AmazonS3
+import com.amazonaws.services.s3.model.{GetObjectRequest, ListObjectsV2Request, S3ObjectSummary}
 import com.amazonaws.util.IOUtils
+import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 import fs2._
-import org.constellation.consensus.StoredSnapshot
-import org.constellation.domain.snapshot.SnapshotInfo
-import org.constellation.primitives.Schema.GenesisObservation
+import org.constellation.schema.GenesisObservation
+import org.constellation.schema.snapshot.{SnapshotInfo, StoredSnapshot}
 import org.constellation.snapshotstreaming.serializer.Serializer
 
 import scala.collection.JavaConverters._

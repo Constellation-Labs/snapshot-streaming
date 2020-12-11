@@ -2,7 +2,7 @@ package org.constellation.snapshotstreaming.mapper
 
 import io.circe.Encoder
 import io.circe.generic.semiauto.deriveEncoder
-import org.constellation.domain.snapshot.SnapshotInfo
+import org.constellation.schema.snapshot.SnapshotInfo
 
 case class AddressBalance(balance: Long, rewardsBalance: Long)
 
@@ -11,6 +11,7 @@ object AddressBalance {
 }
 
 class SnapshotInfoMapper {
+
   def mapAddressBalances(
     snapshotInfo: SnapshotInfo
   ): Map[String, AddressBalance] =
@@ -19,6 +20,6 @@ class SnapshotInfoMapper {
         AddressBalance(
           balance = data.balanceByLatestSnapshot,
           rewardsBalance = data.rewardsBalance
-      )
+        )
     )
 }

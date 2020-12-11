@@ -3,6 +3,7 @@ package org.constellation.snapshotstreaming.es
 import cats.Parallel
 import cats.effect.{Concurrent, ConcurrentEffect}
 import cats.implicits._
+
 import scala.concurrent.duration._
 import com.sksamuel.elastic4s.ElasticApi.updateById
 import com.sksamuel.elastic4s.ElasticDsl.{bulk, _}
@@ -12,10 +13,9 @@ import com.sksamuel.elastic4s.requests.bulk.{BulkRequest, BulkResponse}
 import com.sksamuel.elastic4s.{ElasticClient, ElasticProperties, RequestFailure, RequestSuccess, Response}
 import fs2.Stream
 import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
-import org.constellation.consensus.{StoredSnapshot, Snapshot => OriginalSnapshot}
-import org.constellation.domain.snapshot.SnapshotInfo
-import org.constellation.primitives.Schema.{CheckpointCache, Height}
-import org.constellation.schema.Id
+import org.constellation.schema.snapshot.{SnapshotInfo, StoredSnapshot, Snapshot => OriginalSnapshot}
+import org.constellation.schema.{Height, Id}
+import org.constellation.schema.checkpoint.CheckpointCache
 import org.constellation.snapshotstreaming.Configuration
 import org.constellation.snapshotstreaming.mapper.{AddressBalance, SnapshotInfoMapper, StoredSnapshotMapper}
 import org.constellation.snapshotstreaming.s3.{S3DeserializedResult, S3GenesisDeserializedResult}

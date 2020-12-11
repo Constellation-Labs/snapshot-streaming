@@ -4,10 +4,9 @@ import cats.effect.Concurrent
 import cats.effect.concurrent.Ref
 import cats.implicits._
 import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
-import org.constellation.consensus.StoredSnapshot
-import org.constellation.domain.snapshot.SnapshotInfo
-import org.constellation.primitives.CheckpointBlock
-import org.constellation.primitives.Schema.AddressCacheData
+import org.constellation.schema.address.AddressCacheData
+import org.constellation.schema.checkpoint.CheckpointBlock
+import org.constellation.schema.snapshot.{SnapshotInfo, StoredSnapshot}
 import org.constellation.snapshotstreaming.s3.S3DeserializedResult
 
 case class ScanMalformedAddressesResult(
