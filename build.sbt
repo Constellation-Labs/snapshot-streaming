@@ -1,15 +1,15 @@
 name := "cl-snapshot-streaming"
 
 version := "0.1.1"
-
 scalaVersion := "2.12.10"
+organization := "org.constellation"
 
 assemblyMergeStrategy in assembly := {
   case PathList("META-INF", xs @ _*) => MergeStrategy.discard
   case x                             => MergeStrategy.first
 }
 
-assemblyJarName in assembly := "snapshot-streaming.jar"
+assemblyJarName in assembly := s"snapshot-streaming-assembly-${version.value}.jar"
 
 lazy val versions = new {
   val catsCore = "2.0.0"
