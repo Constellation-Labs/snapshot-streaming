@@ -24,3 +24,4 @@ terraform/aws/whitelisting-*
 project/metals.sbt
 *.tfvars
 *.tfstate
+last-sent-height
