@@ -19,9 +19,13 @@ class Configuration {
 
   val getSnapshots: Boolean = mode.getBoolean("getSnapshots")
 
-  val startingHeight: Long =
-    Try(interval.getLong("startingHeight")).getOrElse(2L)
+  val startingHeight: Option[Long] =
+    Try(interval.getLong("startingHeight")).toOption
+
   val endingHeight: Option[Long] = Try(interval.getLong("endingHeight")).toOption
+
+  val lastSentHeightPath: String =
+    Try(config.getString("snapshot-streaming.last-sent-height-path")).getOrElse("last-sent-height")
 
   val fileWithHeights: Option[String] =
     Try(interval.getString("fileWithHeights")).toOption

@@ -81,6 +81,10 @@ object App extends IOApp {
         .getOrElse(Stream.emit(()))
 
       _ <- s3Object
+        .map(r => saveLastStreamedHeightToFile(r.height))
+        .getOrElse(Stream.emit(()))
+
+      _ <- s3Object
         .map(r => Stream.eval(LiftIO[F].liftIO(balanceValidator.validate(r))))
         .getOrElse(Stream.emit(()))
     } yield ()
@@ -168,9 +172,11 @@ object App extends IOApp {
     s3DAOs: List[S3DAO[F]]
   ): Stream[F, Option[S3DeserializedResult]] =
     for {
+      startingHeight <- getStartingHeight
+
       height <- configuration.fileWithHeights.fold(
         getHeights[F](
-          startingHeight = configuration.startingHeight,
+          startingHeight = startingHeight,
           endingHeight = configuration.endingHeight
         )
       )(getHeightsFromFile[F](_))
@@ -230,6 +236,30 @@ object App extends IOApp {
             )
           )
       )
+
+  private def getStartingHeight[F[_]: Concurrent: ContextShift]: Stream[F, Long] =
+    configuration.startingHeight
+      .map(Stream.emit)
+      .getOrElse(getLastStreamedHeightFromFile)
+      .handleErrorWith(_ => Stream.raiseError[F](new Throwable("Couldn't get starting height")))
+
+  private def saveLastStreamedHeightToFile[F[_]: Concurrent: ContextShift](height: Long): Stream[F, Unit] =
+    Stream.resource(Blocker[F]).flatMap { blocker: Blocker =>
+      Stream
+        .emit(height.toString)
+        .through(fs2.text.utf8Encode)
+        .through(fs2.io.file.writeAll(Paths.get(configuration.lastSentHeightPath), blocker))
+    }
+
+  private def getLastStreamedHeightFromFile[F[_]: Concurrent: ContextShift]: Stream[F, Long] =
+    Stream.resource(Blocker[F]).flatMap { blocker: Blocker =>
+      fs2.io.file
+        .readAll(Paths.get(configuration.lastSentHeightPath), blocker, 4096)
+        .through(text.utf8Decode)
+        .through(text.lines)
+        .map(_.toLong)
+        .take(1)
+    }
 
   private def putToES[F[_]: ConcurrentEffect: Timer: RaiseThrowable: Parallel](
     elasticSearchDAO: ElasticSearchDAO[F]
