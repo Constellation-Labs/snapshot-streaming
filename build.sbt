@@ -5,8 +5,9 @@ scalaVersion := "2.12.10"
 organization := "org.constellation"
 
 assemblyMergeStrategy in assembly := {
-  case PathList("META-INF", xs @ _*) => MergeStrategy.discard
-  case x                             => MergeStrategy.first
+  case PathList("META-INF", xs @ _*)            => MergeStrategy.discard
+  case PathList("org", "joda", "time", xs @ _*) => MergeStrategy.last
+  case x                                        => MergeStrategy.first
 }
 
 assemblyJarName in assembly := s"snapshot-streaming-assembly-${version.value}.jar"
