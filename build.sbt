@@ -1,6 +1,6 @@
 name := "cl-snapshot-streaming"
 
-version := "1.1.0"
+version := "1.1.1"
 scalaVersion := "2.12.10"
 organization := "org.constellation"
 
