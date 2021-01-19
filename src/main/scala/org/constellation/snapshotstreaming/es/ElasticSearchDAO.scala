@@ -21,6 +21,7 @@ import org.constellation.snapshotstreaming.mapper.{AddressBalance, SnapshotInfoM
 import org.constellation.snapshotstreaming.s3.{S3DeserializedResult, S3GenesisDeserializedResult}
 import org.constellation.snapshotstreaming.schema.{CheckpointBlock, Snapshot, Transaction}
 
+import java.util.Date
 import scala.collection.SortedMap
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent._
@@ -70,22 +71,23 @@ case class ElasticSearchDAO[F[_]: ConcurrentEffect: Parallel](
         s3Result.lastModified
       )
 
-    mapAndSendToElasticSearch(mockedS3SnapshotResult)
+    mapAndSendToElasticSearch(mockedS3SnapshotResult, config.genesisTimestamp)
   }
 
   def mapAndSendToElasticSearch(
-    s3Result: S3DeserializedResult
+    s3Result: S3DeserializedResult,
+    timestamp: Option[Date] = None
   ): Stream[F, Response[BulkResponse]] = {
     val snapshot =
-      storedSnapshotMapper.mapSnapshot(s3Result.snapshot, s3Result.lastModified)
+      storedSnapshotMapper.mapSnapshot(s3Result.snapshot, timestamp.getOrElse(s3Result.lastModified))
     val checkpointBlocks =
       storedSnapshotMapper.mapCheckpointBlock(
         s3Result.snapshot,
-        s3Result.lastModified
+        timestamp.getOrElse(s3Result.lastModified)
       )
     val transactions = storedSnapshotMapper.mapTransaction(
       s3Result.snapshot,
-      s3Result.lastModified
+      timestamp.getOrElse(s3Result.lastModified)
     )
     val balances = snapshotInfoMapper.mapAddressBalances(s3Result.snapshotInfo)
 

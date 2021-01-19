@@ -2,8 +2,9 @@ package org.constellation.snapshotstreaming
 
 import com.typesafe.config.{Config, ConfigFactory}
 
+import java.text.SimpleDateFormat
+import java.util.Date
 import scala.util.Try
-
 import scala.collection.JavaConverters._
 
 class Configuration {
@@ -14,6 +15,7 @@ class Configuration {
     config.getConfig("snapshot-streaming.elasticsearch")
   private val bucket = config.getConfig("snapshot-streaming.bucket")
   private val interval = config.getConfig("snapshot-streaming.interval")
+  private val genesis = config.getConfig("snapshot-streaming.genesis")
 
   val getGenesis: Boolean = mode.getBoolean("getGenesis")
 
@@ -63,4 +65,16 @@ class Configuration {
   val skipHeightOnFailure: Boolean = bucket.getBoolean("skipHeightOnFailure")
 
   val retryIntervalInSeconds: Int = bucket.getInt("retryIntervalInSeconds")
+
+  private val genesisTimestampFormat: Option[String] = Try(genesis.getString("timestamp.format")).toOption
+
+  val genesisTimestamp: Option[Date] =
+    Try(genesis.getString("timestamp.value"))
+      .toOption
+      .map { timestamp =>
+        val format =
+          genesisTimestampFormat.getOrElse(throw new Exception("Timestamp format not specified!"))
+
+        new SimpleDateFormat(format).parse(timestamp)
+      }
 }
