@@ -122,5 +122,5 @@ case class ElasticSearchDAO[F[_]: ConcurrentEffect: Parallel](
       // TODO: Fix mappings for Map[String, AddressBalance]
 //        ++ Seq(updateById(config.elasticsearchBalancesIndex, snapshot.hash).docAsUpsert(balances))
         ++ Seq(updateById(config.elasticsearchSnapshotsIndex, snapshot.hash).docAsUpsert(snapshot))
-    )
+    ).refreshImmediately
 }
