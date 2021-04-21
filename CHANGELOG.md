@@ -2,6 +2,8 @@
 All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
+### Fixed
+- Use refreshImmediately option for ES Bulk Request
 
 ## [v.1.1.1] 2021-01-19
 ### Fixed
