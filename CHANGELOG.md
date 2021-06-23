@@ -2,6 +2,8 @@
 All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
+
+## [v1.1.4] 2021-06-23
 ### Fixed
 - Fix Kryo initialisation
 
