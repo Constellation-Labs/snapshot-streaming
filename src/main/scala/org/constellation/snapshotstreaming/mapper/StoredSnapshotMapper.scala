@@ -98,9 +98,7 @@ class StoredSnapshotMapper {
     storedSnapshot.checkpointCache.map(checkpointCache => {
       CheckpointBlock(
         checkpointCache.checkpointBlock.baseHash,
-        checkpointCache.height
-          .map(h => Height(h.min, h.max))
-          .getOrElse(Height(0, 0)),
+        Height(checkpointCache.height.min, checkpointCache.height.max),
         checkpointCache.checkpointBlock.transactions.map(_.hash),
         Seq.empty[String],
         Seq.empty[String],

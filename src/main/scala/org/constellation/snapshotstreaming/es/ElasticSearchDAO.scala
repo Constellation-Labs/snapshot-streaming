@@ -51,9 +51,9 @@ case class ElasticSearchDAO[F[_]: ConcurrentEffect: Parallel](
     )
     val cbHashes = checkpointBlocks.map(_.baseHash)
     val checkpointCaches = Seq(
-      CheckpointCache(genesisCb, height = Height(0L, 0L).some),
-      CheckpointCache(initialDistributionCb, height = Height(1L, 1L).some),
-      CheckpointCache(initialDistribution2Cb, height = Height(1L, 1L).some)
+      CheckpointCache(genesisCb, height = Height(0L, 0L)),
+      CheckpointCache(initialDistributionCb, height = Height(1L, 1L)),
+      CheckpointCache(initialDistribution2Cb, height = Height(1L, 1L))
     )
 
     val storedSnapshot =

@@ -1,6 +1,6 @@
 name := "cl-snapshot-streaming"
 
-version := "1.1.2"
+version := "1.1.3"
 scalaVersion := "2.12.10"
 organization := "org.constellation"
 
@@ -17,7 +17,7 @@ lazy val versions = new {
   val catsEffect = "2.1.3"
   val fs2 = "2.2.1"
   val fs2http = "0.4.0"
-  val constellation = "2.19.0"
+  val constellation = "2.24.0"
   val scopt = "4.0.0-RC2"
   val logback = "1.2.3"
   val log4cats = "1.1.1"

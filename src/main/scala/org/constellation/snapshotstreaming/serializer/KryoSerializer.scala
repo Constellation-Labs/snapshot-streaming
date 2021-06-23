@@ -1,7 +1,8 @@
 package org.constellation.snapshotstreaming.serializer
 
 import com.twitter.chill.{KryoPool, ScalaKryoInstantiator}
-import org.constellation.schema.ConstellationKryoRegistrar
+
+import org.constellation.schema.serialization.SchemaKryoRegistrar
 
 class KryoSerializer extends Serializer {
 
@@ -9,7 +10,7 @@ class KryoSerializer extends Serializer {
     10,
     new ScalaKryoInstantiator()
       .setRegistrationRequired(true)
-      .withRegistrar(new ConstellationKryoRegistrar())
+      .withRegistrar(SchemaKryoRegistrar)
   )
 
   def serialize(anyRef: AnyRef): Array[Byte] =

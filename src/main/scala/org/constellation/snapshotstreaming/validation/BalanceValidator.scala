@@ -68,7 +68,7 @@ class BalanceValidator[F[_]: Concurrent](initialSwap: Map[String, Long]) {
   private def findNegativeBalanceAddresses(snapshotInfo: SnapshotInfo) =
     snapshotInfo.addressCacheData.filter { case (_, a) => a.balanceByLatestSnapshot < 0 }
 
-  private def hasAwaitingBlocks(snapshotInfo: SnapshotInfo) = snapshotInfo.awaitingCbs.nonEmpty
+  private def hasAwaitingBlocks(snapshotInfo: SnapshotInfo) = snapshotInfo.awaiting.nonEmpty
 
   private def checkRealTransactions(result: S3DeserializedResult): F[Unit] = {
     val blocksWithRealTransactions = findBlocksWithRealTransactionsOnly(result.snapshot)
@@ -82,7 +82,7 @@ class BalanceValidator[F[_]: Concurrent](initialSwap: Map[String, Long]) {
   private def checkAwaitingBlocks(result: S3DeserializedResult): F[Unit] =
     if (hasAwaitingBlocks(result.snapshotInfo)) {
       logger.debug(
-        s"Found awaiting blocks in SnapshotInfo: ${result.snapshotInfo.awaitingCbs.map(_.checkpointBlock.baseHash)}"
+        s"Found awaiting blocks in SnapshotInfo: ${result.snapshotInfo.awaiting}"
       )
     } else Concurrent[F].unit
 

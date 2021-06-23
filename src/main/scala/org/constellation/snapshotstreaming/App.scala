@@ -258,6 +258,15 @@ object App extends IOApp {
         .through(text.utf8Decode)
         .through(text.lines)
         .map(_.toLong)
+        .evalTap(
+          height =>
+            LiftIO[F]
+              .liftIO(
+                logger
+                  .info(s"Found last streamed height in file: $height. Returning starting height: ${height + 2L}.")
+              )
+        )
+        .map(_ + 2L)
         .take(1)
     }
 
