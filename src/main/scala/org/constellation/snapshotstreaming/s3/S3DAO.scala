@@ -1,7 +1,6 @@
 package org.constellation.snapshotstreaming.s3
 
 import java.util.Date
-
 import cats.effect.Concurrent
 import com.amazonaws.services.s3.AmazonS3
 import com.amazonaws.services.s3.model.{GetObjectRequest, ListObjectsV2Request, S3ObjectSummary}
@@ -10,7 +9,7 @@ import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 import fs2._
 import org.constellation.schema.GenesisObservation
 import org.constellation.schema.snapshot.{SnapshotInfo, StoredSnapshot}
-import org.constellation.snapshotstreaming.serializer.Serializer
+import org.constellation.snapshotstreaming.serializer.{KryoSerializer, Serializer}
 
 import scala.collection.JavaConverters._
 
@@ -21,8 +20,7 @@ case class S3DeserializedResult(height: Long, snapshot: StoredSnapshot, snapshot
 case class S3GenesisDeserializedResult(genesisObservation: GenesisObservation, lastModified: Date)
 
 case class S3DAO[F[_]: RaiseThrowable](client: AmazonS3)(
-  bucket: String,
-  serializer: Serializer
+  bucket: String
 )(implicit val F: Concurrent[F]) {
 
   private val prefix = "snapshots/"
@@ -61,7 +59,7 @@ case class S3DAO[F[_]: RaiseThrowable](client: AmazonS3)(
       )(_ => F.delay(is.close()))
       genesis <- Stream.eval(
         F.delay(
-          serializer.deserialize[GenesisObservation](consumed)
+          KryoSerializer.deserializeCast[GenesisObservation](consumed)
         )
       )
     } yield S3GenesisDeserializedResult(genesis, lastModified)
@@ -134,7 +132,7 @@ case class S3DAO[F[_]: RaiseThrowable](client: AmazonS3)(
           }
       )
       deserialized <- Stream.eval(F.delay {
-        serializer.deserialize[A](consumed)
+        KryoSerializer.deserializeCast[A](consumed)
       })
     } yield deserialized
 
