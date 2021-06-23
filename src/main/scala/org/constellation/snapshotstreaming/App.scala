@@ -1,7 +1,6 @@
 package org.constellation.snapshotstreaming
 
 import java.nio.file.Paths
-
 import cats.Parallel
 import cats.effect.{Blocker, Concurrent, ConcurrentEffect, ContextShift, ExitCode, IO, IOApp, LiftIO, Timer}
 import cats.implicits._
@@ -18,7 +17,6 @@ import scala.concurrent.duration.{FiniteDuration, _}
 
 object App extends IOApp {
   private val logger = Slf4jLogger.getLogger[IO]
-  private val serializer = new KryoSerializer
   private val configuration = new Configuration
   private val storedSnapshotMapper = new StoredSnapshotMapper
   private val snapshotInfoMapper = new SnapshotInfoMapper
@@ -32,6 +30,7 @@ object App extends IOApp {
 
   def main(args: List[String]): Stream[IO, Unit] =
     for {
+      _ <- Stream.eval(KryoSerializer.init[IO])
       s3Client <- Stream.bracket(
         IO(
           AmazonS3ClientBuilder
@@ -47,7 +46,7 @@ object App extends IOApp {
         configuration
       )
 
-      s3DAOs = configuration.bucketNames.map(S3DAO[IO](s3Client)(_, serializer))
+      s3DAOs = configuration.bucketNames.map(S3DAO[IO](s3Client)(_))
 
       _ <- if (configuration.getGenesis)
         getAndSendGenesisToES(s3DAOs, elasticSearchDAO)

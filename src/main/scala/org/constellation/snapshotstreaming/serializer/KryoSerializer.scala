@@ -1,21 +1,15 @@
 package org.constellation.snapshotstreaming.serializer
 
-import com.twitter.chill.{KryoPool, ScalaKryoInstantiator}
+import cats.effect.Concurrent
+import org.constellation.schema.serialization.{Kryo, SchemaKryoRegistrar}
 
-import org.constellation.schema.serialization.SchemaKryoRegistrar
+object KryoSerializer {
 
-class KryoSerializer extends Serializer {
+  def init[F[_]: Concurrent]: F[Unit] = Kryo.init(SchemaKryoRegistrar)
 
-  private val kryoPool = KryoPool.withByteArrayOutputStream(
-    10,
-    new ScalaKryoInstantiator()
-      .setRegistrationRequired(true)
-      .withRegistrar(SchemaKryoRegistrar)
-  )
+  def serializeAnyRef(anyRef: AnyRef): Array[Byte] =
+    Kryo.serializeAnyRef(anyRef)
 
-  def serialize(anyRef: AnyRef): Array[Byte] =
-    kryoPool.toBytesWithClass(anyRef)
-
-  def deserialize[T](message: Array[Byte]): T =
-    kryoPool.fromBytes(message).asInstanceOf[T]
+  def deserializeCast[T](bytes: Array[Byte]): T =
+    Kryo.deserializeCast(bytes)
 }
