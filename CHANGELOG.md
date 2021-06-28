@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 
 ## [v1.1.4] 2021-06-23
 ### Fixed
+- Update cl-schema dependency to v2.24.6
+
+## [v1.1.4] 2021-06-23
+### Fixed
 - Fix Kryo initialisation
 
 ## [v1.1.3] 2021-06-23
