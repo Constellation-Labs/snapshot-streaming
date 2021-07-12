@@ -2,6 +2,8 @@
 All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
+### Fixed
+- Use soeHash instead of baseHash for blocks
 
 ## [v1.1.4] 2021-06-23
 ### Fixed
