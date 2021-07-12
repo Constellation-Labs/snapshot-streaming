@@ -87,7 +87,7 @@ class StoredSnapshotMapper {
             t.isDummy,
             LastTransactionRef(t.lastTxRef.prevHash, t.lastTxRef.ordinal),
             storedSnapshot.snapshot.hash,
-            b.checkpointBlock.baseHash,
+            b.checkpointBlock.soeHash,
             mapOriginalTransaction(t),
             timestamp
           )
@@ -97,7 +97,7 @@ class StoredSnapshotMapper {
   def mapCheckpointBlock(storedSnapshot: StoredSnapshot, timestamp: Date): Seq[CheckpointBlock] =
     storedSnapshot.checkpointCache.map(checkpointCache => {
       CheckpointBlock(
-        checkpointCache.checkpointBlock.baseHash,
+        checkpointCache.checkpointBlock.soeHash,
         Height(checkpointCache.height.min, checkpointCache.height.max),
         checkpointCache.checkpointBlock.transactions.map(_.hash),
         Seq.empty[String],
