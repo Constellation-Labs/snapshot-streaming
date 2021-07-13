@@ -2,10 +2,12 @@
 All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
+
+## [v1.1.6] 2021-07-13
 ### Fixed
 - Use soeHash instead of baseHash for blocks
 
-## [v1.1.4] 2021-06-23
+## [v1.1.5] 2021-06-23
 ### Fixed
 - Update cl-schema dependency to v2.24.6
 
