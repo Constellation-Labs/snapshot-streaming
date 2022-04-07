@@ -1,6 +1,6 @@
 resource "aws_network_interface" "cl_snapshot-streaming-network_interface" {
   subnet_id = var.cl-subnet-id
-  private_ips = ["20.0.0.11"]
+  private_ips = ["20.0.0.12"]
 
   tags = {
     Name = "cl-network_interface-${var.env}"

@@ -24,24 +24,25 @@ variable "cl-network-interface-id" {
   type = string
 }
 
-variable "elasticsearch-url" {
-  type = string
-}
-
-variable "bucket-names" {
-  type = list(string)
-}
-
 variable "instance-type" {
   type = string
   default = "t2.medium"
 }
 
-variable "starting-height" {
-  type = number
+variable "node-urls" {
+  type = list(string)
 }
 
-variable "snapshot-interval" {
+variable "opensearch-url" {
+  type = string
+}
+
+variable "starting-ordinal" {
   type = number
-  default = 2
+  default = 0
+}
+
+variable "ordinals-gaps" {
+  type = list(number)
+  default = []
 }

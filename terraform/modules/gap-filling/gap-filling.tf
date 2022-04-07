@@ -1,6 +1,3 @@
-# Module for filling potential gaps in heights. It runs `n` recovery instances, each one sending different
-# interval of data to elasticsearch.
-
 data "aws_ami" "amzn2-ami" {
   most_recent = true
 
@@ -18,9 +15,9 @@ data "aws_ami" "amzn2-ami" {
 }
 
 resource "aws_instance" "snapshot-streaming-gap-filling" {
-  count = var.instance-count
+  count = 1
   associate_public_ip_address = true
-  ami = data.aws_ami.amzn2-ami.id
+  ami = var.ami
   instance_type = var.instance-type
   vpc_security_group_ids = var.vpc_security_group_ids
 
@@ -31,7 +28,7 @@ resource "aws_instance" "snapshot-streaming-gap-filling" {
   iam_instance_profile = var.iam_instance_profile
 
   tags = {
-    Name = "cl-snapshot-streaming-${var.env}-${count.index}"
+    Name = "cl-snapshot-streaming-gap-filling-${var.env}"
     Env = var.env
     Workspace = terraform.workspace
   }
@@ -64,13 +61,18 @@ resource "aws_instance" "snapshot-streaming-gap-filling" {
 
   provisioner "file" {
     content = templatefile("templates/application.conf", {
-      bucket-names = var.bucket-names,
-      elasticsearch-url = var.elasticsearch-url
-      skip-height-on-failure = true
-      starting-height = (var.starting-height + (count.index) * (2 * floor(var.ending-height / var.instance-count / var.snapshot-interval) + var.snapshot-interval))
-      ending-height = count.index + 1 == var.instance-count ? var.ending-height : (var.starting-height + (count.index) * (2 * floor(var.ending-height / var.instance-count / var.snapshot-interval) + var.snapshot-interval)) + (2 * floor(var.ending-height / var.instance-count / var.snapshot-interval))
+      node-urls = var.node-urls
+      opensearch-url = var.opensearch-url
     })
     destination = "/home/ec2-user/snapshot-streaming/application.conf"
+  }
+
+  provisioner "file" {
+    content = templatefile("templates/nextOrdinal.tftpl", {
+      starting-ordinal = null
+      ordinals-gaps = var.ordinals-gaps
+    })
+    destination = "/home/ec2-user/snapshot-streaming/nextOrdinal.json"
   }
 
   provisioner "file" {
@@ -88,11 +90,5 @@ resource "aws_instance" "snapshot-streaming-gap-filling" {
       "sudo systemctl start snapshot-streaming.service"
     ]
   }
-//
-//  depends_on = [
-//    aws_iam_instance_profile.ec2-snapshot-streaming-profile,
-//  ]
-
 
 }
-
