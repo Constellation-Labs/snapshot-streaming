@@ -1,7 +1,6 @@
 package org.constellation.snapshotstreaming
 
-import cats.effect.Async
-import cats.effect.{ExitCode, IO, IOApp}
+import cats.effect._
 
 import org.tessellation._
 import org.tessellation.kryo.KryoSerializer

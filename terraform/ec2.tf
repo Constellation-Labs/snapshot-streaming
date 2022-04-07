@@ -61,13 +61,18 @@ resource "aws_instance" "snapshot-streaming" {
 
   provisioner "file" {
     content = templatefile("templates/application.conf", {
-      bucket-names = var.bucket-names,
-      elasticsearch-url = var.elasticsearch-url
-      starting-height = var.starting-height
-      ending-height = -1
-      skip-height-on-failure = false
+      node-urls = var.node-urls
+      opensearch-url = var.opensearch-url
     })
     destination = "/home/ec2-user/snapshot-streaming/application.conf"
+  }
+
+  provisioner "file" {
+    content = templatefile("templates/nextOrdinal.tftpl", {
+      starting-ordinal = var.starting-ordinal
+      ordinals-gaps = var.ordinals-gaps
+    })
+    destination = "/home/ec2-user/snapshot-streaming/nextOrdinal.json"
   }
 
   provisioner "file" {
@@ -95,24 +100,6 @@ resource "aws_instance" "snapshot-streaming" {
 
 }
 
-
-resource "aws_iam_policy" "s3-access-to-ec2-snapshot-streaming" {
-  name = "cl-s3-access-to-ec2-snapshot-streaming-${var.env}"
-
-  policy = <<EOF
-{
-    "Version": "2012-10-17",
-    "Statement": [
-        {
-            "Effect": "Allow",
-            "Action": "s3:*",
-            "Resource": "*"
-        }
-    ]
-}
-EOF
-}
-
 resource "aws_iam_role" "ec2-snapshot-streaming-role" {
   name = "cl-ec2-snapshot-streaming-role-${var.env}"
 
@@ -137,11 +124,6 @@ EOF
     Env = var.env
     Workspace = terraform.workspace
   }
-}
-
-resource "aws_iam_role_policy_attachment" "s3-iam-role-snapshot-streaming" {
-  role = aws_iam_role.ec2-snapshot-streaming-role.name
-  policy_arn = aws_iam_policy.s3-access-to-ec2-snapshot-streaming.arn
 }
 
 resource "aws_iam_instance_profile" "ec2-snapshot-streaming-profile" {
