@@ -1,6 +1,6 @@
 on: pull_request
 
-name: Pull request tests
+name: Pull request tests.
 
 jobs:
   test:
@@ -17,4 +17,4 @@ jobs:
 
       - name: Compile
         run: |
-          sbt -J-Xss128m -J-Xmx3200m compile
+          sbt -J-Xss128m -J-Xmx3200m test
