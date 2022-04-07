@@ -1,61 +1,66 @@
-name := "cl-snapshot-streaming"
+import Dependencies._
 
-version := "1.1.6"
-scalaVersion := "2.12.10"
-organization := "org.constellation"
-
-assemblyMergeStrategy in assembly := {
+ThisBuild / organization := "org.constellation"
+ThisBuild / scalaVersion := "2.13.8"
+ThisBuild / version := "2.0.0"
+ThisBuild / scalafixDependencies += Libraries.organizeImports
+ThisBuild / assemblyMergeStrategy in assembly := {
   case PathList("META-INF", xs @ _*)            => MergeStrategy.discard
   case PathList("org", "joda", "time", xs @ _*) => MergeStrategy.last
   case x                                        => MergeStrategy.first
 }
 
-assemblyJarName in assembly := s"snapshot-streaming-assembly-${version.value}.jar"
+lazy val testSettings = Seq(
+  testFrameworks += new TestFramework("weaver.framework.CatsEffect"),
+  libraryDependencies ++= Seq(
+    Libraries.catsEffectTestKit,
+    Libraries.weaverCats,
+    Libraries.weaverScalaCheck
+  ).map(_ % Test)
+)
+
+lazy val commonSettings = Seq(
+  scalacOptions ++= List("-Ymacro-annotations", "-Yrangepos", "-Wconf:cat=unused:info", "-language:reflectiveCalls", "-Ywarn-unused"),
+  resolvers ++= List(
+    Resolver.sonatypeRepo("snapshots")
+  )
+)
+
+lazy val core = (project in file("."))
+  .settings(
+    name := "cl-snapshot-streaming",
+    commonSettings,
+    testSettings,
+    libraryDependencies ++= Seq(
+      Libraries.catsCore,
+      Libraries.catsKernel,
+      Libraries.catsEffect,
+      Libraries.circeCore,
+      Libraries.circeGeneric,
+      Libraries.derevoCirce,
+      Libraries.derevoScalacheck,
+      Libraries.config,
+      Libraries.elasticCirce,
+      Libraries.elasticClient,
+      Libraries.elasticCore,
+      Libraries.catsCore,
+      Libraries.fs2Core,
+      Libraries.fs2Io,
+      Libraries.guava,
+      Libraries.http4sCirce,
+      Libraries.http4sClient,
+      Libraries.http4sDsl,
+      Libraries.log4cats,
+      Libraries.logback,
+      Libraries.logstash,
+      Libraries.tessellation
+    )
+  )
 
 lazy val versions = new {
-  val catsCore = "2.0.0"
-  val catsEffect = "2.1.3"
-  val fs2 = "2.2.1"
-  val fs2http = "0.4.0"
-  val constellation = "2.24.6"
-  val scopt = "4.0.0-RC2"
-  val logback = "1.2.3"
-  val log4cats = "1.1.1"
-  val scalaLogging = "3.9.2"
-  val http4s = "0.21.2"
-  val elastic4sVersion = "7.3.1"
+  val weaver = "0.7.11"
 }
 
-lazy val elastic4sDependencies = Seq(
-  "com.sksamuel.elastic4s" %% "elastic4s-core",
-  "com.sksamuel.elastic4s" %% "elastic4s-client-esjava",
-  "com.sksamuel.elastic4s" %% "elastic4s-http-streams"
-).map(_ % versions.elastic4sVersion)
-
-lazy val http4sDependencies = Seq(
-  "org.http4s" %% "http4s-blaze-client",
-  "org.http4s" %% "http4s-circe",
-  "org.http4s" %% "http4s-dsl",
-  "org.http4s" %% "http4s-okhttp-client"
-).map(_ % versions.http4s)
-
-lazy val dependencies = Seq(
-  "org.typelevel" %% "cats-core" % versions.catsCore,
-  "org.typelevel" %% "cats-effect" % versions.catsEffect,
-  "co.fs2" %% "fs2-core" % versions.fs2,
-  "com.spinoco" %% "fs2-http" % versions.fs2http,
-  "com.github.scopt" %% "scopt" % versions.scopt,
-  ("org.constellation" %% "cl-schema" % versions.constellation).from(
-    s"https://github.com/Constellation-Labs/constellation/releases/download/v${versions.constellation}/cl-schema.jar"
-  ),
-  "com.sksamuel.elastic4s" %% "elastic4s-circe" % "6.7.8",
-  "com.amazonaws" % "aws-java-sdk-s3" % "1.11.863"
+lazy val weaverDependency = Seq(
+  "com.disneystreaming" %% "weaver-cats" % versions.weaver % Test
 )
-
-lazy val loggerDependencies = Seq(
-  "com.typesafe.scala-logging" %% "scala-logging" % versions.scalaLogging,
-  "ch.qos.logback" % "logback-classic" % versions.logback,
-  "io.chrisdavenport" %% "log4cats-slf4j" % versions.log4cats
-)
-
-libraryDependencies ++= (dependencies ++ loggerDependencies ++ http4sDependencies ++ elastic4sDependencies)
