@@ -1,10 +1,10 @@
 package org.constellation.snapshotstreaming
 
+import scala.concurrent.duration.Duration
+import scala.jdk.CollectionConverters._
+
 import com.typesafe.config.{Config, ConfigFactory}
 import org.http4s.Uri
-
-import scala.jdk.CollectionConverters._
-import scala.concurrent.duration.Duration
 
 class Configuration {
   private val config: Config = ConfigFactory.load().resolve()

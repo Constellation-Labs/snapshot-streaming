@@ -8,7 +8,6 @@ import org.tessellation.security.SecurityProvider
 import fs2.Stream
 import org.constellation.snapshotstreaming.node.{NodeClient, NodeDownload, NodeService}
 import org.constellation.snapshotstreaming.opensearch.{SnapshotDAO, UpdateRequestBuilder}
-import org.http4s.Uri
 import org.http4s.client.Client
 import org.typelevel.log4cats.slf4j.Slf4jLogger
 
@@ -52,7 +51,7 @@ object SnapshotService {
 
       def downloadAndSendSnapshots(init: ProcessedSnapshots) = for {
         snapshot <- nodeService.getSnapshots(init.startingOrdinal, init.gaps)
-        snapshotOrdinal <- snapshotDAO.sendSnapshotToOpenSearch(snapshot)
+        snapshotOrdinal <- snapshotDAO.sendSnapshotToOpensearch(snapshot)
       } yield snapshotOrdinal
 
       val updateProcessedSnapshots: (ProcessedSnapshots, Long) => ProcessedSnapshots = (previousState, ordinal) =>

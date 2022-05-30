@@ -56,11 +56,3 @@ lazy val core = (project in file("."))
       Libraries.tessellation
     )
   )
-
-lazy val versions = new {
-  val weaver = "0.7.11"
-}
-
-lazy val weaverDependency = Seq(
-  "com.disneystreaming" %% "weaver-cats" % versions.weaver % Test
-)

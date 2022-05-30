@@ -26,19 +26,19 @@ object SnapshotDAOSuite extends SimpleIOSuite {
 
   }
 
-  def mkElastiDAO(elasticResult: => Stream[IO, Unit]) = new ElasticSearchDAO[IO] {
+  def mkOpensearchDAO(opensearchResult: => Stream[IO, Unit]) = new OpensearchDAO[IO] {
 
-    def sendToOpenSearch(bulkRequest: BulkRequest): Stream[IO, Unit] = bulkRequest.requests.toList.head match {
+    def sendToOpensearch(bulkRequest: BulkRequest): Stream[IO, Unit] = bulkRequest.requests.toList.head match {
       case head: UpdateRequest if head.id == "1" => Stream.emit(())
-      case _                                     => elasticResult
+      case _                                     => opensearchResult
     }
 
   }
 
-  def mkSnapshotDAO(elastiDAO: ElasticSearchDAO[IO]) = SnapshotDAO.make(mkUpdateBuilder(), elastiDAO)
+  def mkSnapshotDAO(elastiDAO: OpensearchDAO[IO]) = SnapshotDAO.make(mkUpdateBuilder(), elastiDAO)
 
   test("return ordinal of fully sent snapshot") {
-    val actual = mkSnapshotDAO(mkElastiDAO(Stream.emit(()))).sendSnapshotToOpenSearch(globalSnapshot(345L))
+    val actual = mkSnapshotDAO(mkOpensearchDAO(Stream.emit(()))).sendSnapshotToOpensearch(globalSnapshot(345L))
 
     actual
       .take(1)
@@ -48,8 +48,8 @@ object SnapshotDAOSuite extends SimpleIOSuite {
   }
 
   test("pass an error when happen") {
-    val actual = mkSnapshotDAO(mkElastiDAO(Stream.raiseError(new Exception("TEST ERROR!"))))
-      .sendSnapshotToOpenSearch(globalSnapshot(345L))
+    val actual = mkSnapshotDAO(mkOpensearchDAO(Stream.raiseError(new Exception("TEST ERROR!"))))
+      .sendSnapshotToOpensearch(globalSnapshot(345L))
 
     actual
       .take(1)
