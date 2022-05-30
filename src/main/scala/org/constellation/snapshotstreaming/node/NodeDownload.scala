@@ -1,6 +1,7 @@
 package org.constellation.snapshotstreaming.node
 
 import cats.effect.Async
+import cats.syntax.either._
 
 import scala.concurrent.duration._
 
@@ -23,8 +24,8 @@ object NodeDownload {
 
     private val logger = Slf4jLogger.getLoggerFromClass[F](NodeDownload.getClass)
 
-    override def downloadLatestOrdinal(): Stream[F, SnapshotOrdinal] = (for {
-      _ <- Stream.sleep(config.nodeIntervalInSeconds.seconds)
+    override def downloadLatestOrdinal(): Stream[F, SnapshotOrdinal] = for {
+      _ <- Stream.awakeEvery(config.nodeIntervalInSeconds.seconds)
       ordinal <- Stream
         .eval(nodeClient.getLatestOrdinal)
         .handleErrorWith(ex =>
@@ -33,7 +34,7 @@ object NodeDownload {
           ) >> Stream.empty
         )
         .evalTap(ordinal => logger.debug(s"Latest ordinal from ${nodeClient.uri} is $ordinal."))
-    } yield ordinal).repeat
+    } yield ordinal
 
     override def downloadSnapshot(
       ordinal: SnapshotOrdinal
@@ -46,10 +47,7 @@ object NodeDownload {
             .raiseError(ex)
         )
         .attempt
-        .map[Either[SnapshotOrdinal, Signed[GlobalSnapshot]]] {
-          case Left(_)  => Left(ordinal)
-          case Right(s) => Right(s)
-        }
+        .map(_.leftMap(_ => ordinal))
 
   }
 

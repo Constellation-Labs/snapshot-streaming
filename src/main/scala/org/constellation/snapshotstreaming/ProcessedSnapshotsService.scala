@@ -38,7 +38,9 @@ object ProcessedSnapshotsService {
         case ex =>
           Stream.eval(logger.error(ex)("Couldn't load data from file with starting ordinal.")) >> Stream.raiseError(ex)
       }
-      .evalTap(init => logger.info(s"Loaded file with starting ordinal: $init."))
+      .evalTap(init =>
+        logger.info(s"Loaded file with starting ordinal: ${init.startingOrdinal}. Number of gaps: ${init.gaps.size}.")
+      )
 
     override def saveState(processedSnapshots: ProcessedSnapshots): Stream[F, Unit] =
       Stream

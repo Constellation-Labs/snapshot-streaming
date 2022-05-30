@@ -14,28 +14,28 @@ import org.constellation.snapshotstreaming.Configuration
 import org.typelevel.log4cats.slf4j.Slf4jLogger
 
 trait SnapshotDAO[F[_]] {
-  def sendSnapshotToOpenSearch(snapshot: Signed[GlobalSnapshot]): Stream[F, Long]
+  def sendSnapshotToOpensearch(snapshot: Signed[GlobalSnapshot]): Stream[F, Long]
 }
 
 object SnapshotDAO {
 
   def make[F[_]: Async](updateRequestBuilder: UpdateRequestBuilder[F], config: Configuration): SnapshotDAO[F] =
-    make(updateRequestBuilder, ElasticSearchDAO.make(config.opensearchUrl))
+    make(updateRequestBuilder, OpensearchDAO.make(config.opensearchUrl))
 
   def make[F[_]: Async](
     updateRequestBuilder: UpdateRequestBuilder[F],
-    elasticSearchDAO: ElasticSearchDAO[F]
+    opensearchDAO: OpensearchDAO[F]
   ): SnapshotDAO[F] =
     new SnapshotDAO[F] {
 
       private val logger = Slf4jLogger.getLoggerFromClass[F](SnapshotDAO.getClass)
 
-      def sendSnapshotToOpenSearch(globalSnapshot: Signed[GlobalSnapshot]) = {
+      def sendSnapshotToOpensearch(globalSnapshot: Signed[GlobalSnapshot]) = {
         val sendInBulks = for {
           timestamp <- Stream.eval(Clock[F].realTime.map(d => new Date(d.toMillis)))
           bulks <- Stream.eval(updateRequestBuilder.bulkUpdateRequests(globalSnapshot, timestamp))
           bulkRequests <- Stream.emits(bulks)
-          _ <- elasticSearchDAO.sendToOpenSearch(bulk(bulkRequests).refreshImmediately)
+          _ <- opensearchDAO.sendToOpensearch(bulk(bulkRequests).refreshImmediately)
         } yield ()
 
         sendInBulks

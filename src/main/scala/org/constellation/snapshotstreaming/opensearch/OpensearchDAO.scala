@@ -14,16 +14,16 @@ import fs2.Stream
 import org.http4s.Uri
 import org.typelevel.log4cats.slf4j.Slf4jLogger
 
-trait ElasticSearchDAO[F[_]] {
-  def sendToOpenSearch(bulkRequest: BulkRequest): Stream[F, Unit]
+trait OpensearchDAO[F[_]] {
+  def sendToOpensearch(bulkRequest: BulkRequest): Stream[F, Unit]
 }
 
-object ElasticSearchDAO {
+object OpensearchDAO {
 
   def make[F[_]: Async](openSearchUrl: Uri) =
-    new ElasticSearchDAO[F] {
+    new OpensearchDAO[F] {
 
-      private val logger = Slf4jLogger.getLoggerFromClass[F](ElasticSearchDAO.getClass)
+      private val logger = Slf4jLogger.getLoggerFromClass[F](OpensearchDAO.getClass)
 
       def getEsClient(): Resource[F, ElasticClient] = {
         val client = ElasticClient(
@@ -32,7 +32,7 @@ object ElasticSearchDAO {
         Resource.fromAutoCloseable(logger.info("Initiating es client.") >> Async[F].delay(client))
       }
 
-      def sendToOpenSearch(bulkRequest: BulkRequest): Stream[F, Unit] = for {
+      def sendToOpensearch(bulkRequest: BulkRequest): Stream[F, Unit] = for {
         esClient <- Stream.resource(getEsClient())
         _ <- Stream.eval {
           Async[F].async_[Response[BulkResponse]] { cb =>

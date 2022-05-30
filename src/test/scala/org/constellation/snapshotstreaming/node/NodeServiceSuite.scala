@@ -5,7 +5,7 @@ import cats.effect.IO
 import cats.kernel.Order
 import cats.syntax.contravariant._
 
-import scala.collection.mutable.{Map, TreeMap}
+import scala.collection.mutable.Map
 
 import org.tessellation.dag.snapshot.{GlobalSnapshot, SnapshotOrdinal => OriginalSnapshotOrdinal}
 import org.tessellation.security.signature.Signed
@@ -25,7 +25,7 @@ object NodeServiceSuite extends SimpleIOSuite with Checkers {
   def mkNodeDownload(ordinals: List[Long], ordinalsFromOtherNodes: List[SnapshotOrdinal] = Nil) =
     new NodeDownload[IO] {
 
-      val callsPerKnownOrdinal: Map[SnapshotOrdinal, Int] = TreeMap.from(ordinalsFromOtherNodes.map(s => (s, 0)))
+      val callsPerKnownOrdinal: Map[SnapshotOrdinal, Int] = Map.from(ordinalsFromOtherNodes.map(s => (s, 0)))
       val limitToCallsForOrdinal = 1
       def downloadLatestOrdinal(): Stream[IO, SnapshotOrdinal] = Stream.emits(ordinals.map(SnapshotOrdinal(_)))
 
@@ -56,7 +56,8 @@ object NodeServiceSuite extends SimpleIOSuite with Checkers {
 
   test("process all ordinals from many nodes") {
     val expected = List[Long](0, 1, 2, 3)
-    val actual = mkNodeService(List(List(4L), List(3L), List(0L, 1, 2)).map(mkNodeDownload(_, Nil))).getSnapshots(0, Nil)
+    val actual =
+      mkNodeService(List(List(4L), List(3L), List(0L, 1, 2)).map(mkNodeDownload(_, Nil))).getSnapshots(0, Nil)
     actual.assert(expected)
   }
 
@@ -67,7 +68,7 @@ object NodeServiceSuite extends SimpleIOSuite with Checkers {
   }
 
   test("process all ordinals starting from from initial and include gaps") {
-    val expected = List[Long](2, 5,7, 8, 9)
+    val expected = List[Long](2, 5, 7, 8, 9)
     val actual = mkNodeService(List(mkNodeDownload(List(1, 2, 3, 4, 5, 6, 7, 8, 9)))).getSnapshots(7, List(2, 5))
     actual.assert(expected)
   }

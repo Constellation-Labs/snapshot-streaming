@@ -47,7 +47,7 @@ object SnapshotServiceSuite extends SimpleIOSuite {
   def mkSnapshotDAO(ordinalToFail: Option[Long] = None, failOnlyOnce: Boolean = false) = new SnapshotDAO[IO] {
     val counter = new AtomicLong(0)
 
-    override def sendSnapshotToOpenSearch(snapshot: Signed[GlobalSnapshot]): fs2.Stream[IO, Long] =
+    override def sendSnapshotToOpensearch(snapshot: Signed[GlobalSnapshot]): fs2.Stream[IO, Long] =
       if (
         ordinalToFail.contains(
           snapshot.ordinal.value.value
