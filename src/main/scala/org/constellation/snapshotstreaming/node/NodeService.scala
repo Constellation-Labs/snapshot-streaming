@@ -2,7 +2,7 @@ package org.constellation.snapshotstreaming.node
 
 import cats.effect.Async
 
-import scala.collection.immutable.{Stream => POStream}
+import scala.collection.immutable.{NumericRange, Stream => POStream}
 
 import org.tessellation.dag.snapshot.GlobalSnapshot
 import org.tessellation.security.signature.Signed
@@ -10,59 +10,59 @@ import org.tessellation.security.signature.Signed
 import fs2.Stream
 
 trait NodeService[F[_]] {
-  def getSnapshots(startingOrdinal: Long, additionalOrdinals: Seq[Long]): Stream[F, Signed[GlobalSnapshot]]
+  def getSnapshots(startingOrdinal: Option[Long], gapsOrdinals: Seq[Long]): Stream[F, Signed[GlobalSnapshot]]
 }
 
 object NodeService {
 
   def make[F[_]: Async](nodeDownloadsPool: Seq[NodeDownload[F]]) = new NodeService[F] {
 
-    val nodePoolSize = nodeDownloadsPool.size
-    val snapshotOrdinalStreamsPool = nodeDownloadsPool.map(nodeDownload => nodeDownload.downloadLatestOrdinal())
+    private val nodePoolSize = nodeDownloadsPool.size
+    private val snapshotOrdinalStreamsPool = nodeDownloadsPool.map(nodeDownload => nodeDownload.downloadLatestOrdinal())
 
     override def getSnapshots(
-      startingOrdinal: Long,
-      additionalOrdinals: Seq[Long]
+      startingOrdinal: Option[Long],
+      gapsOrdinals: Seq[Long]
     ): Stream[F, Signed[GlobalSnapshot]] =
       for {
-        (snapshotOrdinal, nodeNo) <- downloadSnapshotOrdinal(startingOrdinal, additionalOrdinals)
+        (snapshotOrdinal, nodeNo) <- downloadSnapshotOrdinal(startingOrdinal, gapsOrdinals)
         snapshot <- downloadSnapshot(snapshotOrdinal, nodeNo)
       } yield snapshot
 
-    def downloadSnapshotOrdinal(
-      startingOrdinal: Long,
-      additionalOrdinals: Seq[Long]
-    ) = {
+    private def downloadSnapshotOrdinal(
+      startingOrdinal: Option[Long],
+      gapsOrdinals: Seq[Long]
+    ) = (Stream.emits(gapsOrdinals) ++ startingOrdinal.map(downloadAndEmitNewOrdinals(_)).getOrElse(Stream.empty))
+      .map(SnapshotOrdinal(_))
+      .zip(nodePoolNumbers)
 
-      def decideIfNewLatestOrdinal(
+    private def nodePoolNumbers = Stream.emits(0 until nodePoolSize).repeat
+
+    private def downloadAndEmitNewOrdinals(startingOrdinal: Long) = {
+      def buildOrdinalsRange(
         nextOrdinalToEmit: Long,
         latestOrdinal: SnapshotOrdinal
-      ): Either[Long, (Long, Long)] =
+      ): Either[Long, NumericRange[Long]] =
         if (latestOrdinal.value >= nextOrdinalToEmit)
-          Right((nextOrdinalToEmit, latestOrdinal.value + 1))
+          Right(Range.Long(nextOrdinalToEmit, latestOrdinal.value + 1, 1L))
         else
           Left(nextOrdinalToEmit)
 
-      def downloadAndEmitNewOrdinal() =
-        Stream(snapshotOrdinalStreamsPool: _*)
-          .parJoin(nodePoolSize + 1)
-          .scan[Either[Long, (Long, Long)]](Left(startingOrdinal)) {
-            case (Left(nextOrdinalToEmit), latestOrdinal) =>
-              decideIfNewLatestOrdinal(nextOrdinalToEmit, latestOrdinal)
-            case (Right(range), latestOrdinal) => decideIfNewLatestOrdinal(range._2, latestOrdinal)
-          }
-          .flatMap {
-            case Left(_)             => Stream.empty
-            case Right((start, end)) => Stream.emits(start until end)
-          }
-
-      (Stream.emits(additionalOrdinals) ++ downloadAndEmitNewOrdinal())
-        .map(SnapshotOrdinal(_))
-        .zip(Stream.emits(0 until nodePoolSize).repeat)
+      Stream(snapshotOrdinalStreamsPool: _*)
+        .parJoin(nodePoolSize + 1)
+        .scan[Either[Long, NumericRange[Long]]](Left(startingOrdinal)) {
+          case (Left(nextOrdinalToEmit), latestOrdinal) => buildOrdinalsRange(nextOrdinalToEmit, latestOrdinal)
+          case (Right(previousRange), latestOrdinal)    => buildOrdinalsRange(previousRange.end, latestOrdinal)
+        }
+        .flatMap {
+          case Left(_)      => Stream.empty
+          case Right(range) => Stream.emits(range.iterator.toSeq)
+        }
     }
 
-    def downloadSnapshot(snapshotOrdinal: SnapshotOrdinal, nodeNo: Int) = {
-      val initialNodesToTry = POStream.from(nodeNo).map(_ % nodePoolSize).take(nodePoolSize).toList
+    private def downloadSnapshot(snapshotOrdinal: SnapshotOrdinal, nodeNumberFromWhichStartTrying: Int) = {
+      val nodesToTry = POStream.from(nodeNumberFromWhichStartTrying).map(_ % nodePoolSize).take(nodePoolSize).toList
+
       def downloadSnapshotWithFallback(
         snapshotOrdinal: SnapshotOrdinal,
         nodesToTry: List[Int]
@@ -74,10 +74,9 @@ object NodeService {
             case Left(_)      => downloadSnapshotWithFallback(snapshotOrdinal, otherNodes)
             case Right(value) => Stream.emit(value)
           }
-
       }
 
-      downloadSnapshotWithFallback(snapshotOrdinal, initialNodesToTry)
+      downloadSnapshotWithFallback(snapshotOrdinal, nodesToTry)
     }
 
   }

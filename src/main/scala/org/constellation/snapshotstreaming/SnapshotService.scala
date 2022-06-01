@@ -44,10 +44,9 @@ object SnapshotService {
           init <- processedSnapshotsService.initialState()
           processedSnapshots <- downloadAndSendSnapshots(init)
             .scan(init)(updateProcessedSnapshots)
-            .handleErrorWith(ex => Stream.eval(logger.error(ex)("Error during processing snapshot.")) >> Stream.empty)
           _ <- processedSnapshotsService.saveState(processedSnapshots)
         } yield (())
-      } ++ processSnapshot()
+      }.handleErrorWith(ex => Stream.eval(logger.error(ex)("Error during processing snapshot.")) >> processSnapshot())
 
       def downloadAndSendSnapshots(init: ProcessedSnapshots) = for {
         snapshot <- nodeService.getSnapshots(init.startingOrdinal, init.gaps)
@@ -56,8 +55,8 @@ object SnapshotService {
 
       val updateProcessedSnapshots: (ProcessedSnapshots, Long) => ProcessedSnapshots = (previousState, ordinal) =>
         previousState match {
-          case ProcessedSnapshots(startingOrdinal, gaps) if ordinal >= startingOrdinal =>
-            ProcessedSnapshots(ordinal + 1, (startingOrdinal until ordinal).toList ::: gaps)
+          case ProcessedSnapshots(Some(startingOrdinal), gaps) if ordinal >= startingOrdinal =>
+            ProcessedSnapshots(Some(ordinal + 1), (startingOrdinal until ordinal).toList ::: gaps)
           case ProcessedSnapshots(lastProcessedOrdinal, gaps) =>
             ProcessedSnapshots(lastProcessedOrdinal, gaps.filter(_ != ordinal))
         }

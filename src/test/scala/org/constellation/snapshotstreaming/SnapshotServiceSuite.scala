@@ -3,6 +3,7 @@ package org.constellation.snapshotstreaming
 import java.util.concurrent.atomic.AtomicLong
 
 import cats.effect.{IO, Ref}
+import cats.syntax.option._
 
 import org.tessellation.dag.snapshot.GlobalSnapshot
 import org.tessellation.security.signature.Signed
@@ -28,13 +29,13 @@ object SnapshotServiceSuite extends SimpleIOSuite {
   def mkNodeService(ordinals: List[Long], ordinalToFail: Option[Long] = None) = new NodeService[IO] {
 
     override def getSnapshots(
-      startingOrdinal: Long,
-      additionalOrdinals: Seq[Long]
+      startingOrdinal: Option[Long],
+      gapsOrdinals: Seq[Long]
     ): fs2.Stream[IO, Signed[GlobalSnapshot]] =
       Stream
         .emits(
           ordinals
-            .filter(ord => startingOrdinal <= ord || additionalOrdinals.contains(ord))
+            .filter(ord => startingOrdinal.exists(_ <= ord) || gapsOrdinals.contains(ord))
             .map(globalSnapshot(_))
         )
         .flatMap(snap =>
@@ -65,11 +66,11 @@ object SnapshotServiceSuite extends SimpleIOSuite {
   ) =
     SnapshotService.make[IO, Signed[GlobalSnapshot]](nodeService, dao, processedService)
 
-  test("process properly and save next ordinal") {
+  test("save next ordinal to process when succeed") {
     {
       for {
-        ref <- Ref[IO].of(ProcessedSnapshots(0, Nil))
-        _ <- mkSnapshotService(mkNodeService(List(0, 1, 2, 3, 5, 6)), mkSnapshotDAO(), mkProcessedSnapshotsService(ref))
+        ref <- Ref[IO].of(ProcessedSnapshots(0L.some, Nil))
+        _ <- mkSnapshotService(mkNodeService(List(0, 1, 2, 3)), mkSnapshotDAO(), mkProcessedSnapshotsService(ref))
           .processSnapshot()
           .take(5)
           .compile
@@ -77,43 +78,43 @@ object SnapshotServiceSuite extends SimpleIOSuite {
       } yield ref
     }
       .flatMap(ref => ref.get)
-      .map(res => expect.same(res, ProcessedSnapshots(4, Nil)))
+      .map(res => expect.same(res, ProcessedSnapshots(4L.some, Nil)))
   }
 
-  test("process properly and save next ordinal to process") {
+  test("save next ordinal to process and filter out processed gaps") {
     {
       for {
-        ref <- Ref[IO].of(ProcessedSnapshots(0, Nil))
-        _ <- mkSnapshotService(mkNodeService(List(0, 1, 2, 3)), mkSnapshotDAO(), mkProcessedSnapshotsService(ref))
-          .processSnapshot()
-          .take(40)
-          .compile
-          .drain
-      } yield ref
-    }
-      .flatMap(ref => ref.get)
-      .map(res => expect.same(res, ProcessedSnapshots(4, Nil)))
-  }
-
-  test("process properly with gaps and save next ordinal to process") {
-    {
-      for {
-        ref <- Ref[IO].of(ProcessedSnapshots(3, List(1)))
+        ref <- Ref[IO].of(ProcessedSnapshots(3L.some, List(1)))
         _ <- mkSnapshotService(mkNodeService(List(1, 3, 4, 5)), mkSnapshotDAO(), mkProcessedSnapshotsService(ref))
           .processSnapshot()
-          .take(40)
+          .take(5)
           .compile
           .drain
       } yield ref
     }
       .flatMap(ref => ref.get)
-      .map(res => expect.same(res, ProcessedSnapshots(6, Nil)))
+      .map(res => expect.same(res, ProcessedSnapshots(6L.some, Nil)))
   }
 
-  test("process properly and return gaps") {
+  test("filter out only processed gaps when no starting ordinal") {
     {
       for {
-        ref <- Ref[IO].of(ProcessedSnapshots(0, Nil))
+        ref <- Ref[IO].of(ProcessedSnapshots(None, List(1, 2, 5)))
+        _ <- mkSnapshotService(mkNodeService(List(0, 1, 2, 3)), mkSnapshotDAO(), mkProcessedSnapshotsService(ref))
+          .processSnapshot()
+          .take(5)
+          .compile
+          .drain
+      } yield ref
+    }
+      .flatMap(ref => ref.get)
+      .map(res => expect.same(res, ProcessedSnapshots(None, List(5))))
+  }
+
+  test("save next ordinal and add gaps for missing snapshots") {
+    {
+      for {
+        ref <- Ref[IO].of(ProcessedSnapshots(0L.some, Nil))
         _ <- mkSnapshotService(mkNodeService(List(2, 3)), mkSnapshotDAO(), mkProcessedSnapshotsService(ref))
           .processSnapshot()
           .take(3)
@@ -122,49 +123,34 @@ object SnapshotServiceSuite extends SimpleIOSuite {
       } yield ref
     }
       .flatMap(ref => ref.get)
-      .map(res => expect.same(res, ProcessedSnapshots(4, List(0, 1))))
+      .map(res => expect.same(res, ProcessedSnapshots(4L.some, List(0, 1))))
   }
 
-  test("should not fail when sending to opensearch fails") {
+  test("should keep trying when sending to opensearch fails") {
     {
       for {
-        ref <- Ref[IO].of(ProcessedSnapshots(0, Nil))
+        ref <- Ref[IO].of(ProcessedSnapshots(0L.some, Nil))
         _ <- mkSnapshotService(
-          mkNodeService(List(0, 1, 2, 3, 4, 5)),
+          mkNodeService(List(0, 1, 2, 3, 4, 5, 6)),
           mkSnapshotDAO(Some(5)),
           mkProcessedSnapshotsService(ref)
         )
           .processSnapshot()
-          .take(6)
+          .take(7)
           .compile
           .drain
       } yield ref
     }
       .flatMap(ref => ref.get)
-      .map(res => expect.same(res, ProcessedSnapshots(5, Nil)))
-  }
-
-  test("should not fail when sending to opensearch fails, but stop processing further ordinals") {
-    {
-      for {
-        ref <- Ref[IO].of(ProcessedSnapshots(0, Nil))
-        _ <- mkSnapshotService(
-          mkNodeService(List(0, 1, 2, 3, 4, 5)),
-          mkSnapshotDAO(Some(3)),
-          mkProcessedSnapshotsService(ref)
-        ).processSnapshot().take(40).compile.drain
-      } yield ref
-    }
-      .flatMap(ref => ref.get)
-      .map(res => expect.same(res, ProcessedSnapshots(3, Nil)))
+      .map(res => expect.same(res, ProcessedSnapshots(5L.some, Nil)))
   }
 
   test(
-    "should not fail when sending to opensearch fails and resume processing further ordinals when sending restored"
+    "should keep trying when sending to opensearch fails and resume processing further ordinals when sending restored"
   ) {
     {
       for {
-        ref <- Ref[IO].of(ProcessedSnapshots(0, Nil))
+        ref <- Ref[IO].of(ProcessedSnapshots(0L.some, Nil))
         _ <- mkSnapshotService(
           mkNodeService(List(0, 1, 2, 3, 4, 5)),
           mkSnapshotDAO(Some(3), true),
@@ -173,22 +159,22 @@ object SnapshotServiceSuite extends SimpleIOSuite {
       } yield ref
     }
       .flatMap(ref => ref.get)
-      .map(res => expect.same(res, ProcessedSnapshots(6, Nil)))
+      .map(res => expect.same(res, ProcessedSnapshots(6L.some, Nil)))
   }
 
-  test("should not fail when downloading from nodes fail, but stop processing further ordinals") {
+  test("should keep trying when downloading from nodes fail") {
     {
       for {
-        ref <- Ref[IO].of(ProcessedSnapshots(0, Nil))
+        ref <- Ref[IO].of(ProcessedSnapshots(0L.some, Nil))
         _ <- mkSnapshotService(
           mkNodeService(List(0, 1, 2, 3, 4, 5), Some(3)),
           mkSnapshotDAO(),
           mkProcessedSnapshotsService(ref)
-        ).processSnapshot().take(5).compile.drain
+        ).processSnapshot().take(6).compile.drain
       } yield ref
     }
       .flatMap(ref => ref.get)
-      .map(res => expect.same(res, ProcessedSnapshots(3, Nil)))
+      .map(res => expect.same(res, ProcessedSnapshots(3L.some, Nil)))
   }
 
 }

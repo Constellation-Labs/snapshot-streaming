@@ -34,7 +34,7 @@ object ProcessedSnapshotsService {
             logger.warn(
               s"Couldn't find file with starting ordinal. Initializing with default values. ${ex.getLocalizedMessage}."
             )
-          ) >> Stream.emit(ProcessedSnapshots(0, Nil))
+          ) >> Stream.emit(ProcessedSnapshots(Some(0), Nil))
         case ex =>
           Stream.eval(logger.error(ex)("Couldn't load data from file with starting ordinal.")) >> Stream.raiseError(ex)
       }
@@ -52,4 +52,4 @@ object ProcessedSnapshotsService {
 
 }
 
-case class ProcessedSnapshots(startingOrdinal: Long, gaps: List[Long])
+case class ProcessedSnapshots(startingOrdinal: Option[Long], gaps: List[Long])
