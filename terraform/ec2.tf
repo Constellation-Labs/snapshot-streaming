@@ -43,6 +43,7 @@ resource "aws_instance" "snapshot-streaming" {
   provisioner "remote-exec" {
     inline = [
       "sudo yum -y update",
+      "sudo yum -y install jq",
       "sudo yum -y install java-1.8.0-openjdk-headless",
       "sudo yum -y install polkit-devel",
       "mkdir /home/ec2-user/snapshot-streaming"
@@ -80,9 +81,23 @@ resource "aws_instance" "snapshot-streaming" {
     destination = "/tmp/snapshot-streaming.service"
   }
 
+   provisioner "file" {
+    content = templatefile("templates/clean_indices", {
+      opensearch-url = var.opensearch-url
+    })
+    destination = "/home/ec2-user/snapshot-streaming/clean_indices"
+  }
+
+  provisioner "file" {
+    source = "templates/restart"
+    destination = "/home/ec2-user/snapshot-streaming/restart"
+  }
+
   provisioner "remote-exec" {
     inline = [
       "sudo chmod 774 /home/ec2-user/snapshot-streaming/start",
+      "sudo chmod 774 /home/ec2-user/snapshot-streaming/restart",
+      "sudo chmod 774 /home/ec2-user/snapshot-streaming/clean_indices",
       "sudo mv /tmp/snapshot-streaming.service /etc/systemd/system/multi-user.target.wants/snapshot-streaming.service",
       "sudo chmod 774 /etc/systemd/system/multi-user.target.wants/snapshot-streaming.service",
       "sudo systemctl daemon-reload",

@@ -1,0 +1,14 @@
+#!/bin/sh
+
+sudo systemctl stop snapshot-streaming
+
+cat <<EOF > ./nextOrdinal.json
+{
+  "startingOrdinal": 0,
+  "gaps": []
+}
+EOF
+
+./clean_indices
+
+sudo systemctl start snapshot-streaming

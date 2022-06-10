@@ -1,0 +1,8 @@
+#!/bin/bash
+
+OPENSEARCH=${opensearch-url}
+
+curl -X POST $OPENSEARCH/snapshots/_delete_by_query -H "Content-type: application/json" -d '{ "query": { "match_all": { } } }' -s | jq -c .
+curl -X POST $OPENSEARCH/balances/_delete_by_query -H "Content-type: application/json" -d '{ "query": { "match_all": { } } }' -s | jq -c .
+curl -X POST $OPENSEARCH/blocks/_delete_by_query -H "Content-type: application/json" -d '{ "query": { "match_all": { } } }' -s | jq -c .
+curl -X POST $OPENSEARCH/transactions/_delete_by_query -H "Content-type: application/json" -d '{ "query": { "match_all": { } } }' -s | jq -c .
