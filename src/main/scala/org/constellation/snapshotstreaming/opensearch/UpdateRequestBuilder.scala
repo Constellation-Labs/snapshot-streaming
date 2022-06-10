@@ -8,7 +8,6 @@ import cats.syntax.functor._
 
 import org.tessellation.dag.snapshot.GlobalSnapshot
 import org.tessellation.kryo.KryoSerializer
-import org.tessellation.security.SecurityProvider
 import org.tessellation.security.signature.Signed
 
 import com.sksamuel.elastic4s.ElasticApi.updateById
@@ -24,7 +23,7 @@ trait UpdateRequestBuilder[F[_]] {
 
 object UpdateRequestBuilder {
 
-  def make[F[_]: Async: SecurityProvider: KryoSerializer](config: Configuration): UpdateRequestBuilder[F] =
+  def make[F[_]: Async: KryoSerializer](config: Configuration): UpdateRequestBuilder[F] =
     make(GlobalSnapshotMapper.make(), config)
 
   def make[F[_]: Async](mapper: GlobalSnapshotMapper[F], config: Configuration): UpdateRequestBuilder[F] =
