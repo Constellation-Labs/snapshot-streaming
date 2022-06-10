@@ -15,7 +15,6 @@ import org.tessellation.schema.transaction.{
   Transaction => OriginalTransaction,
   TransactionReference => OriginalTransactionReference
 }
-import org.tessellation.security.SecurityProvider
 import org.tessellation.security.signature.Signed
 
 import eu.timepit.refined.auto.autoUnwrap
@@ -30,12 +29,12 @@ trait GlobalSnapshotMapper[F[_]] {
 
 object GlobalSnapshotMapper {
 
-  def make[F[_]: Async: SecurityProvider: KryoSerializer](): GlobalSnapshotMapper[F] =
+  def make[F[_]: Async: KryoSerializer](): GlobalSnapshotMapper[F] =
     new GlobalSnapshotMapper[F] {
 
       def mapSnapshot(globalSnapshot: Signed[GlobalSnapshot], timestamp: Date): F[Snapshot] = for {
         snapshotHash <- hashSnapshot(globalSnapshot)
-        blocksHashes <- globalSnapshot.blocks.map(_.block).map(hashBlock).toList.sequence
+        blocksHashes <- globalSnapshot.blocks.unsorted.map(_.block).map(hashBlock).toList.sequence
       } yield Snapshot(
         hash = snapshotHash,
         ordinal = globalSnapshot.ordinal.value.value,
@@ -43,7 +42,7 @@ object GlobalSnapshotMapper {
         subHeight = globalSnapshot.subHeight.value,
         lastSnapshotHash = globalSnapshot.lastSnapshotHash.value,
         blocks = blocksHashes.toSet,
-        rewards = globalSnapshot.rewards.map(reward =>
+        rewards = globalSnapshot.rewards.unsorted.map(reward =>
           RewardTransaction(
             reward.destination.value,
             reward.amount.value
@@ -57,7 +56,7 @@ object GlobalSnapshotMapper {
 
       def mapBlocks(globalSnapshot: Signed[GlobalSnapshot], timestamp: Date): F[Seq[Block]] = for {
         snapshotHash <- hashSnapshot(globalSnapshot)
-        blocks <- globalSnapshot.blocks
+        blocks <- globalSnapshot.blocks.unsorted
           .map(_.block)
           .map(mapBlock(snapshotHash, globalSnapshot.ordinal.value.value, timestamp))
           .toList
@@ -69,7 +68,7 @@ object GlobalSnapshotMapper {
       ): F[Block] =
         for {
           blockHash <- hashBlock(block)
-          transactionsHashes <- block.value.transactions.map(hashTransaction).toList.sequence
+          transactionsHashes <- block.value.transactions.unsorted.map(hashTransaction).toList.sequence
         } yield Block(
           hash = blockHash,
           height = block.height.value,
@@ -85,7 +84,7 @@ object GlobalSnapshotMapper {
 
       def mapTransactions(globalSnapshot: Signed[GlobalSnapshot], timestamp: Date) = for {
         snapshotHash <- hashSnapshot(globalSnapshot)
-        transactions <- globalSnapshot.blocks
+        transactions <- globalSnapshot.blocks.unsorted
           .map(_.block)
           .map(mapTransactionsFromBlock(snapshotHash, globalSnapshot.ordinal.value.value, timestamp))
           .toList
@@ -96,7 +95,7 @@ object GlobalSnapshotMapper {
         block: Signed[OriginalDAGBlock]
       ) = for {
         blockHash <- hashBlock(block)
-        transactions <- block.transactions
+        transactions <- block.transactions.unsorted
           .map(mapTransaction(blockHash, snapshotHash, snapshotOrdinal, timestamp))
           .toList
           .sequence
