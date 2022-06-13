@@ -35,7 +35,7 @@ object SnapshotDAOSuite extends SimpleIOSuite {
 
   }
 
-  def mkSnapshotDAO(elastiDAO: OpensearchDAO[IO]) = SnapshotDAO.make(mkUpdateBuilder(), elastiDAO)
+  def mkSnapshotDAO(opensearchDAO: OpensearchDAO[IO]) = SnapshotDAO.make(mkUpdateBuilder())(opensearchDAO)
 
   test("return ordinal of fully sent snapshot") {
     val actual = mkSnapshotDAO(mkOpensearchDAO(Stream.emit(()))).sendSnapshotToOpensearch(globalSnapshot(345L))

@@ -26,6 +26,15 @@ object SnapshotServiceSuite extends SimpleIOSuite {
 
   }
 
+  def mkBrokenProcessedSnapshotsService() = new ProcessedSnapshotsService[IO] {
+
+    override def initialState(): Stream[IO, ProcessedSnapshots] = Stream.raiseError(new Throwable("Init error"))
+
+    override def saveState(processedSnapshots: ProcessedSnapshots): Stream[IO, Unit] =
+      Stream.raiseError(new Throwable("Save error"))
+
+  }
+
   def mkNodeService(ordinals: List[Long], ordinalToFail: Option[Long] = None) = new NodeService[IO] {
 
     override def getSnapshots(
@@ -39,7 +48,7 @@ object SnapshotServiceSuite extends SimpleIOSuite {
             .map(globalSnapshot(_))
         )
         .flatMap(snap =>
-          if (ordinalToFail.contains(snap.ordinal.value.value)) Stream.raiseError(new Throwable("NODE ERROR!"))
+          if (ordinalToFail.contains(snap.ordinal.value.value)) Stream.raiseError(new Throwable("Node error"))
           else Stream.emit(snap)
         )
 
@@ -54,7 +63,7 @@ object SnapshotServiceSuite extends SimpleIOSuite {
           snapshot.ordinal.value.value
         ) && (!failOnlyOnce || (failOnlyOnce && counter.getAndIncrement < 1))
       ) {
-        Stream.raiseError(new Exception("DAO ERROR!"))
+        Stream.raiseError(new Exception("DAO error"))
       } else Stream.emit(snapshot.ordinal.value.value)
 
   }
@@ -64,7 +73,7 @@ object SnapshotServiceSuite extends SimpleIOSuite {
     dao: SnapshotDAO[IO],
     processedService: ProcessedSnapshotsService[IO]
   ) =
-    SnapshotService.make[IO, Signed[GlobalSnapshot]](nodeService, dao, processedService)
+    SnapshotService.make[IO, Signed[GlobalSnapshot]](nodeService, processedService)(dao)
 
   test("save next ordinal to process when succeed") {
     {
@@ -175,6 +184,18 @@ object SnapshotServiceSuite extends SimpleIOSuite {
     }
       .flatMap(ref => ref.get)
       .map(res => expect.same(res, ProcessedSnapshots(3L.some, Nil)))
+  }
+
+  test("fail when cannot read initial state") {
+    mkSnapshotService(mkNodeService(List(0), Some(3)), mkSnapshotDAO(), mkBrokenProcessedSnapshotsService())
+      .processSnapshot()
+      .take(6)
+      .compile
+      .toList
+      .attempt
+      .map(_.left.map(_.getMessage))
+      .map(s => expect.same(s, Left("Init error")))
+
   }
 
 }

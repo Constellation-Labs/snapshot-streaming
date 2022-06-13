@@ -20,20 +20,22 @@ trait OpensearchDAO[F[_]] {
 
 object OpensearchDAO {
 
-  def make[F[_]: Async](openSearchUrl: Uri) =
+  def make[F[_]: Async](openSearchUrl: Uri): Resource[F, OpensearchDAO[F]] = {
+    val logger = Slf4jLogger.getLogger
+    def getEsClient(): Resource[F, ElasticClient] = {
+      def client = ElasticClient(
+        JavaClient(ElasticProperties(s"${openSearchUrl.renderString}"))
+      )
+      Resource.fromAutoCloseable(logger.info("Initiating es client.") >> Async[F].delay(client))
+    }
+
+    getEsClient().map(make(_))
+  }
+
+  def make[F[_]: Async](esClient: ElasticClient): OpensearchDAO[F] =
     new OpensearchDAO[F] {
 
-      private val logger = Slf4jLogger.getLoggerFromClass[F](OpensearchDAO.getClass)
-
-      def getEsClient(): Resource[F, ElasticClient] = {
-        val client = ElasticClient(
-          JavaClient(ElasticProperties(s"${openSearchUrl.renderString}"))
-        )
-        Resource.fromAutoCloseable(logger.info("Initiating es client.") >> Async[F].delay(client))
-      }
-
       def sendToOpensearch(bulkRequest: BulkRequest): Stream[F, Unit] = for {
-        esClient <- Stream.resource(getEsClient())
         _ <- Stream.eval {
           Async[F].async_[Response[BulkResponse]] { cb =>
             esClient.execute(bulkRequest).onComplete {

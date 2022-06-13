@@ -9,7 +9,6 @@ import cats.syntax.traverse._
 
 import org.tessellation.dag.domain.block.{DAGBlock => OriginalDAGBlock}
 import org.tessellation.dag.snapshot.GlobalSnapshot
-import org.tessellation.ext.crypto._
 import org.tessellation.kryo.KryoSerializer
 import org.tessellation.schema.transaction.{
   Transaction => OriginalTransaction,
