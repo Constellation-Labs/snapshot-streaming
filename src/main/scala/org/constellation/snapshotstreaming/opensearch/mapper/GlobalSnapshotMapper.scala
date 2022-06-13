@@ -53,7 +53,7 @@ object GlobalSnapshotMapper {
       )
 
       def hashSnapshot(globalSnapshot: Signed[GlobalSnapshot]) =
-        globalSnapshot.hashF.map(_.value)
+        globalSnapshot.toHashed.map(_.hash.value)
 
       def mapBlocks(globalSnapshot: Signed[GlobalSnapshot], timestamp: Date): F[Seq[Block]] = for {
         snapshotHash <- hashSnapshot(globalSnapshot)
