@@ -2,10 +2,11 @@ package org.constellation.snapshotstreaming.opensearch
 
 import java.util.Date
 
-import cats.effect.{Async, Clock}
+import cats.effect.{Async, Clock, Resource}
 import cats.syntax.functor._
 
 import org.tessellation.dag.snapshot.GlobalSnapshot
+import org.tessellation.kryo.KryoSerializer
 import org.tessellation.security.signature.Signed
 
 import com.sksamuel.elastic4s.ElasticDsl.bulk
@@ -19,13 +20,16 @@ trait SnapshotDAO[F[_]] {
 
 object SnapshotDAO {
 
-  def make[F[_]: Async](updateRequestBuilder: UpdateRequestBuilder[F], config: Configuration): SnapshotDAO[F] =
-    make(updateRequestBuilder, OpensearchDAO.make(config.opensearchUrl))
+  def make[F[_]: Async: KryoSerializer](
+    config: Configuration
+  ): Resource[F, SnapshotDAO[F]] = {
+    val requestBuilder = UpdateRequestBuilder.make[F](config)
+    OpensearchDAO.make(config.opensearchUrl).map(make(requestBuilder))
+  }
 
   def make[F[_]: Async](
-    updateRequestBuilder: UpdateRequestBuilder[F],
-    opensearchDAO: OpensearchDAO[F]
-  ): SnapshotDAO[F] =
+    updateRequestBuilder: UpdateRequestBuilder[F]
+  )(opensearchDAO: OpensearchDAO[F]): SnapshotDAO[F] =
     new SnapshotDAO[F] {
 
       private val logger = Slf4jLogger.getLoggerFromClass[F](SnapshotDAO.getClass)

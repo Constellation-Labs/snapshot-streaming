@@ -4,7 +4,6 @@ import cats.effect._
 
 import org.tessellation._
 import org.tessellation.kryo.KryoSerializer
-import org.tessellation.security.SecurityProvider
 
 import fs2._
 import org.http4s.ember.client.EmberClientBuilder
@@ -15,17 +14,15 @@ object App extends IOApp {
   private val configuration = new Configuration
 
   def run(args: List[String]): IO[ExitCode] =
-    SecurityProvider.forAsync[IO].use { implicit sp =>
-      KryoSerializer.forAsync[IO](dag.dagSharedKryoRegistrar ++ shared.sharedKryoRegistrar).use {
-        implicit kryoSerializer =>
-          nodeStream[IO].compile.drain
-            .flatTap(_ => logger.debug("Done!"))
-            .map(_ => ExitCode.Success)
-            .handleErrorWith(e => logger.warn(e)(e.getMessage).map(_ => ExitCode.Error))
-      }
+    KryoSerializer.forAsync[IO](dag.dagSharedKryoRegistrar ++ shared.sharedKryoRegistrar).use {
+      implicit kryoSerializer =>
+        nodeStream[IO].compile.drain
+          .flatTap(_ => logger.debug("Done!"))
+          .map(_ => ExitCode.Success)
+          .handleErrorWith(e => logger.warn(e)(e.getMessage).map(_ => ExitCode.Error))
     }
 
-  def nodeStream[F[_]: Async: KryoSerializer: SecurityProvider] =
+  def nodeStream[F[_]: Async: KryoSerializer] =
     for {
       client <- Stream.resource(
         EmberClientBuilder
@@ -34,7 +31,7 @@ object App extends IOApp {
           .withIdleTimeInPool(configuration.httpClientIdleTime)
           .build
       )
-      snapshotService = SnapshotService.make(client, configuration)
+      snapshotService <- Stream.resource(SnapshotService.make(client, configuration))
 
       _ <- snapshotService.processSnapshot()
     } yield ()

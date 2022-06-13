@@ -1,13 +1,12 @@
 package org.constellation.snapshotstreaming
 
-import cats.effect.Async
+import cats.effect.{Async, Resource}
 
 import org.tessellation.kryo.KryoSerializer
-import org.tessellation.security.SecurityProvider
 
 import fs2.Stream
 import org.constellation.snapshotstreaming.node.{NodeClient, NodeDownload, NodeService}
-import org.constellation.snapshotstreaming.opensearch.{SnapshotDAO, UpdateRequestBuilder}
+import org.constellation.snapshotstreaming.opensearch.SnapshotDAO
 import org.http4s.client.Client
 import org.typelevel.log4cats.slf4j.Slf4jLogger
 
@@ -18,23 +17,20 @@ trait SnapshotService[F[_]] {
 
 object SnapshotService {
 
-  def make[F[_]: Async: KryoSerializer: SecurityProvider](
+  def make[F[_]: Async: KryoSerializer](
     client: Client[F],
     config: Configuration
-  ): SnapshotService[F] = {
-    val nodeClients = config.nodeUrls.map(url => NodeClient.make[F](client, url))
-    val nodeService = NodeService.make[F](nodeClients.map(NodeDownload.make[F](_, config)))
-    val requestBuilder = UpdateRequestBuilder.make[F](config)
-    val dao = SnapshotDAO.make[F](requestBuilder, config)
-    val processedService = ProcessedSnapshotsService.make[F](config)
-    make(nodeService, dao, processedService)
-  }
+  ): Resource[F, SnapshotService[F]] = for {
+    dao <- SnapshotDAO.make[F](config)
+    nodeClients = config.nodeUrls.map(url => NodeClient.make[F](client, url))
+    nodeService = NodeService.make[F](nodeClients.map(NodeDownload.make[F](_, config)))
+    processedService = ProcessedSnapshotsService.make[F](config)
+  } yield make(nodeService, processedService)(dao)
 
   def make[F[_]: Async, T](
     nodeService: NodeService[F],
-    snapshotDAO: SnapshotDAO[F],
     processedSnapshotsService: ProcessedSnapshotsService[F]
-  ): SnapshotService[F] =
+  )(snapshotDAO: SnapshotDAO[F]): SnapshotService[F] =
     new SnapshotService[F] {
 
       private val logger = Slf4jLogger.getLoggerFromClass[F](SnapshotService.getClass)
@@ -44,9 +40,10 @@ object SnapshotService {
           init <- processedSnapshotsService.initialState()
           processedSnapshots <- downloadAndSendSnapshots(init)
             .scan(init)(updateProcessedSnapshots)
+            .handleErrorWith(ex => Stream.eval(logger.error(ex)("Error during processing snapshot.")) >> Stream.empty)
           _ <- processedSnapshotsService.saveState(processedSnapshots)
         } yield (())
-      }.handleErrorWith(ex => Stream.eval(logger.error(ex)("Error during processing snapshot.")) >> processSnapshot())
+      } ++ processSnapshot() 
 
       def downloadAndSendSnapshots(init: ProcessedSnapshots) = for {
         snapshot <- nodeService.getSnapshots(init.startingOrdinal, init.gaps)
