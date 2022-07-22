@@ -67,7 +67,7 @@ object GlobalSnapshotMapper {
       ): F[Block] =
         for {
           blockHash <- hashBlock(block)
-          transactionsHashes <- block.value.transactions.unsorted.map(hashTransaction).toList.sequence
+          transactionsHashes <- block.value.transactions.toSortedSet.unsorted.map(hashTransaction).toList.sequence
         } yield Block(
           hash = blockHash,
           height = block.height.value,
@@ -94,7 +94,7 @@ object GlobalSnapshotMapper {
         block: Signed[OriginalDAGBlock]
       ) = for {
         blockHash <- hashBlock(block)
-        transactions <- block.transactions.unsorted
+        transactions <- block.transactions.toSortedSet.unsorted
           .map(mapTransaction(blockHash, snapshotHash, snapshotOrdinal, timestamp))
           .toList
           .sequence
