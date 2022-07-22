@@ -23,7 +23,7 @@ object NodeClient {
     nodeUri: Uri
   ) = new NodeClient[F] {
 
-    val uri: Uri = nodeUri.addPath("global-snapshot/")
+    val uri: Uri = nodeUri.addPath("global-snapshots/")
 
     def getLatestOrdinal = {
       import org.http4s.circe.CirceEntityCodec.circeEntityDecoder
