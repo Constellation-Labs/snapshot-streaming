@@ -21,7 +21,7 @@ object data {
   def globalSnapshot(ordinal: Long) = Signed(
     GlobalSnapshot(
       ordinal = SnapshotOrdinal(NonNegLong.unsafeFrom(ordinal)),
-      height = Height(0),
+      height = Height(0L),
       subHeight = SubHeight(1L),
       lastSnapshotHash = Hash(""),
       blocks = SortedSet.empty,
