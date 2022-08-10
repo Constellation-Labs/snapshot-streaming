@@ -3,7 +3,6 @@ package org.constellation.snapshotstreaming
 import cats.data.{NonEmptyList, NonEmptySet}
 
 import scala.collection.immutable.{SortedMap, SortedSet}
-
 import org.tessellation.dag.snapshot.{GlobalSnapshot, SnapshotOrdinal}
 import org.tessellation.schema.ID.Id
 import org.tessellation.schema.height.{Height, SubHeight}
@@ -12,9 +11,9 @@ import org.tessellation.security.hash.Hash
 import org.tessellation.security.hex.Hex
 import org.tessellation.security.signature.Signed
 import org.tessellation.security.signature.signature.{Signature, SignatureProof}
-
 import eu.timepit.refined.auto._
 import eu.timepit.refined.types.numeric.NonNegLong
+import org.tessellation.dag.snapshot.epoch.EpochProgress
 
 object data {
 
@@ -27,6 +26,7 @@ object data {
       blocks = SortedSet.empty,
       stateChannelSnapshots = SortedMap.empty,
       rewards = SortedSet.empty,
+      epochProgress = EpochProgress.MinValue,
       nextFacilitators = NonEmptyList.of(PeerId(Hex(""))),
       info = null,
       tips = null
