@@ -43,7 +43,7 @@ object SnapshotService {
             .handleErrorWith(ex => Stream.eval(logger.error(ex)("Error during processing snapshot.")) >> Stream.empty)
           _ <- processedSnapshotsService.saveState(processedSnapshots)
         } yield (())
-      } ++ processSnapshot() 
+      } ++ processSnapshot()
 
       def downloadAndSendSnapshots(init: ProcessedSnapshots) = for {
         snapshot <- nodeService.getSnapshots(init.startingOrdinal, init.gaps)
