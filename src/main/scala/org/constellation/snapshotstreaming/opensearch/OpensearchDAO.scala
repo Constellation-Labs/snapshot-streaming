@@ -3,7 +3,6 @@ package org.constellation.snapshotstreaming.opensearch
 import cats.effect.{Async, Resource}
 import cats.syntax.flatMap._
 
-import scala.concurrent.ExecutionContext.Implicits.global
 import scala.util.{Failure, Success}
 
 import com.sksamuel.elastic4s.ElasticDsl._
@@ -37,17 +36,21 @@ object OpensearchDAO {
 
       def sendToOpensearch(bulkRequest: BulkRequest): Stream[F, Unit] = for {
         _ <- Stream.eval {
-          Async[F].async_[Response[BulkResponse]] { cb =>
-            esClient.execute(bulkRequest).onComplete {
-              case Success(a) =>
-                a match {
-                  case RequestSuccess(_, _, _, result) if result.errors =>
-                    cb(Left(new Throwable(s"Bulk request failed: ${result.failures}")))
-                  case RequestSuccess(_, _, _, result) if !result.errors => cb(Right(a))
-                  case RequestFailure(_, _, _, error)                    => cb(Left(error.asException))
-                  case _                                                 => cb(Left(new Throwable("Unexpected error")))
+          Async[F].delay(esClient.execute(bulkRequest)).flatMap { fut =>
+            Async[F].executionContext.flatMap { implicit ec =>
+              Async[F].async_[Response[BulkResponse]] { cb =>
+                fut.onComplete {
+                  case Success(a) =>
+                    a match {
+                      case RequestSuccess(_, _, _, result) if result.errors =>
+                        cb(Left(new Throwable(s"Bulk request failed: ${result.failures}")))
+                      case RequestSuccess(_, _, _, result) if !result.errors => cb(Right(a))
+                      case RequestFailure(_, _, _, error)                    => cb(Left(error.asException))
+                      case _ => cb(Left(new Throwable("Unexpected error")))
+                    }
+                  case Failure(e) => cb(Left(e))
                 }
-              case Failure(e) => cb(Left(e))
+              }
             }
           }
         }
