@@ -1,3 +1,7 @@
+variable "aws_region" {
+  type = string
+  default = "us-west-1"
+}
 variable "ami" {
   type = string
 }
@@ -33,4 +37,8 @@ variable "opensearch-url" {
 variable "ordinals-gaps" {
   type = list(number)
   default = []
+}
+
+variable "bucket-name" {
+  type = string
 }

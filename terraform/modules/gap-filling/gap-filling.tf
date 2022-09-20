@@ -63,6 +63,8 @@ resource "aws_instance" "snapshot-streaming-gap-filling" {
     content = templatefile("templates/application.conf", {
       node-urls = var.node-urls
       opensearch-url = var.opensearch-url
+      bucket-region = var.aws_region
+      bucket-name = var.bucket-name
     })
     destination = "/home/ec2-user/snapshot-streaming/application.conf"
   }

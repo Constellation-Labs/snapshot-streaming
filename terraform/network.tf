@@ -1,16 +1,5 @@
-resource "aws_network_interface" "cl_snapshot-streaming-network_interface" {
-  subnet_id = var.cl-subnet-id
-  private_ips = ["20.0.0.12"]
-
-  tags = {
-    Name = "cl-network_interface-${var.env}"
-    Env = var.env
-    Workspace = local.workspace
-  }
-}
-
 resource "aws_security_group" "security-group" {
-  name = "cl-snapshot-streaming_security_group-${var.env}"
+  name = "cl-snapshot-streaming_security_group-${var.env}-${local.instance_id}"
   vpc_id = var.cl-vpc-id
 
   ingress {
@@ -28,14 +17,14 @@ resource "aws_security_group" "security-group" {
   }
 
   tags = {
-    Name = "cl-snapshot-streaming_security_group"
+    Name = "cl-snapshot-streaming_security_group-${local.instance_id}"
     Env = var.env
     Workspace = terraform.workspace
   }
 }
 
 resource "aws_security_group" "security-group-access-to-vpc" {
-  name = "cl-snapshot-streaming_security_group-access-${var.env}"
+  name = "cl-snapshot-streaming_security_group-access-${var.env}-${local.instance_id}"
   vpc_id = var.cl-vpc-id
 
   egress {
@@ -46,7 +35,7 @@ resource "aws_security_group" "security-group-access-to-vpc" {
   }
 
   tags = {
-    Name = "cl-snapshot-streaming_security-group-access"
+    Name = "cl-snapshot-streaming_security-group-access-${local.instance_id}"
     Env = var.env
     Workspace = terraform.workspace
   }

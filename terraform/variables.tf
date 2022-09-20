@@ -46,3 +46,7 @@ variable "ordinals-gaps" {
   type = list(number)
   default = []
 }
+
+variable "bucket-name" {
+  type = string
+}

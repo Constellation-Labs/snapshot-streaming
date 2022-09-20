@@ -7,6 +7,7 @@ import org.tessellation.kryo.KryoSerializer
 import fs2.Stream
 import org.constellation.snapshotstreaming.node.{NodeClient, NodeDownload, NodeService}
 import org.constellation.snapshotstreaming.opensearch.SnapshotDAO
+import org.constellation.snapshotstreaming.s3.S3DAO
 import org.http4s.client.Client
 import org.typelevel.log4cats.slf4j.Slf4jLogger
 
@@ -22,15 +23,17 @@ object SnapshotService {
     config: Configuration
   ): Resource[F, SnapshotService[F]] = for {
     dao <- SnapshotDAO.make[F](config)
+    s3DAO <- S3DAO.make[F](config)
     nodeClients = config.nodeUrls.map(url => NodeClient.make[F](client, url))
     nodeService = NodeService.make[F](nodeClients.map(NodeDownload.make[F](_, config)))
     processedService = ProcessedSnapshotsService.make[F](config)
-  } yield make(nodeService, processedService)(dao)
+  } yield make(nodeService, processedService, dao, s3DAO)
 
   def make[F[_]: Async, T](
     nodeService: NodeService[F],
-    processedSnapshotsService: ProcessedSnapshotsService[F]
-  )(snapshotDAO: SnapshotDAO[F]): SnapshotService[F] =
+    processedSnapshotsService: ProcessedSnapshotsService[F],
+    snapshotDAO: SnapshotDAO[F],
+    s3DAO: S3DAO[F]): SnapshotService[F] =
     new SnapshotService[F] {
 
       private val logger = Slf4jLogger.getLoggerFromClass[F](SnapshotService.getClass)
@@ -47,6 +50,7 @@ object SnapshotService {
 
       def downloadAndSendSnapshots(init: ProcessedSnapshots) = for {
         snapshot <- nodeService.getSnapshots(init.startingOrdinal, init.gaps)
+        _ <- s3DAO.uploadSnapshot(snapshot)
         snapshotOrdinal <- snapshotDAO.sendSnapshotToOpensearch(snapshot)
       } yield snapshotOrdinal
 

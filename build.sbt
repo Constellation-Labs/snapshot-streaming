@@ -32,6 +32,7 @@ lazy val core = (project in file("."))
     commonSettings,
     testSettings,
     libraryDependencies ++= Seq(
+      Libraries.awss3,
       Libraries.catsCore,
       Libraries.catsKernel,
       Libraries.catsEffect,
