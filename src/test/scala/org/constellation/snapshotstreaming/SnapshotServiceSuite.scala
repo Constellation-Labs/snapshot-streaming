@@ -14,6 +14,7 @@ import org.constellation.snapshotstreaming.data._
 import org.constellation.snapshotstreaming.node.NodeService
 import org.constellation.snapshotstreaming.opensearch.SnapshotDAO
 import weaver.SimpleIOSuite
+import org.constellation.snapshotstreaming.s3.S3DAO
 
 object SnapshotServiceSuite extends SimpleIOSuite {
 
@@ -68,12 +69,25 @@ object SnapshotServiceSuite extends SimpleIOSuite {
 
   }
 
+  def mkS3DAO(ordinalToFail: Option[Long] = None) = new S3DAO[IO] {
+
+    override def uploadSnapshot(snapshot: Signed[GlobalSnapshot]): Stream[IO,Unit] = 
+      if(ordinalToFail.contains(
+          snapshot.ordinal.value.value
+        )) Stream.raiseError(new Exception("S3DAO error"))
+      else Stream.emit(())
+
+
+  }
+
   def mkSnapshotService(
     nodeService: NodeService[IO],
     dao: SnapshotDAO[IO],
-    processedService: ProcessedSnapshotsService[IO]
-  ) =
-    SnapshotService.make[IO, Signed[GlobalSnapshot]](nodeService, processedService)(dao)
+    processedService: ProcessedSnapshotsService[IO],
+    s3DAO: S3DAO[IO] = mkS3DAO()
+  ) = {
+    SnapshotService.make[IO, Signed[GlobalSnapshot]](nodeService, processedService, dao, s3DAO)
+  }
 
   test("save next ordinal to process when succeed") {
     {
@@ -152,6 +166,26 @@ object SnapshotServiceSuite extends SimpleIOSuite {
     }
       .flatMap(ref => ref.get)
       .map(res => expect.same(res, ProcessedSnapshots(5L.some, Nil)))
+  }
+
+  test("should keep trying when uploading to s3 fails") {
+    {
+      for {
+        ref <- Ref[IO].of(ProcessedSnapshots(0L.some, Nil))
+        _ <- mkSnapshotService(
+          mkNodeService(List(0, 1, 2, 3, 4, 5, 6)),
+          mkSnapshotDAO(),
+          mkProcessedSnapshotsService(ref),
+          mkS3DAO(ordinalToFail = Some(4))
+        )
+          .processSnapshot()
+          .take(7)
+          .compile
+          .drain
+      } yield ref
+    }
+      .flatMap(ref => ref.get)
+      .map(res => expect.same(res, ProcessedSnapshots(4L.some, Nil)))
   }
 
   test(

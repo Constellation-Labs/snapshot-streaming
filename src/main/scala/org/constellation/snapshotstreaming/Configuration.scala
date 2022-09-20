@@ -12,6 +12,7 @@ class Configuration {
   private val httpClient = config.getConfig("snapshotStreaming.httpClient")
   private val node = config.getConfig("snapshotStreaming.node")
   private val opensearch = config.getConfig("snapshotStreaming.opensearch")
+  private val s3 = config.getConfig("snapshotStreaming.s3")
 
   val nextOrdinalPath: String = config.getString("snapshotStreaming.nextOrdinalPath")
 
@@ -31,4 +32,8 @@ class Configuration {
   val balancesIndex: String = opensearch.getString("indexes.balances")
   val balancesLimit: Int = opensearch.getInt("balancesLimit")
   val bulkSize: Int = opensearch.getInt("bulkSize")
+
+  val bucketRegion: String = s3.getString("bucketRegion")
+  val bucketName: String = s3.getString("bucketName")
+  val bucketDir: String = s3.getString("bucketDir")
 }

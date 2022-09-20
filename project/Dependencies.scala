@@ -3,22 +3,23 @@ import sbt._
 object Dependencies {
 
   object V {
-    val cats = "2.7.0"
-    val catsEffect = "3.3.11"
-    val circe = "0.14.0"
+    val amazonaws = "1.11.1000"
+    val cats = "2.8.0"
+    val catsEffect = "3.3.14"
+    val circe = "0.14.2"
     val config = "1.4.2"
-    val derevo = "0.12.6"
+    val derevo = "0.13.0"
     val elastic4s = "8.1.0"
-    val fs2 = "3.2.7"
-    val guava = "30.1.1-jre"
-    val http4s = "0.23.11"
-    val log4cats = "2.2.0"
+    val fs2 = "3.2.11"
+    val guava = "31.1-jre"
+    val http4s = "0.23.14"
+    val log4cats = "2.4.0"
     val logback = "1.2.11"
-    val logstash = "7.0.1"
+    val logstash = "7.2"
     val organizeImports = "0.6.0"
-    val refined = "0.9.28"
-    val tessellation = "0.15.0"
-    val weaver = "0.7.11"
+    val refined = "0.10.1"
+    val tessellation = "0.25.1"
+    val weaver = "0.7.14"
   }
 
   object Libraries {
@@ -39,6 +40,8 @@ object Dependencies {
     def http4s(artifact: String): ModuleID = "org.http4s" %% s"http4s-$artifact" % V.http4s
 
     def weaver(artifact: String): ModuleID = "com.disneystreaming" %% s"weaver-$artifact" % V.weaver
+
+    val awss3 = "com.amazonaws" % "aws-java-sdk-s3" % V.amazonaws
 
     val catsCore = cats("core")
     val catsKernel = cats("kernel")

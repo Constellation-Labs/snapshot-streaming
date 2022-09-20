@@ -1,5 +1,10 @@
+resource "random_id" "instance_id" {
+  byte_length = 4
+}
+
 locals {
   workspace = terraform.workspace
+  instance_id = random_id.instance_id.hex
 }
 
 module "gap-filling" {
@@ -13,4 +18,6 @@ module "gap-filling" {
   node-urls = var.node-urls
   opensearch-url = var.opensearch-url
   ordinals-gaps = var.ordinals-gaps
+  aws_region = var.aws_region
+  bucket-name = var.bucket-name
 }
