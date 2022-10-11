@@ -7,6 +7,7 @@ locals {
   instance_id = random_id.instance_id.hex
 }
 
+/*
 module "gap-filling" {
   source = "./modules/gap-filling"
   ami = data.aws_ami.amzn2-ami.id
@@ -21,3 +22,4 @@ module "gap-filling" {
   aws_region = var.aws_region
   bucket-name = var.bucket-name
 }
+*/
