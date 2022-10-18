@@ -18,12 +18,13 @@ import org.tessellation.security.signature.Signed
 
 import eu.timepit.refined.auto.autoUnwrap
 import org.constellation.snapshotstreaming.opensearch.schema._
+import org.tessellation.security.Hashed
 
 trait GlobalSnapshotMapper[F[_]] {
-  def mapSnapshot(globalSnapshot2: Signed[GlobalSnapshot], timestamp: Date): F[Snapshot]
-  def mapBlocks(globalSnapshot2: Signed[GlobalSnapshot], timestamp: Date): F[Seq[Block]]
-  def mapTransactions(globalSnapshot: Signed[GlobalSnapshot], timestamp: Date): F[Seq[Transaction]]
-  def mapBalances(globalSnapshot: Signed[GlobalSnapshot], timestamp: Date): F[Seq[AddressBalance]]
+  def mapSnapshot(globalSnapshot: Hashed[GlobalSnapshot], timestamp: Date): F[Snapshot]
+  def mapBlocks(globalSnapshot: Hashed[GlobalSnapshot], timestamp: Date): F[Seq[Block]]
+  def mapTransactions(globalSnapshot: Hashed[GlobalSnapshot], timestamp: Date): F[Seq[Transaction]]
+  def mapBalances(globalSnapshot: Hashed[GlobalSnapshot], timestamp: Date): Seq[AddressBalance]
 }
 
 object GlobalSnapshotMapper {
@@ -31,11 +32,10 @@ object GlobalSnapshotMapper {
   def make[F[_]: Async: KryoSerializer](): GlobalSnapshotMapper[F] =
     new GlobalSnapshotMapper[F] {
 
-      def mapSnapshot(globalSnapshot: Signed[GlobalSnapshot], timestamp: Date): F[Snapshot] = for {
-        snapshotHash <- hashSnapshot(globalSnapshot)
+      def mapSnapshot(globalSnapshot: Hashed[GlobalSnapshot], timestamp: Date): F[Snapshot] = for {
         blocksHashes <- globalSnapshot.blocks.unsorted.map(_.block).map(hashBlock).toList.sequence
       } yield Snapshot(
-        hash = snapshotHash,
+        hash = globalSnapshot.hash.value,
         ordinal = globalSnapshot.ordinal.value.value,
         height = globalSnapshot.height.value,
         subHeight = globalSnapshot.subHeight.value,
@@ -50,14 +50,10 @@ object GlobalSnapshotMapper {
         timestamp = timestamp
       )
 
-      def hashSnapshot(globalSnapshot: Signed[GlobalSnapshot]) =
-        globalSnapshot.toHashed.map(_.hash.value)
-
-      def mapBlocks(globalSnapshot: Signed[GlobalSnapshot], timestamp: Date): F[Seq[Block]] = for {
-        snapshotHash <- hashSnapshot(globalSnapshot)
+      def mapBlocks(globalSnapshot: Hashed[GlobalSnapshot], timestamp: Date): F[Seq[Block]] = for {
         blocks <- globalSnapshot.blocks.unsorted
           .map(_.block)
-          .map(mapBlock(snapshotHash, globalSnapshot.ordinal.value.value, timestamp))
+          .map(mapBlock(globalSnapshot.hash.value, globalSnapshot.ordinal.value.value, timestamp))
           .toList
           .sequence
       } yield blocks
@@ -81,11 +77,10 @@ object GlobalSnapshotMapper {
       def hashBlock(nodeBlock: Signed[OriginalDAGBlock]): F[String] =
         nodeBlock.toHashed.map(_.proofsHash.value)
 
-      def mapTransactions(globalSnapshot: Signed[GlobalSnapshot], timestamp: Date) = for {
-        snapshotHash <- hashSnapshot(globalSnapshot)
+      def mapTransactions(globalSnapshot: Hashed[GlobalSnapshot], timestamp: Date) = for {
         transactions <- globalSnapshot.blocks.unsorted
           .map(_.block)
-          .map(mapTransactionsFromBlock(snapshotHash, globalSnapshot.ordinal.value.value, timestamp))
+          .map(mapTransactionsFromBlock(globalSnapshot.hash.value, globalSnapshot.ordinal.value.value, timestamp))
           .toList
           .sequence
       } yield transactions.flatten
@@ -125,14 +120,12 @@ object GlobalSnapshotMapper {
       def mapTransactionRef(nodeRef: OriginalTransactionReference): TransactionReference =
         TransactionReference(nodeRef.hash.value, nodeRef.ordinal.value)
 
-      def mapBalances(globalSnapshot: Signed[GlobalSnapshot], timestamp: Date): F[Seq[AddressBalance]] =
-        for {
-          snapshotHash <- hashSnapshot(globalSnapshot)
-        } yield globalSnapshot.info.balances.toSeq.map { case (address, balance) =>
+      def mapBalances(globalSnapshot: Hashed[GlobalSnapshot], timestamp: Date): Seq[AddressBalance] =
+        globalSnapshot.info.balances.toSeq.map { case (address, balance) =>
           AddressBalance(
             address = address.value.value,
             balance = balance.value.value,
-            snapshotHash = snapshotHash,
+            snapshotHash = globalSnapshot.hash.value,
             snapshotOrdinal = globalSnapshot.ordinal.value.value,
             timestamp = timestamp
           )

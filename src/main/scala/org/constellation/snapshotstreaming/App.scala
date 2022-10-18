@@ -1,12 +1,13 @@
 package org.constellation.snapshotstreaming
 
 import cats.effect._
+import cats.effect.std.Random
 
 import org.tessellation._
+import org.tessellation.ext.cats.effect._
 import org.tessellation.kryo.KryoSerializer
+import org.tessellation.security.SecurityProvider
 
-import fs2._
-import org.http4s.ember.client.EmberClientBuilder
 import org.typelevel.log4cats.slf4j.Slf4jLogger
 
 object App extends IOApp {
@@ -14,26 +15,16 @@ object App extends IOApp {
   private val configuration = new Configuration
 
   def run(args: List[String]): IO[ExitCode] =
-    KryoSerializer.forAsync[IO](dag.dagSharedKryoRegistrar ++ shared.sharedKryoRegistrar).use {
-      implicit kryoSerializer =>
-        nodeStream[IO].compile.drain
-          .flatTap(_ => logger.debug("Done!"))
-          .map(_ => ExitCode.Success)
-          .handleErrorWith(e => logger.warn(e)(e.getMessage).map(_ => ExitCode.Error))
+    Random.scalaUtilRandom[IO].asResource.use { implicit random =>
+      KryoSerializer.forAsync[IO](dag.dagSharedKryoRegistrar ++ shared.sharedKryoRegistrar).use { implicit ks =>
+        SecurityProvider.forAsync[IO].use { implicit sp =>
+          SnapshotProcessor.make[IO](configuration).use { snapshotProcessor =>
+            snapshotProcessor.runtime.compile.drain
+              .flatTap(_ => logger.debug("Done!"))
+              .as(ExitCode.Success)
+              .handleErrorWith(e => logger.error(e)(e.getMessage).as(ExitCode.Error))
+          }
+        }
+      }
     }
-
-  def nodeStream[F[_]: Async: KryoSerializer] =
-    for {
-      client <- Stream.resource(
-        EmberClientBuilder
-          .default[F]
-          .withTimeout(configuration.httpClientTimeout)
-          .withIdleTimeInPool(configuration.httpClientIdleTime)
-          .build
-      )
-      snapshotService <- Stream.resource(SnapshotService.make(client, configuration))
-
-      _ <- snapshotService.processSnapshot()
-    } yield ()
-
 }

@@ -1,9 +1,17 @@
 package org.constellation.snapshotstreaming
 
-import scala.concurrent.duration.Duration
-import scala.jdk.CollectionConverters._
+import cats.data.NonEmptyMap
 
+import scala.collection.immutable.SortedMap
+import scala.concurrent.duration.{Duration, FiniteDuration}
+import scala.jdk.CollectionConverters._
+import scala.util.Try
+import org.tessellation.dag.snapshot.SnapshotOrdinal
+import org.tessellation.schema.peer.{L0Peer, PeerId}
 import com.typesafe.config.{Config, ConfigFactory}
+import eu.timepit.refined.types.numeric.{NonNegLong, PosLong}
+import fs2.io.file.Path
+import io.circe.parser.decode
 import org.http4s.Uri
 
 class Configuration {
@@ -14,13 +22,24 @@ class Configuration {
   private val opensearch = config.getConfig("snapshotStreaming.opensearch")
   private val s3 = config.getConfig("snapshotStreaming.s3")
 
-  val nextOrdinalPath: String = config.getString("snapshotStreaming.nextOrdinalPath")
+  val lastSnapshotPath: Path = Path(config.getString("snapshotStreaming.lastSnapshotPath"))
+  val l0Peers: NonEmptyMap[PeerId, L0Peer] = NonEmptyMap.fromMapUnsafe(
+    SortedMap.from(
+      node.getStringList("l0Peers").asScala.toList.map(decode[L0Peer](_).toOption.get).map(p => p.id -> p)
+    )
+  )
+  val pullInterval: FiniteDuration = {
+    val d = Duration(node.getString("pullInterval"))
+    FiniteDuration(d._1, d._2)
+  }
+  val pullLimit: PosLong = PosLong.from(node.getLong("pullLimit")).toOption.get
+  val initialSnapshot: Option[InitialSnapshot] =
+    Try(node.getString("initialSnapshot")).toOption.map(decode[InitialSnapshot](_).toOption.get)
+  val terminalSnapshotOrdinal: Option[SnapshotOrdinal] =
+    Try(node.getLong("terminalSnapshotOrdinal")).toOption.map(NonNegLong.from(_).toOption.get).map(SnapshotOrdinal(_))
 
-  val httpClientTimeout = Duration(httpClient.getString("timeout"))
-  val httpClientIdleTime = Duration(httpClient.getString("idleTimeInPool"))
-
-  val nodeIntervalInSeconds: Int = node.getInt("retryIntervalInSeconds")
-  val nodeUrls: List[Uri] = node.getStringList("urls").asScala.toList.map(Uri.unsafeFromString)
+  val httpClientTimeout: Duration = Duration(httpClient.getString("timeout"))
+  val httpClientIdleTime: Duration = Duration(httpClient.getString("idleTimeInPool"))
 
   private val opensearchHost: String = opensearch.getString("host")
   private val opensearchPort: Int = opensearch.getInt("port")
