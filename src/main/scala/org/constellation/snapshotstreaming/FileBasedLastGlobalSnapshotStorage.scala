@@ -4,8 +4,10 @@ import java.nio.file.NoSuchFileException
 import cats.effect.Async
 import cats.effect.std.Semaphore
 import cats.syntax.applicativeError._
+import cats.syntax.either._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
+import cats.syntax.option._
 import cats.{Applicative, MonadThrow}
 import org.tessellation.sdk.domain.snapshot.storage.LastGlobalSnapshotStorage
 import org.tessellation.sdk.domain.snapshot.Validator.isNextSnapshot
@@ -64,11 +66,12 @@ object FileBasedLastGlobalSnapshotStorage {
         Files[F]
           .readAll(path)
           .through(text.utf8.decode)
-          .map(decode[Hashed[GlobalSnapshot]])
-          .map(_.toOption)
           .compile
-          .last
-          .map(_.flatten)
+          .toList
+          .map(_.mkString)
+          .map(decode[Hashed[GlobalSnapshot]])
+          .flatMap(_.liftTo[F])
+          .map(_.some)
           .handleErrorWith {
             case _: NoSuchFileException => Applicative[F].pure(None)
             case e => e.raiseError[F, Option[Hashed[GlobalSnapshot]]]
