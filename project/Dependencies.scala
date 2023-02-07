@@ -18,7 +18,7 @@ object Dependencies {
     val logstash = "7.2"
     val organizeImports = "0.6.0"
     val refined = "0.10.1"
-    val tessellation = "1.8.0"
+    val tessellation = "1.9.0"
     val weaver = "0.7.14"
   }
 
@@ -76,9 +76,11 @@ object Dependencies {
 
     val organizeImports = "com.github.liancheng" %% "organize-imports" % V.organizeImports
 
-    val tessellation = ("org.constellation" %% "tessellation-core" % V.tessellation exclude("org.http4s", "jawn-fs2_2.13")).from(
-      s"https://github.com/Constellation-Labs/tessellation/releases/download/v${V.tessellation}/cl-node.jar"
-    )
+    val tessellation = ("org.constellation" %% "tessellation-core" % V.tessellation)
+      .exclude("org.http4s", "jawn-fs2_2.13")
+      .from(
+        s"https://github.com/Constellation-Labs/tessellation/releases/download/v${V.tessellation}/cl-node.jar"
+      )
 
     val weaverCats = weaver("cats")
     val weaverScalaCheck = weaver("scalacheck")

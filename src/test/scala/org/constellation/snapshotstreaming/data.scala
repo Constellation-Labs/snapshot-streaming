@@ -5,7 +5,8 @@ import cats.data.{NonEmptyList, NonEmptySet}
 import scala.collection.immutable.{SortedMap, SortedSet}
 
 import org.tessellation.dag.snapshot.epoch.EpochProgress
-import org.tessellation.dag.snapshot.{GlobalSnapshot, GlobalSnapshotInfo, GlobalSnapshotTips, SnapshotOrdinal}
+import org.tessellation.dag.snapshot.{GlobalSnapshot, GlobalSnapshotInfo}
+import org.tessellation.schema.{SnapshotOrdinal, SnapshotTips}
 import org.tessellation.schema.ID.Id
 import org.tessellation.schema.height.{Height, SubHeight}
 import org.tessellation.schema.peer.PeerId
@@ -39,7 +40,7 @@ object data {
           epochProgress = EpochProgress.MinValue,
           nextFacilitators = NonEmptyList.of(PeerId(Hex(""))),
           info = GlobalSnapshotInfo(SortedMap.empty, SortedMap.empty, SortedMap.empty),
-          tips = GlobalSnapshotTips(SortedSet.empty, SortedSet.empty)
+          tips = SnapshotTips(SortedSet.empty, SortedSet.empty)
         ),
         NonEmptySet.one(SignatureProof(Id(Hex("")), Signature(Hex(""))))
       ),

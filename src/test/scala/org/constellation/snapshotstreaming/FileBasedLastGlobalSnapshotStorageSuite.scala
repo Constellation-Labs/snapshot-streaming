@@ -6,7 +6,7 @@ import cats.syntax.option._
 import eu.timepit.refined.auto._
 import fs2.io.file.{Files, Path}
 import org.constellation.snapshotstreaming.data.globalSnapshot
-import org.tessellation.dag.snapshot.SnapshotOrdinal
+import org.tessellation.schema.SnapshotOrdinal
 import org.tessellation.ext.cats.effect.ResourceIO
 import org.tessellation.schema.height.Height
 import org.tessellation.sdk.domain.snapshot.storage.LastGlobalSnapshotStorage

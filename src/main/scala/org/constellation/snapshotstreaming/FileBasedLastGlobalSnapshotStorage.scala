@@ -11,7 +11,8 @@ import cats.syntax.option._
 import cats.{Applicative, MonadThrow}
 import org.tessellation.sdk.domain.snapshot.storage.LastGlobalSnapshotStorage
 import org.tessellation.sdk.domain.snapshot.Validator.isNextSnapshot
-import org.tessellation.dag.snapshot.{GlobalSnapshot, SnapshotOrdinal}
+import org.tessellation.schema.SnapshotOrdinal
+import org.tessellation.dag.snapshot.GlobalSnapshot
 import org.tessellation.dag.snapshot.GlobalSnapshotReference.{fromHashedGlobalSnapshot => getSnapshotReference}
 import org.tessellation.schema.height.Height
 import org.tessellation.security.Hashed
