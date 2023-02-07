@@ -6,7 +6,7 @@ import scala.collection.immutable.SortedMap
 import scala.concurrent.duration.{Duration, FiniteDuration}
 import scala.jdk.CollectionConverters._
 import scala.util.Try
-import org.tessellation.dag.snapshot.SnapshotOrdinal
+import org.tessellation.schema.SnapshotOrdinal
 import org.tessellation.schema.peer.{L0Peer, PeerId}
 import com.typesafe.config.{Config, ConfigFactory}
 import eu.timepit.refined.types.numeric.{NonNegLong, PosLong}
@@ -23,18 +23,23 @@ class Configuration {
   private val s3 = config.getConfig("snapshotStreaming.s3")
 
   val lastSnapshotPath: Path = Path(config.getString("snapshotStreaming.lastSnapshotPath"))
+
   val l0Peers: NonEmptyMap[PeerId, L0Peer] = NonEmptyMap.fromMapUnsafe(
     SortedMap.from(
       node.getStringList("l0Peers").asScala.toList.map(decode[L0Peer](_).toOption.get).map(p => p.id -> p)
     )
   )
+
   val pullInterval: FiniteDuration = {
     val d = Duration(node.getString("pullInterval"))
     FiniteDuration(d._1, d._2)
   }
+
   val pullLimit: PosLong = PosLong.from(node.getLong("pullLimit")).toOption.get
+
   val initialSnapshot: Option[InitialSnapshot] =
     Try(node.getString("initialSnapshot")).toOption.map(decode[InitialSnapshot](_).toOption.get)
+
   val terminalSnapshotOrdinal: Option[SnapshotOrdinal] =
     Try(node.getLong("terminalSnapshotOrdinal")).toOption.map(NonNegLong.from(_).toOption.get).map(SnapshotOrdinal(_))
 
