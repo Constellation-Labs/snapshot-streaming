@@ -35,8 +35,6 @@ object FileBasedLastGlobalSnapshotStorage {
 
       implicit val codec: Codec[Hashed[GlobalSnapshot]] = deriveCodec[Hashed[GlobalSnapshot]]
 
-      private val logger = Slf4jLogger.getLogger[F]
-
       def set(snapshot: Hashed[GlobalSnapshot]): F[Unit] =
         semaphore.permit.use { _ =>
           get.flatMap {
@@ -60,7 +58,6 @@ object FileBasedLastGlobalSnapshotStorage {
             .through(text.utf8.encode)
             .through(Files[F].writeAll(path, Flags(Flag.Write, Flag.CreateNew)))
             .compile.drain
-            .onError(e => logger.error(e)(s"Failure setting initial global snapshot!"))
         }
 
       def get: F[Option[Hashed[GlobalSnapshot]]] =

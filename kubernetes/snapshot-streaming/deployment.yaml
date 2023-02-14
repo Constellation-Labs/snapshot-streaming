@@ -1,0 +1,40 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: snapshot-streaming
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: snapshot-streaming
+  template:
+    metadata:
+      labels:
+        app: snapshot-streaming
+    spec:
+      containers:
+        - name: snapshot-streaming
+          image: snapshot-streaming
+          resources:
+            requests:
+              memory: "500Mi"
+              cpu: "500m"
+            limits:
+              memory: "2Gi"
+              cpu: "2000m"
+          env:
+            - name: CONFIG_FILE
+              value: /etc/snapshot-streaming/application.conf
+            - name: AWS_ACCESS_KEY_ID
+              value: test
+            - name: AWS_SECRET_ACCESS_KEY
+              value: test
+            - name: AWS_DEFAULT_REGION
+              value: us-east-1
+          volumeMounts:
+            - name: snapshot-streaming-config
+              mountPath: /etc/snapshot-streaming/
+      volumes:
+        - name: snapshot-streaming-config
+          configMap:
+            name: snapshot-streaming-config

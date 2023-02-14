@@ -1,0 +1,37 @@
+apiVersion: skaffold/v2beta28
+kind: Config
+build:
+  artifacts:
+    - image: snapshot-streaming
+      custom:
+        buildCommand: |
+          sbt assembly && \
+            docker build $BUILD_CONTEXT --file kubernetes/Dockerfile --tag $IMAGE --build-arg BUILD_VERSION=$(cut -d \" -f 2 version.sbt) --platform linux/amd64 && \
+              [[ "$PUSH_IMAGE" == "true" ]] && docker push $IMAGE || echo "Skip pushing image"
+        dependencies:
+          paths:
+            - src/main/**/*
+            - "*.sbt"
+            - project/*.scala
+            - project/**.sbt
+            - project/build.properties
+  tagPolicy:
+    inputDigest: {}
+
+deploy:
+  kustomize:
+    paths:
+      - kubernetes/localstack
+      - kubernetes/snapshot-streaming
+  logs:
+    prefix: podAndContainer
+portForward:
+  - resourceType: service
+    resourceName: localstack
+    port: 4566
+    localPort: 4566
+  - resourceType: service
+    resourceName: localstack
+    port: 4510
+    localPort: 4510
+

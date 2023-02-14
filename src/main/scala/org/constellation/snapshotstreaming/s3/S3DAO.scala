@@ -1,18 +1,18 @@
 package org.constellation.snapshotstreaming.s3
 
+import cats.Applicative
 
 import java.io.ByteArrayInputStream
-
 import cats.effect.{Async, Resource}
 import cats.syntax.flatMap._
 import cats.syntax.functor._
 import cats.syntax.show._
-
+import cats.syntax.contravariantSemigroupal._
+import com.amazonaws.client.builder.AwsClientBuilder.EndpointConfiguration
 import org.tessellation.dag.snapshot.GlobalSnapshot
 import org.tessellation.ext.kryo._
 import org.tessellation.kryo.KryoSerializer
 import org.tessellation.security.Hashed
-
 import com.amazonaws.services.s3.model.ObjectMetadata
 import com.amazonaws.services.s3.{AmazonS3, AmazonS3ClientBuilder}
 import org.constellation.snapshotstreaming.Configuration
@@ -25,11 +25,21 @@ trait S3DAO[F[_]] {
 object S3DAO {
 
   def make[F[_]: Async: KryoSerializer](config: Configuration): Resource[F, S3DAO[F]] =
-    Resource.make(Async[F].delay(AmazonS3ClientBuilder
-            .standard()
-            .withRegion(config.bucketRegion)
-            .build()))(c => Async[F].delay(c.shutdown()))
-            .map(make(config, _))
+    Resource.make {
+      Applicative[F].pure {
+        val emptyBuilder = AmazonS3ClientBuilder
+          .standard()
+
+        (config.s3ApiEndpoint, config.s3ApiRegion).mapN { case (endpoint, region) =>
+          emptyBuilder.withEndpointConfiguration(new EndpointConfiguration(endpoint, region))
+        }
+          .getOrElse(emptyBuilder.withRegion(config.bucketRegion))
+          .withPathStyleAccessEnabled(config.s3ApiPathStyleEnabled.getOrElse(false).booleanValue())
+      }.flatMap { builder =>
+        Async[F].delay(builder.build())
+      }
+    }(c => Async[F].delay(c.shutdown()))
+      .map(make(config, _))
 
   def make[F[_]: Async: KryoSerializer](config: Configuration, s3Client: AmazonS3): S3DAO[F] = new S3DAO[F] {
 
