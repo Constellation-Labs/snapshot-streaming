@@ -38,7 +38,9 @@ trait SnapshotProcessor[F[_]] {
 
 object SnapshotProcessor {
 
-  def make[F[_]: Async: KryoSerializer: SecurityProvider: Random](configuration: Configuration): Resource[F, SnapshotProcessor[F]] =
+  def make[F[_]: Async: KryoSerializer: SecurityProvider: Random](
+    configuration: Configuration
+  ): Resource[F, SnapshotProcessor[F]] =
     for {
       client <- EmberClientBuilder
         .default[F]
@@ -54,7 +56,8 @@ object SnapshotProcessor {
       lastSnapshotStorage <- Resource.eval {
         FileBasedLastGlobalSnapshotStorage.make[F](configuration.lastSnapshotPath)
       }
-      l0Service = L0Service.make[F](l0GlobalSnapshotClient, l0ClusterStorage, lastSnapshotStorage, configuration.pullLimit.some)
+      l0Service = L0Service
+        .make[F](l0GlobalSnapshotClient, l0ClusterStorage, lastSnapshotStorage, configuration.pullLimit.some)
       requestBuilder = UpdateRequestBuilder.make[F](configuration)
     } yield make(configuration, lastSnapshotStorage, l0Service, opensearchDAO, s3DAO, requestBuilder)
 
@@ -74,26 +77,37 @@ object SnapshotProcessor {
         .map(d => new Date(d.toMillis))
         .flatMap(updateRequestBuilder.bulkUpdateRequests(snapshot, _))
         .flatMap(_.traverse(br => opensearchDAO.sendToOpensearch(bulk(br).refreshImmediately)))
-        .flatMap(_ => logger.info(s"Snapshot ${snapshot.ordinal.value.value} (hash: ${snapshot.hash.show.take(8)}) sent to opensearch."))
+        .flatMap(_ =>
+          logger.info(
+            s"Snapshot ${snapshot.ordinal.value.value} (hash: ${snapshot.hash.show.take(8)}) sent to opensearch."
+          )
+        )
         .void
 
     private def process(snapshot: Hashed[GlobalSnapshot]): F[Unit] =
       lastGlobalSnapshotStorage.get.flatMap {
         case Some(last) if Validator.isNextSnapshot(last, snapshot) =>
-            s3DAO.uploadSnapshot(snapshot) >>
-              prepareAndExecuteBulkUpdate(snapshot) >>
-              lastGlobalSnapshotStorage.set(snapshot)
+          s3DAO.uploadSnapshot(snapshot) >>
+            prepareAndExecuteBulkUpdate(snapshot) >>
+            lastGlobalSnapshotStorage.set(snapshot)
 
         case Some(last) =>
-          logger.warn(s"Pulled snapshot doesn't form a correct chain, ignoring! Last: ${getSnapshotReference(last)} pulled: ${getSnapshotReference(snapshot)}")
+          logger.warn(
+            s"Pulled snapshot doesn't form a correct chain, ignoring! Last: ${getSnapshotReference(last)} pulled: ${getSnapshotReference(snapshot)}"
+          )
 
-        case None if configuration.initialSnapshot.exists(initial => initial.hash === snapshot.hash && initial.ordinal === snapshot.ordinal) =>
-            s3DAO.uploadSnapshot(snapshot) >>
-              prepareAndExecuteBulkUpdate(snapshot) >>
-              lastGlobalSnapshotStorage.setInitial(snapshot)
+        case None
+            if configuration.initialSnapshot
+              .exists(initial => initial.hash === snapshot.hash && initial.ordinal === snapshot.ordinal) =>
+          s3DAO.uploadSnapshot(snapshot) >>
+            prepareAndExecuteBulkUpdate(snapshot) >>
+            lastGlobalSnapshotStorage
+              .setInitial(snapshot)
+              .onError(e => logger.error(e)(s"Failure setting initial global snapshot!"))
 
         case None =>
-          new Throwable(s"Neither last processed snapshot nor initial snapshot were found during snapshot processing!").raiseError[F, Unit]
+          new Throwable(s"Neither last processed snapshot nor initial snapshot were found during snapshot processing!")
+            .raiseError[F, Unit]
 
       }
 
@@ -106,10 +120,12 @@ object SnapshotProcessor {
               case (Some(_), _) =>
                 l0Service.pullGlobalSnapshots
               case (None, Some(initial)) =>
-                l0Service.pullGlobalSnapshot(initial.ordinal)
+                l0Service
+                  .pullGlobalSnapshot(initial.ordinal)
                   .map(_.toList)
               case (None, None) =>
-                new Throwable(s"Neither last processed snapshot nor initial snapshot were found during start!").raiseError[F, List[Hashed[GlobalSnapshot]]]
+                new Throwable(s"Neither last processed snapshot nor initial snapshot were found during start!")
+                  .raiseError[F, List[Hashed[GlobalSnapshot]]]
             }
           }
         }
@@ -121,17 +137,16 @@ object SnapshotProcessor {
         .evalMap { snapshots =>
           snapshots.tailRecM {
             case snapshot :: nextSnapshots if configuration.terminalSnapshotOrdinal.forall(snapshot.ordinal <= _) =>
-              process(snapshot)
-                .as {
-                  if (configuration.terminalSnapshotOrdinal.forall(snapshot.ordinal < _))
-                    nextSnapshots.asLeft[Boolean]
-                  else
-                    false.asRight[List[Hashed[GlobalSnapshot]]]
-                }
-                .handleErrorWith { e =>
-                  logger.warn(e)(s"Snapshot processing failed for ${getSnapshotReference(snapshot)}")
-                    .as(true.asRight[List[Hashed[GlobalSnapshot]]])
-                }
+              process(snapshot).as {
+                if (configuration.terminalSnapshotOrdinal.forall(snapshot.ordinal < _))
+                  nextSnapshots.asLeft[Boolean]
+                else
+                  false.asRight[List[Hashed[GlobalSnapshot]]]
+              }.handleErrorWith { e =>
+                logger
+                  .warn(e)(s"Snapshot processing failed for ${getSnapshotReference(snapshot)}")
+                  .as(true.asRight[List[Hashed[GlobalSnapshot]]])
+              }
 
             case leftToProcess =>
               Applicative[F].pure(leftToProcess.isEmpty.asRight[List[Hashed[GlobalSnapshot]]])
@@ -139,5 +154,7 @@ object SnapshotProcessor {
         }
         .takeWhile(identity)
         .as(())
+
   }
+
 }

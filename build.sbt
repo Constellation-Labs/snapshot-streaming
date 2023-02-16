@@ -1,13 +1,18 @@
 import Dependencies._
 
 ThisBuild / organization := "org.constellation"
-ThisBuild / scalaVersion := "2.13.8"
-ThisBuild / version := "2.0.0"
+ThisBuild / scalaVersion := "2.13.10"
 ThisBuild / scalafixDependencies += Libraries.organizeImports
-ThisBuild / assemblyMergeStrategy in assembly := {
-  case PathList("META-INF", xs @ _*)            => MergeStrategy.discard
-  case PathList("org", "joda", "time", xs @ _*) => MergeStrategy.last
-  case x                                        => MergeStrategy.first
+ThisBuild / evictionErrorLevel := Level.Warn
+
+githubTokenSource := (TokenSource.GitConfig("github.token") || TokenSource.Environment("GITHUB_TOKEN"))
+
+ThisBuild / assemblyMergeStrategy := {
+  case "logback.xml"                                       => MergeStrategy.first
+  case PathList(xs @ _*) if xs.last == "module-info.class" => MergeStrategy.first
+  case x =>
+    val oldStrategy = (assembly / assemblyMergeStrategy).value
+    oldStrategy(x)
 }
 
 lazy val testSettings = Seq(
@@ -20,9 +25,17 @@ lazy val testSettings = Seq(
 )
 
 lazy val commonSettings = Seq(
-  scalacOptions ++= List("-Ymacro-annotations", "-Yrangepos", "-Wconf:cat=unused:info", "-language:reflectiveCalls", "-Ywarn-unused"),
+  scalacOptions ++= List(
+    "-Ymacro-annotations",
+    "-Yrangepos",
+    "-Wconf:cat=unused:info",
+    "-language:reflectiveCalls",
+    "-Ywarn-unused"
+  ),
   resolvers ++= List(
-    Resolver.sonatypeRepo("snapshots")
+    Resolver.sonatypeRepo("snapshots"),
+    Resolver.githubPackages("abankowski", "http-request-signer"),
+    Resolver.mavenLocal
   )
 )
 
@@ -54,6 +67,7 @@ lazy val core = (project in file("."))
       Libraries.log4cats,
       Libraries.logback,
       Libraries.logstash,
-      Libraries.tessellation
+      Libraries.tessellationSdk,
+      Libraries.tessellationShared
     )
   )

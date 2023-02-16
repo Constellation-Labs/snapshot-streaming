@@ -49,15 +49,17 @@ class Configuration {
   private val opensearchHost: String = opensearch.getString("host")
   private val opensearchPort: Int = opensearch.getInt("port")
   val opensearchUrl = Uri.unsafeFromString(s"$opensearchHost:$opensearchPort")
-  val opensearchTimeout: String = opensearch.getString("timeout")
   val snapshotsIndex: String = opensearch.getString("indexes.snapshots")
   val blocksIndex: String = opensearch.getString("indexes.blocks")
   val transactionsIndex: String = opensearch.getString("indexes.transactions")
   val balancesIndex: String = opensearch.getString("indexes.balances")
-  val balancesLimit: Int = opensearch.getInt("balancesLimit")
   val bulkSize: Int = opensearch.getInt("bulkSize")
 
   val bucketRegion: String = s3.getString("bucketRegion")
   val bucketName: String = s3.getString("bucketName")
   val bucketDir: String = s3.getString("bucketDir")
+  val s3ApiEndpoint: Option[String] = Try(s3.getString("api.endpoint")).toOption
+  val s3ApiRegion: Option[String] = Try(s3.getString("api.region")).toOption
+  val s3ApiPathStyleEnabled: Option[Boolean] = Try(s3.getBoolean("api.pathStyleEnabled")).toOption
+
 }

@@ -4,22 +4,22 @@ object Dependencies {
 
   object V {
     val amazonaws = "1.11.1000"
-    val cats = "2.8.0"
-    val catsEffect = "3.3.14"
-    val circe = "0.14.2"
+    val cats = "2.9.0"
+    val catsEffect = "3.4.2"
+    val circe = "0.14.3"
     val config = "1.4.2"
     val derevo = "0.13.0"
     val elastic4s = "8.1.0"
-    val fs2 = "3.2.11"
+    val fs2 = "3.4.0"
     val guava = "31.1-jre"
-    val http4s = "0.23.14"
-    val log4cats = "2.4.0"
-    val logback = "1.2.11"
+    val http4s = "0.23.16"
+    val log4cats = "2.5.0"
+    val logback = "1.3.5"
     val logstash = "7.2"
     val organizeImports = "0.6.0"
     val refined = "0.10.1"
-    val tessellation = "1.9.0"
-    val weaver = "0.7.14"
+    val tessellation = "1.9.1"
+    val weaver = "0.8.1"
   }
 
   object Libraries {
@@ -76,11 +76,8 @@ object Dependencies {
 
     val organizeImports = "com.github.liancheng" %% "organize-imports" % V.organizeImports
 
-    val tessellation = ("org.constellation" %% "tessellation-core" % V.tessellation)
-      .exclude("org.http4s", "jawn-fs2_2.13")
-      .from(
-        s"https://github.com/Constellation-Labs/tessellation/releases/download/v${V.tessellation}/cl-node.jar"
-      )
+    val tessellationSdk = "org.constellation" %% "tessellation-sdk" % V.tessellation
+    val tessellationShared = "org.constellation" %% "tessellation-shared" % V.tessellation
 
     val weaverCats = weaver("cats")
     val weaverScalaCheck = weaver("scalacheck")
