@@ -41,14 +41,24 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Get the release version
+        id: get_version
+        run: echo "::set-output name=version::$(cd snapshot-streaming; sbt -Dsbt.supershell=false -error "print version")"
+
+      - name: Build Changelog
+        id: build_changelog
+        uses: mikepenz/release-changelog-builder-action@v2.4.2
+        with:
+          configuration: .github/config/changelog.json
+
       - name: Upload release assets
         uses: softprops/action-gh-release@v1
         with:
-          name: Release ${{ github.ref_name }}
+          name: Release ${{ steps.get_version.outputs.version }}
+          tag_name: ${{ github.ref_name }}
           draft: true
           prerelease: false
-          body_path: snapshot-streaming/CHANGELOG.md
-          files: snapshot-streaming/target/scala-2.13/snapshot-streaming-assembly-${RELEASE_VERSION#v}.jar
+          body: ${{ steps.build_changelog.outputs.changelog }}
+          files: snapshot-streaming/target/scala-2.13/cl-snapshot-streaming-assembly-${{ steps.get_version.outputs.version }}.jar
         env:
-          RELEASE_VERSION: ${{ github.ref_name }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

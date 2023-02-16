@@ -1,11 +1,14 @@
 import Dependencies._
 
+enablePlugins(GitVersioning)
+
 ThisBuild / organization := "org.constellation"
 ThisBuild / scalaVersion := "2.13.10"
 ThisBuild / scalafixDependencies += Libraries.organizeImports
 ThisBuild / evictionErrorLevel := Level.Warn
 
 githubTokenSource := (TokenSource.GitConfig("github.token") || TokenSource.Environment("GITHUB_TOKEN"))
+git.useGitDescribe := true
 
 ThisBuild / assemblyMergeStrategy := {
   case "logback.xml"                                       => MergeStrategy.first

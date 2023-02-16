@@ -31,3 +31,7 @@ In the root directory of this repo run
 ```
 skaffold dev --trigger=manual
 ```
+
+## Releasing
+
+Follow the instructions from [doc/release-flow.md](doc/release-flow.md)
