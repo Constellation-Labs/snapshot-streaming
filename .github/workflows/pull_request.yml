@@ -33,7 +33,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Compile
-        run: (cd snapshot-streaming; sbt -J-Xss128m -J-Xmx3200m test)
+        run: (cd snapshot-streaming; sbt test)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

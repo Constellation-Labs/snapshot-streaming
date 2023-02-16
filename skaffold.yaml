@@ -6,7 +6,7 @@ build:
       custom:
         buildCommand: |
           sbt assembly && \
-            docker build $BUILD_CONTEXT --file kubernetes/Dockerfile --tag $IMAGE --build-arg BUILD_VERSION=$(cut -d \" -f 2 version.sbt) --platform linux/amd64 && \
+            docker build $BUILD_CONTEXT --file kubernetes/Dockerfile --tag $IMAGE --build-arg BUILD_VERSION=$(sbt -Dsbt.supershell=false -error "print version") --platform linux/amd64 && \
               [[ "$PUSH_IMAGE" == "true" ]] && docker push $IMAGE || echo "Skip pushing image"
         dependencies:
           paths:
