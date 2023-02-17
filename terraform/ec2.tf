@@ -3,7 +3,7 @@ data "aws_ami" "amzn2-ami" {
 
   filter {
     name   = "name"
-    values = ["amzn2-ami-hvm-2.0.*"]
+    values = ["amzn2-ami-hvm-2.0.20220805.0-x86_64-gp2"]
   }
 
   filter {
