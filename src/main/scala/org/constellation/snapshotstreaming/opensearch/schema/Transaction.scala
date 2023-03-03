@@ -2,7 +2,7 @@ package org.constellation.snapshotstreaming.opensearch.schema
 
 import java.util.Date
 
-import org.tessellation.schema.transaction.{Transaction => OriginalTransaction}
+import org.tessellation.schema.transaction.DAGTransaction
 import org.tessellation.security.signature.Signed
 
 import io.circe.Encoder
@@ -21,7 +21,7 @@ final case class Transaction(
   blockHash: String,
   snapshotHash: String,
   snapshotOrdinal: Long,
-  transactionOriginal: Signed[OriginalTransaction],
+  transactionOriginal: Signed[DAGTransaction],
   timestamp: Date
 )
 

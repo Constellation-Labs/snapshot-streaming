@@ -2,6 +2,7 @@
 All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
+- Use incremental snapshots
 
 ## [v1.1.6] 2021-07-13
 ### Fixed

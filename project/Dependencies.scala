@@ -9,7 +9,7 @@ object Dependencies {
     val circe = "0.14.3"
     val config = "1.4.2"
     val derevo = "0.13.0"
-    val elastic4s = "8.1.0"
+    val elastic4s = "8.5.4"
     val fs2 = "3.4.0"
     val guava = "31.1-jre"
     val http4s = "0.23.16"
@@ -18,7 +18,7 @@ object Dependencies {
     val logstash = "7.2"
     val organizeImports = "0.6.0"
     val refined = "0.10.1"
-    val tessellation = "1.9.1"
+    val tessellation = "2.0.0-alpha.1"
     val weaver = "0.8.1"
   }
 

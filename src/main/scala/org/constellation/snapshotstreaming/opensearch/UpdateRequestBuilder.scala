@@ -6,8 +6,9 @@ import cats.effect.Async
 import cats.syntax.flatMap._
 import cats.syntax.functor._
 
-import org.tessellation.dag.snapshot.GlobalSnapshot
 import org.tessellation.kryo.KryoSerializer
+import org.tessellation.schema.{GlobalIncrementalSnapshot, GlobalSnapshotInfo}
+import org.tessellation.security.Hashed
 
 import com.sksamuel.elastic4s.ElasticApi.updateById
 import com.sksamuel.elastic4s.circe._
@@ -15,10 +16,15 @@ import com.sksamuel.elastic4s.requests.update.UpdateRequest
 import org.constellation.snapshotstreaming.Configuration
 import org.constellation.snapshotstreaming.opensearch.mapper.GlobalSnapshotMapper
 import org.constellation.snapshotstreaming.opensearch.schema._
-import org.tessellation.security.Hashed
 
 trait UpdateRequestBuilder[F[_]] {
-  def bulkUpdateRequests(globalSnapshot: Hashed[GlobalSnapshot], timestamp: Date): F[Seq[Seq[UpdateRequest]]]
+
+  def bulkUpdateRequests(
+    globalSnapshot: Hashed[GlobalIncrementalSnapshot],
+    snapshotInfo: GlobalSnapshotInfo,
+    timestamp: Date
+  ): F[Seq[Seq[UpdateRequest]]]
+
 }
 
 object UpdateRequestBuilder {
@@ -29,12 +35,16 @@ object UpdateRequestBuilder {
   def make[F[_]: Async](mapper: GlobalSnapshotMapper[F], config: Configuration): UpdateRequestBuilder[F] =
     new UpdateRequestBuilder[F] {
 
-      def bulkUpdateRequests(globalSnapshot: Hashed[GlobalSnapshot], timestamp: Date): F[Seq[Seq[UpdateRequest]]] =
+      def bulkUpdateRequests(
+        globalSnapshot: Hashed[GlobalIncrementalSnapshot],
+        snapshotInfo: GlobalSnapshotInfo,
+        timestamp: Date
+      ): F[Seq[Seq[UpdateRequest]]] =
         for {
           snapshot <- mapper.mapSnapshot(globalSnapshot, timestamp)
           blocks <- mapper.mapBlocks(globalSnapshot, timestamp)
           transactions <- mapper.mapTransactions(globalSnapshot, timestamp)
-          balances = mapper.mapBalances(globalSnapshot, timestamp)
+          balances = mapper.mapBalances(globalSnapshot, snapshotInfo, timestamp)
         } yield updateRequests(snapshot, blocks, transactions, balances).grouped(config.bulkSize).toSeq
 
       def updateRequests[T](

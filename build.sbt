@@ -68,8 +68,8 @@ lazy val core = (project in file("."))
       Libraries.http4sClient,
       Libraries.http4sDsl,
       Libraries.log4cats,
-      Libraries.logback,
-      Libraries.logstash,
+      Libraries.logback % Runtime,
+      Libraries.logstash % Runtime,
       Libraries.tessellationSdk,
       Libraries.tessellationShared
     )
