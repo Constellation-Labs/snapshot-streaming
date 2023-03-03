@@ -18,7 +18,7 @@ object App extends IOApp {
       .scalaUtilRandom[IO]
       .asResource
       .use { implicit random =>
-        KryoSerializer.forAsync[IO](dag.dagSharedKryoRegistrar ++ shared.sharedKryoRegistrar).use { implicit ks =>
+        KryoSerializer.forAsync[IO](shared.sharedKryoRegistrar).use { implicit ks =>
           IO(new Configuration).flatMap { configuration =>
             SecurityProvider.forAsync[IO].use { implicit sp =>
               SnapshotProcessor

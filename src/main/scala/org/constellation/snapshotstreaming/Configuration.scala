@@ -6,8 +6,12 @@ import scala.collection.immutable.SortedMap
 import scala.concurrent.duration.{Duration, FiniteDuration}
 import scala.jdk.CollectionConverters._
 import scala.util.Try
+
 import org.tessellation.schema.SnapshotOrdinal
+import org.tessellation.schema.balance.Amount
 import org.tessellation.schema.peer.{L0Peer, PeerId}
+import org.tessellation.security.hash.Hash
+
 import com.typesafe.config.{Config, ConfigFactory}
 import eu.timepit.refined.types.numeric.{NonNegLong, PosLong}
 import fs2.io.file.Path
@@ -22,7 +26,11 @@ class Configuration {
   private val opensearch = config.getConfig("snapshotStreaming.opensearch")
   private val s3 = config.getConfig("snapshotStreaming.s3")
 
-  val lastSnapshotPath: Path = Path(config.getString("snapshotStreaming.lastSnapshotPath"))
+  val lastFullSnapshotPath: Path = Path(config.getString("snapshotStreaming.lastSnapshotPath"))
+  val lastIncrementalSnapshotPath: Path = Path(config.getString("snapshotStreaming.lastIncrementalSnapshotPath"))
+  val collateral: Amount = Amount(NonNegLong.unsafeFrom(config.getLong("snapshotStreaming.collateral")))
+  val tessellationFullSnapshotPath: Path = Path(config.getString("snapshotStreaming.tessellation.fullSnapshotPath"))
+  val tessellationFullSnapshotHash: Hash = Hash(config.getString("snapshotStreaming.tessellation.fullSnapshotHash"))
 
   val l0Peers: NonEmptyMap[PeerId, L0Peer] = NonEmptyMap.fromMapUnsafe(
     SortedMap.from(

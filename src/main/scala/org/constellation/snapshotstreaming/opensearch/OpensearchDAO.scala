@@ -43,11 +43,12 @@ object OpensearchDAO {
                     cb(Left(new Throwable(s"Bulk request failed: ${result.failures}")))
                   case RequestSuccess(_, _, _, result) if !result.errors => cb(Right(a))
                   case RequestFailure(_, _, _, error)                    => cb(Left(error.asException))
-                  case _ => cb(Left(new Throwable("Unexpected error")))
+                  case _                                                 => cb(Left(new Throwable("Unexpected error")))
                 }
               case Failure(e) => cb(Left(e))
             }
           }
         }.as(())
       }
+
 }
