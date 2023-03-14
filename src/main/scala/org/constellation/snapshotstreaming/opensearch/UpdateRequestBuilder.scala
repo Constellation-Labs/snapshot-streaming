@@ -13,9 +13,9 @@ import org.tessellation.security.Hashed
 import com.sksamuel.elastic4s.ElasticApi.updateById
 import com.sksamuel.elastic4s.circe._
 import com.sksamuel.elastic4s.requests.update.UpdateRequest
-import org.constellation.snapshotstreaming.Configuration
 import org.constellation.snapshotstreaming.opensearch.mapper.GlobalSnapshotMapper
 import org.constellation.snapshotstreaming.opensearch.schema._
+import org.constellation.snapshotstreaming.{Configuration, GlobalSnapshotInfoFilter}
 
 trait UpdateRequestBuilder[F[_]] {
 
@@ -44,7 +44,11 @@ object UpdateRequestBuilder {
           snapshot <- mapper.mapSnapshot(globalSnapshot, timestamp)
           blocks <- mapper.mapBlocks(globalSnapshot, timestamp)
           transactions <- mapper.mapTransactions(globalSnapshot, timestamp)
-          balances = mapper.mapBalances(globalSnapshot, snapshotInfo, timestamp)
+          filteredSnapshotInfo = GlobalSnapshotInfoFilter.snapshotReferredBalancesInfo(
+            globalSnapshot.signed.value,
+            snapshotInfo
+          )
+          balances = mapper.mapBalances(globalSnapshot, filteredSnapshotInfo, timestamp)
         } yield updateRequests(snapshot, blocks, transactions, balances).grouped(config.bulkSize).toSeq
 
       def updateRequests[T](

@@ -9,9 +9,11 @@ import scala.collection.immutable.{SortedMap, SortedSet}
 import org.tessellation.kryo.KryoSerializer
 import org.tessellation.schema.ID.Id
 import org.tessellation.schema._
+import org.tessellation.schema.block.DAGBlock
 import org.tessellation.schema.epoch.EpochProgress
 import org.tessellation.schema.height.{Height, SubHeight}
 import org.tessellation.schema.peer.PeerId
+import org.tessellation.schema.transaction.RewardTransaction
 import org.tessellation.security.Hashed
 import org.tessellation.security.hash.{Hash, ProofsHash}
 import org.tessellation.security.hex.Hex
@@ -56,7 +58,9 @@ object data {
     subHeight: NonNegLong,
     lastSnapshot: Hash,
     hash: Hash,
-    globalSnapshotInfo: GlobalSnapshotInfo = GlobalSnapshotInfo.empty
+    globalSnapshotInfo: GlobalSnapshotInfo = GlobalSnapshotInfo.empty,
+    blocks: SortedSet[BlockAsActiveTip[DAGBlock]] = SortedSet.empty,
+    rewards: SortedSet[RewardTransaction] = SortedSet.empty
   ): F[Hashed[GlobalIncrementalSnapshot]] =
     globalSnapshotInfo.stateProof.map { sp =>
       Hashed(
@@ -66,9 +70,9 @@ object data {
             height = Height(height),
             subHeight = SubHeight(subHeight),
             lastSnapshotHash = lastSnapshot,
-            blocks = SortedSet.empty,
+            blocks = blocks,
             stateChannelSnapshots = SortedMap.empty,
-            rewards = SortedSet.empty,
+            rewards = rewards,
             epochProgress = EpochProgress.MinValue,
             nextFacilitators = NonEmptyList.of(PeerId(Hex(""))),
             tips = SnapshotTips(SortedSet.empty, SortedSet.empty),

@@ -29,8 +29,6 @@ class Configuration {
   val lastFullSnapshotPath: Path = Path(config.getString("snapshotStreaming.lastSnapshotPath"))
   val lastIncrementalSnapshotPath: Path = Path(config.getString("snapshotStreaming.lastIncrementalSnapshotPath"))
   val collateral: Amount = Amount(NonNegLong.unsafeFrom(config.getLong("snapshotStreaming.collateral")))
-  val tessellationFullSnapshotPath: Path = Path(config.getString("snapshotStreaming.tessellation.fullSnapshotPath"))
-  val tessellationFullSnapshotHash: Hash = Hash(config.getString("snapshotStreaming.tessellation.fullSnapshotHash"))
 
   val l0Peers: NonEmptyMap[PeerId, L0Peer] = NonEmptyMap.fromMapUnsafe(
     SortedMap.from(
