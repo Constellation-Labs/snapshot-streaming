@@ -7,10 +7,14 @@ import cats.syntax.flatMap._
 import cats.syntax.functor._
 import cats.syntax.traverse._
 
+import scala.collection.immutable.SortedMap
+
 import org.tessellation.kryo.KryoSerializer
+import org.tessellation.schema.GlobalIncrementalSnapshot
+import org.tessellation.schema.address.Address
+import org.tessellation.schema.balance.Balance
 import org.tessellation.schema.block.DAGBlock
 import org.tessellation.schema.transaction.{DAGTransaction, TransactionReference => OriginalTransactionReference}
-import org.tessellation.schema.{GlobalIncrementalSnapshot, GlobalSnapshotInfo}
 import org.tessellation.security.Hashed
 import org.tessellation.security.signature.Signed
 
@@ -24,7 +28,7 @@ trait GlobalSnapshotMapper[F[_]] {
 
   def mapBalances(
     globalSnapshot: Hashed[GlobalIncrementalSnapshot],
-    snapshotInfo: GlobalSnapshotInfo,
+    balances: SortedMap[Address, Balance],
     timestamp: Date
   ): Seq[AddressBalance]
 
@@ -125,10 +129,10 @@ object GlobalSnapshotMapper {
 
       def mapBalances(
         globalSnapshot: Hashed[GlobalIncrementalSnapshot],
-        snapshotInfo: GlobalSnapshotInfo,
+        balances: SortedMap[Address, Balance],
         timestamp: Date
       ): Seq[AddressBalance] =
-        snapshotInfo.balances.toSeq.map { case (address, balance) =>
+        balances.toSeq.map { case (address, balance) =>
           AddressBalance(
             address = address.value.value,
             balance = balance.value.value,

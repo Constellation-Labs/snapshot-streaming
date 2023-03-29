@@ -80,10 +80,7 @@ object GlobalSnapshotInfoFilterSuite extends MutableIOSuite {
       )
 
       result = GlobalSnapshotInfoFilter.snapshotReferredBalancesInfo(snapshot, totalInfo)
-    } yield expect.same(
-      result,
-      GlobalSnapshotInfo.empty.copy(balances = SortedMap(address1 -> Balance(0L), address2 -> Balance(0L)))
-    )
+    } yield expect.same(result, SortedMap(address1 -> Balance(0L), address2 -> Balance(0L)))
 
   }
 
@@ -107,10 +104,7 @@ object GlobalSnapshotInfoFilterSuite extends MutableIOSuite {
 
       result = GlobalSnapshotInfoFilter.snapshotReferredBalancesInfo(snapshot, totalInfo)
       expectedBalances = createBalances(address1, address2, address5)
-    } yield expect.same(
-      result,
-      GlobalSnapshotInfo(SortedMap.empty, SortedMap.empty, expectedBalances, SortedMap.empty, SortedMap.empty)
-    )
+    } yield expect.same(result, expectedBalances)
   }
 
   test("leave balances for addresses from transactions, but not set zero for destinations not in balances ") { res =>
@@ -133,10 +127,7 @@ object GlobalSnapshotInfoFilterSuite extends MutableIOSuite {
 
       result = GlobalSnapshotInfoFilter.snapshotReferredBalancesInfo(snapshot, totalInfo)
       expectedBalances = SortedMap(address1 -> Balance(1000L), address2 -> Balance(0L))
-    } yield expect.same(
-      result,
-      GlobalSnapshotInfo(SortedMap.empty, SortedMap.empty, expectedBalances, SortedMap.empty, SortedMap.empty)
-    )
+    } yield expect.same(result, expectedBalances)
   }
 
   test("leave balances for addresses from rewards") { res =>
@@ -152,10 +143,7 @@ object GlobalSnapshotInfoFilterSuite extends MutableIOSuite {
 
       result = GlobalSnapshotInfoFilter.snapshotReferredBalancesInfo(snapshot, totalInfo)
       expectedBalances = createBalances(address1, address2, address5)
-    } yield expect.same(
-      result,
-      GlobalSnapshotInfo(SortedMap.empty, SortedMap.empty, expectedBalances, SortedMap.empty, SortedMap.empty)
-    )
+    } yield expect.same(result, expectedBalances)
   }
 
   test("leave balances for addresses from rewards, but not set zero for these not in balances") { res =>
@@ -171,10 +159,7 @@ object GlobalSnapshotInfoFilterSuite extends MutableIOSuite {
 
       result = GlobalSnapshotInfoFilter.snapshotReferredBalancesInfo(snapshot, totalInfo)
       expectedBalances = createBalances(address1, address2)
-    } yield expect.same(
-      result,
-      GlobalSnapshotInfo(SortedMap.empty, SortedMap.empty, expectedBalances, SortedMap.empty, SortedMap.empty)
-    )
+    } yield expect.same(result, expectedBalances)
   }
 
   private def createBalances(addresses: Address*) =

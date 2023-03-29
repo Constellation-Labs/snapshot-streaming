@@ -44,11 +44,11 @@ object UpdateRequestBuilder {
           snapshot <- mapper.mapSnapshot(globalSnapshot, timestamp)
           blocks <- mapper.mapBlocks(globalSnapshot, timestamp)
           transactions <- mapper.mapTransactions(globalSnapshot, timestamp)
-          filteredSnapshotInfo = GlobalSnapshotInfoFilter.snapshotReferredBalancesInfo(
+          filteredBalances = GlobalSnapshotInfoFilter.snapshotReferredBalancesInfo(
             globalSnapshot.signed.value,
             snapshotInfo
           )
-          balances = mapper.mapBalances(globalSnapshot, filteredSnapshotInfo, timestamp)
+          balances = mapper.mapBalances(globalSnapshot, filteredBalances, timestamp)
         } yield updateRequests(snapshot, blocks, transactions, balances).grouped(config.bulkSize).toSeq
 
       def updateRequests[T](
