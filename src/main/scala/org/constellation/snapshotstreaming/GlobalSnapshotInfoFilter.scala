@@ -1,5 +1,8 @@
 package org.constellation.snapshotstreaming
 
+import scala.collection.immutable.SortedMap
+
+import org.tessellation.schema.address.Address
 import org.tessellation.schema.balance.Balance
 import org.tessellation.schema.transaction.DAGTransaction
 import org.tessellation.schema.{GlobalIncrementalSnapshot, GlobalSnapshotInfo}
@@ -12,7 +15,7 @@ object GlobalSnapshotInfoFilter {
   def snapshotReferredBalancesInfo(
     snapshot: GlobalIncrementalSnapshot,
     info: GlobalSnapshotInfo
-  ): GlobalSnapshotInfo = {
+  ): SortedMap[Address, Balance] = {
     val bothAddresses = extractTxnAddresses(txn => (txn.source, txn.destination))(snapshot)
     val rewardsAddresses = snapshot.rewards.toList.map(_.destination)
     val addressesToKeep = bothAddresses.flatMap(addresses => List(addresses._1, addresses._2)) ++ rewardsAddresses
@@ -23,13 +26,8 @@ object GlobalSnapshotInfoFilter {
       (srcTransactions.toSet -- info.balances.keys.toSet)
         .map(address => address -> Balance(0L))
         .toSortedMap
-    GlobalSnapshotInfo(
-      info.lastStateChannelSnapshotHashes,
-      info.lastTxRefs,
-      filteredBalances ++ setZeroBalances,
-      info.lastCurrencySnapshots,
-      info.lastCurrencySnapshotsProofs
-    )
+
+    filteredBalances ++ setZeroBalances
   }
 
   private def extractTxnAddresses[T](getAddress: DAGTransaction => T)(snapshot: GlobalIncrementalSnapshot): List[T] =
