@@ -123,15 +123,6 @@ object SnapshotProcessor {
                 s"Pulled snapshot doesn't form a correct chain, ignoring! Last: ${getSnapshotReference(last)} pulled: ${getSnapshotReference(snapshot)}"
               )
 
-            case None
-                if configuration.initialSnapshot
-                  .exists(initial => initial.hash === snapshot.hash && initial.ordinal === snapshot.ordinal) =>
-              s3DAO.uploadSnapshot(snapshot) >>
-                prepareAndExecuteBulkUpdate(snapshot, snapshotInfo) >>
-                lastIncrementalGlobalSnapshotStorage
-                  .setInitial(snapshot, snapshotInfo)
-                  .onError(e => logger.error(e)(s"Failure setting initial global snapshot!"))
-
             case None =>
               lastFullGlobalSnapshotStorage.get.flatMap(_.traverse(_.toHashed)).flatMap {
                 case Some(last) if Validator.isNextSnapshot(last, snapshot.signed.value) =>
@@ -161,42 +152,36 @@ object SnapshotProcessor {
       Stream
         .awakeEvery(configuration.pullInterval)
         .evalMap { _ =>
-          (lastIncrementalGlobalSnapshotStorage.getCombined, lastFullGlobalSnapshotStorage.get).tupled.flatMap {
-            case (lastInc, lastFull) =>
-              (lastInc, lastFull) match {
-                case (Some((lastSnapshot, lastState)), _) =>
-                  l0Service.pullGlobalSnapshots
-                    .map(
-                      _.leftMap(_ =>
-                        new Throwable(s"Existance of last snapshot has been checked. It shouldn't happen!")
-                      )
-                    )
-                    .flatMap(_.liftTo[F])
-                    .flatMap { incrementalSnapshots =>
-                      incrementalSnapshots.foldM(ProcessedSnapshots(lastSnapshot.signed.value, lastState, List.empty)) {
-                        (processedSnapshots, snapshot) =>
-                          tessellationServices.globalSnapshotContextFns
-                            .createContext(
-                              processedSnapshots.lastState,
-                              processedSnapshots.lastSnapshot,
-                              snapshot.signed
-                            )
-                            .map { snapshotInfo =>
-                              ProcessedSnapshots(
-                                snapshot.signed.value,
-                                snapshotInfo,
-                                processedSnapshots.snapshotsWithState.appended((snapshot, snapshotInfo))
-                              )
-                            }
-                      }
-                    }
-                    .map(_.snapshotsWithState)
-                case (None, None) =>
-                  new Throwable(
-                    s"Neither last processed snapshot nor initial snapshot were found during on disk!"
-                  )
-                    .raiseError[F, List[(Hashed[GlobalIncrementalSnapshot], GlobalSnapshotInfo)]]
-                case (None, Some(signedFullGlobalSnapshot)) =>
+          lastIncrementalGlobalSnapshotStorage.getCombined.flatMap {
+            case Some((lastSnapshot, lastState)) =>
+              l0Service.pullGlobalSnapshots
+                .map(
+                  _.leftMap(_ => new Throwable(s"Existance of last snapshot has been checked. It shouldn't happen!"))
+                )
+                .flatMap(_.liftTo[F])
+                .flatMap { incrementalSnapshots =>
+                  incrementalSnapshots.foldM(ProcessedSnapshots(lastSnapshot.signed.value, lastState, List.empty)) {
+                    (processedSnapshots, snapshot) =>
+                      tessellationServices.globalSnapshotContextFns
+                        .createContext(
+                          processedSnapshots.lastState,
+                          processedSnapshots.lastSnapshot,
+                          snapshot.signed
+                        )
+                        .map { snapshotInfo =>
+                          ProcessedSnapshots(
+                            snapshot.signed.value,
+                            snapshotInfo,
+                            processedSnapshots.snapshotsWithState.appended((snapshot, snapshotInfo))
+                          )
+                        }
+                  }
+                }
+                .map(_.snapshotsWithState)
+
+            case None =>
+              lastFullGlobalSnapshotStorage.get.flatMap {
+                case Some(signedFullGlobalSnapshot) =>
                   l0Service
                     .pullGlobalSnapshot(signedFullGlobalSnapshot.value.ordinal.next)
                     .flatMap(
@@ -215,6 +200,11 @@ object SnapshotProcessor {
                       )
                     )
                     .map(_.toList)
+                case None =>
+                  new Throwable(
+                    s"Neither last processed snapshot nor initial snapshot were found during on disk!"
+                  )
+                    .raiseError[F, List[(Hashed[GlobalIncrementalSnapshot], GlobalSnapshotInfo)]]
               }
           }
         }

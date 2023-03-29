@@ -10,7 +10,6 @@ import scala.util.Try
 import org.tessellation.schema.SnapshotOrdinal
 import org.tessellation.schema.balance.Amount
 import org.tessellation.schema.peer.{L0Peer, PeerId}
-import org.tessellation.security.hash.Hash
 
 import com.typesafe.config.{Config, ConfigFactory}
 import eu.timepit.refined.types.numeric.{NonNegLong, PosLong}
@@ -42,9 +41,6 @@ class Configuration {
   }
 
   val pullLimit: PosLong = PosLong.from(node.getLong("pullLimit")).toOption.get
-
-  val initialSnapshot: Option[InitialSnapshot] =
-    Try(node.getString("initialSnapshot")).toOption.map(decode[InitialSnapshot](_).toOption.get)
 
   val terminalSnapshotOrdinal: Option[SnapshotOrdinal] =
     Try(node.getLong("terminalSnapshotOrdinal")).toOption.map(NonNegLong.from(_).toOption.get).map(SnapshotOrdinal(_))
