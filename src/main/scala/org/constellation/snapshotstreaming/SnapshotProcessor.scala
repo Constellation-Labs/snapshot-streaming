@@ -1,11 +1,11 @@
 package org.constellation.snapshotstreaming
 
 import java.util.Date
-
 import cats.Applicative
-import cats.data.{NonEmptyMap, Validated}
+import cats.data.{NonEmptyList, NonEmptyMap, Validated}
 import cats.effect._
 import cats.effect.std.Random
+import cats.syntax.applicative._
 import cats.syntax.applicativeError._
 import cats.syntax.contravariantSemigroupal._
 import cats.syntax.either._
@@ -16,7 +16,6 @@ import cats.syntax.option._
 import cats.syntax.order._
 import cats.syntax.show._
 import cats.syntax.traverse._
-
 import org.tessellation.ext.cats.syntax.next._
 import org.tessellation.kryo.KryoSerializer
 import org.tessellation.merkletree.StateProofValidator
@@ -29,12 +28,13 @@ import org.tessellation.sdk.domain.snapshot.storage.LastSnapshotStorage
 import org.tessellation.sdk.http.p2p.clients.L0GlobalSnapshotClient
 import org.tessellation.sdk.infrastructure.cluster.storage.L0ClusterStorage
 import org.tessellation.security.{Hashed, SecurityProvider}
-
 import com.sksamuel.elastic4s.ElasticDsl.bulk
 import fs2.Stream
 import org.constellation.snapshotstreaming.opensearch.{OpensearchDAO, UpdateRequestBuilder}
 import org.constellation.snapshotstreaming.s3.S3DAO
 import org.http4s.ember.client.EmberClientBuilder
+import org.tessellation.currency.schema.currency.{CurrencyIncrementalSnapshot, CurrencySnapshot, CurrencySnapshotInfo}
+import org.tessellation.schema.address.Address
 import org.typelevel.log4cats.slf4j.Slf4jLogger
 
 trait SnapshotProcessor[F[_]] {
@@ -69,7 +69,7 @@ object SnapshotProcessor {
           configuration.pullLimit.some
         )
       requestBuilder = UpdateRequestBuilder.make[F](configuration)
-      tesselationServices = TessellationServices.make[F](configuration)
+      tesselationServices <- Resource.eval(TessellationServices.make[F](configuration))
       lastFullGlobalSnapshotStorage = FileBasedLastFullGlobalSnapshotStorage.make[F](configuration.lastFullSnapshotPath)
     } yield make(
       configuration,
@@ -95,57 +95,62 @@ object SnapshotProcessor {
     val logger = Slf4jLogger.getLogger[F]
 
     private def prepareAndExecuteBulkUpdate(
-      snapshot: Hashed[GlobalIncrementalSnapshot],
-      snapshotInfo: GlobalSnapshotInfo
+      globalSnapshotWithState: GlobalSnapshotWithState
     ): F[Unit] =
-      Clock[F].realTime
-        .map(d => new Date(d.toMillis))
-        .flatMap(updateRequestBuilder.bulkUpdateRequests(snapshot, snapshotInfo, _))
-        .flatMap(_.traverse(br => opensearchDAO.sendToOpensearch(bulk(br).refreshImmediately)))
-        .flatMap(_ =>
-          logger.info(
-            s"Snapshot ${snapshot.ordinal.value.value} (hash: ${snapshot.hash.show.take(8)}) sent to opensearch."
-          )
-        )
-        .void
-
-    private def process(snapshot: Hashed[GlobalIncrementalSnapshot], snapshotInfo: GlobalSnapshotInfo): F[Unit] =
-      StateProofValidator.validate(snapshot, snapshotInfo).flatMap {
-        case Validated.Valid(()) =>
-          lastIncrementalGlobalSnapshotStorage.get.flatMap {
-            case Some(last) if Validator.isNextSnapshot(last, snapshot.signed.value) =>
-              s3DAO.uploadSnapshot(snapshot) >>
-                prepareAndExecuteBulkUpdate(snapshot, snapshotInfo) >>
-                lastIncrementalGlobalSnapshotStorage.set(snapshot, snapshotInfo)
-
-            case Some(last) =>
-              logger.warn(
-                s"Pulled snapshot doesn't form a correct chain, ignoring! Last: ${getSnapshotReference(last)} pulled: ${getSnapshotReference(snapshot)}"
+      globalSnapshotWithState.pure[F].flatMap {
+        case state @ GlobalSnapshotWithState(snapshot, _, _) =>
+          Clock[F].realTime
+            .map(d => new Date(d.toMillis))
+            .flatMap(updateRequestBuilder.bulkUpdateRequests(state, _))
+            .flatMap(_.traverse(br => opensearchDAO.sendToOpensearch(bulk(br).refreshImmediately)))
+            .flatMap(_ =>
+              logger.info(
+                s"Snapshot ${snapshot.ordinal.value.value} (hash: ${snapshot.hash.show.take(8)}) sent to opensearch."
               )
+            )
+            .void
+      }
 
-            case None =>
-              lastFullGlobalSnapshotStorage.get.flatMap(_.traverse(_.toHashed)).flatMap {
+    private def process(globalSnapshotWithState: GlobalSnapshotWithState): F[Unit] =
+      globalSnapshotWithState.pure[F].flatMap {
+        case state @ GlobalSnapshotWithState(snapshot, snapshotInfo, _) =>
+          StateProofValidator.validate(snapshot, snapshotInfo).flatMap {
+            case Validated.Valid(()) =>
+              lastIncrementalGlobalSnapshotStorage.get.flatMap {
                 case Some(last) if Validator.isNextSnapshot(last, snapshot.signed.value) =>
                   s3DAO.uploadSnapshot(snapshot) >>
-                    prepareAndExecuteBulkUpdate(snapshot, snapshotInfo) >>
-                    lastIncrementalGlobalSnapshotStorage
-                      .setInitial(snapshot, snapshotInfo)
-                      .onError(e => logger.error(e)(s"Failure setting initial global snapshot!"))
+                    prepareAndExecuteBulkUpdate(state) >>
+                    lastIncrementalGlobalSnapshotStorage.set(snapshot, snapshotInfo)
+
                 case Some(last) =>
                   logger.warn(
                     s"Pulled snapshot doesn't form a correct chain, ignoring! Last: ${getSnapshotReference(last)} pulled: ${getSnapshotReference(snapshot)}"
                   )
+
                 case None =>
-                  new Throwable(
-                    s"Neither last processed snapshot nor initial snapshot were found during snapshot processing!"
-                  )
-                    .raiseError[F, Unit]
+                  lastFullGlobalSnapshotStorage.get.flatMap(_.traverse(_.toHashed)).flatMap {
+                    case Some(last) if Validator.isNextSnapshot(last, snapshot.signed.value) =>
+                      s3DAO.uploadSnapshot(snapshot) >>
+                        prepareAndExecuteBulkUpdate(state) >>
+                        lastIncrementalGlobalSnapshotStorage
+                          .setInitial(snapshot, snapshotInfo)
+                          .onError(e => logger.error(e)(s"Failure setting initial global snapshot!"))
+                    case Some(last) =>
+                      logger.warn(
+                        s"Pulled snapshot doesn't form a correct chain, ignoring! Last: ${getSnapshotReference(last)} pulled: ${getSnapshotReference(snapshot)}"
+                      )
+                    case None =>
+                      new Throwable(
+                        s"Neither last processed snapshot nor initial snapshot were found during snapshot processing!"
+                      )
+                        .raiseError[F, Unit]
+                  }
               }
+            case Validated.Invalid(e) =>
+              logger.warn(
+                s"Calculated stateProof does not match state from snapshot: ${e}."
+              )
           }
-        case Validated.Invalid(e) =>
-          logger.warn(
-            s"Calculated stateProof does not match state from snapshot: ${e}."
-          )
       }
 
     val runtime: Stream[F, Unit] =
@@ -156,23 +161,22 @@ object SnapshotProcessor {
             case Some((lastSnapshot, lastState)) =>
               l0Service.pullGlobalSnapshots
                 .map(
-                  _.leftMap(_ => new Throwable(s"Existance of last snapshot has been checked. It shouldn't happen!"))
+                  _.leftMap(_ => new Throwable(s"Existence of last snapshot has been checked. It shouldn't happen!"))
                 )
                 .flatMap(_.liftTo[F])
                 .flatMap { incrementalSnapshots =>
                   incrementalSnapshots.foldM(ProcessedSnapshots(lastSnapshot.signed.value, lastState, List.empty)) {
                     (processedSnapshots, snapshot) =>
-                      tessellationServices.globalSnapshotContextFns
-                        .createContext(
+                        tessellationServices.globalSnapshotContextService.createContext(
                           processedSnapshots.lastState,
                           processedSnapshots.lastSnapshot,
-                          snapshot.signed
+                          snapshot
                         )
-                        .map { snapshotInfo =>
+                        .map { globalSnapshotsWithState =>
                           ProcessedSnapshots(
                             snapshot.signed.value,
-                            snapshotInfo,
-                            processedSnapshots.snapshotsWithState.appended((snapshot, snapshotInfo))
+                            globalSnapshotsWithState.snapshotInfo,
+                            processedSnapshots.snapshotsWithState.appended(globalSnapshotsWithState)
                           )
                         }
                   }
@@ -189,49 +193,48 @@ object SnapshotProcessor {
                         GlobalIncrementalSnapshot
                           .fromGlobalSnapshot(signedFullGlobalSnapshot.value)
                           .flatMap(previousSnapshot =>
-                            tessellationServices.globalSnapshotContextFns
+                            tessellationServices.globalSnapshotContextService
                               .createContext(
                                 signedFullGlobalSnapshot.value.info,
                                 previousSnapshot,
-                                nextSnapshot.signed
+                                nextSnapshot
                               )
-                              .map(nextSnapshotInfo => (nextSnapshot, nextSnapshotInfo))
                           )
                       )
                     )
                     .map(_.toList)
                 case None =>
                   new Throwable(
-                    s"Neither last processed snapshot nor initial snapshot were found during on disk!"
+                    s"Neither last processed snapshot nor initial snapshot were found on disk!"
                   )
-                    .raiseError[F, List[(Hashed[GlobalIncrementalSnapshot], GlobalSnapshotInfo)]]
+                    .raiseError[F, List[GlobalSnapshotWithState]]
               }
           }
         }
         .evalTap { snapshots =>
-          snapshots.traverse { s =>
-            logger.info(s"Pulled following global snapshot: ${getSnapshotReference(s._1).show}")
+          snapshots.traverse { case GlobalSnapshotWithState(snapshot, _, _) =>
+            logger.info(s"Pulled following global snapshot: ${getSnapshotReference(snapshot).show}")
           }
         }
         .evalMap {
           _.tailRecM {
-            case (snapshot, snapshotInfo) :: nextSnapshots
+            case (state @ GlobalSnapshotWithState(snapshot, _, _)) :: nextSnapshots
                 if configuration.terminalSnapshotOrdinal.forall(snapshot.ordinal <= _) =>
-              process(snapshot, snapshotInfo).as {
+              process(state).as {
                 if (configuration.terminalSnapshotOrdinal.forall(snapshot.ordinal < _))
                   nextSnapshots.asLeft[Boolean]
                 else
-                  false.asRight[List[(Hashed[GlobalIncrementalSnapshot], GlobalSnapshotInfo)]]
+                  false.asRight[List[GlobalSnapshotWithState]]
               }.handleErrorWith { e =>
                 logger
                   .warn(e)(s"Snapshot processing failed for ${getSnapshotReference(snapshot)}")
                   .as(
-                    true.asRight[List[(Hashed[GlobalIncrementalSnapshot], GlobalSnapshotInfo)]]
+                    true.asRight[List[GlobalSnapshotWithState]]
                   )
               }
             case leftToProcess =>
               Applicative[F].pure(
-                leftToProcess.isEmpty.asRight[List[(Hashed[GlobalIncrementalSnapshot], GlobalSnapshotInfo)]]
+                leftToProcess.isEmpty.asRight[List[GlobalSnapshotWithState]]
               )
           }
         }
@@ -240,10 +243,15 @@ object SnapshotProcessor {
 
   }
 
+  case class GlobalSnapshotWithState(
+    snapshot: Hashed[GlobalIncrementalSnapshot],
+    snapshotInfo: GlobalSnapshotInfo,
+    currencySnapshots: Map[Address, NonEmptyList[Either[Hashed[CurrencySnapshot], (Hashed[CurrencyIncrementalSnapshot], CurrencySnapshotInfo)]]]
+  )
   case class ProcessedSnapshots(
     lastSnapshot: GlobalIncrementalSnapshot,
     lastState: GlobalSnapshotInfo,
-    snapshotsWithState: List[(Hashed[GlobalIncrementalSnapshot], GlobalSnapshotInfo)]
+    snapshotsWithState: List[GlobalSnapshotWithState]
   )
 
 }

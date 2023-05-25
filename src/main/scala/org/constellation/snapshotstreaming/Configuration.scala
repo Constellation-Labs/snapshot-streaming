@@ -55,6 +55,10 @@ class Configuration {
   val blocksIndex: String = opensearch.getString("indexes.blocks")
   val transactionsIndex: String = opensearch.getString("indexes.transactions")
   val balancesIndex: String = opensearch.getString("indexes.balances")
+  val currencySnapshotsIndex: String = opensearch.getString("indexes.currency.snapshots")
+  val currencyBlocksIndex: String = opensearch.getString("indexes.currency.blocks")
+  val currencyTransactionsIndex: String = opensearch.getString("indexes.currency.transactions")
+  val currencyBalancesIndex: String = opensearch.getString("indexes.currency.balances")
   val bulkSize: Int = opensearch.getInt("bulkSize")
 
   val bucketRegion: String = s3.getString("bucketRegion")

@@ -1,14 +1,12 @@
 package org.constellation.snapshotstreaming
 
 import java.security.KeyPair
-
 import cats.data.{NonEmptyList, NonEmptySet}
 import cats.effect.{Async, IO, Resource}
 import cats.syntax.functor._
 import cats.syntax.traverse._
 
 import scala.collection.immutable.{SortedMap, SortedSet}
-
 import org.tessellation.ext.cats.effect.ResourceIO
 import org.tessellation.kryo.KryoSerializer
 import org.tessellation.schema.address.Address
@@ -26,9 +24,9 @@ import org.tessellation.security.signature.Signed.forAsyncKryo
 import org.tessellation.security.{KeyPairGenerator, SecurityProvider}
 import org.tessellation.shared.sharedKryoRegistrar
 import org.tessellation.syntax.sortedCollection._
-
 import eu.timepit.refined.auto._
 import org.constellation.snapshotstreaming.data.incrementalGlobalSnapshot
+import org.constellation.snapshotstreaming.opensearch.mapper.GlobalSnapshotMapper
 import weaver.MutableIOSuite
 
 object GlobalSnapshotInfoFilterSuite extends MutableIOSuite {
@@ -79,7 +77,7 @@ object GlobalSnapshotInfoFilterSuite extends MutableIOSuite {
         rewards = rewards
       )
 
-      result = GlobalSnapshotInfoFilter.snapshotReferredBalancesInfo(snapshot, totalInfo)
+      result = GlobalSnapshotMapper.make().snapshotReferredBalancesInfo(snapshot, totalInfo)
     } yield expect.same(result, SortedMap(address1 -> Balance(0L), address2 -> Balance(0L)))
 
   }
@@ -102,7 +100,7 @@ object GlobalSnapshotInfoFilterSuite extends MutableIOSuite {
       )
       snapshot <- incrementalGlobalSnapshot[IO](100L, 10L, 20L, Hash("abc"), Hash("def"), totalInfo, blocks)
 
-      result = GlobalSnapshotInfoFilter.snapshotReferredBalancesInfo(snapshot, totalInfo)
+      result = GlobalSnapshotMapper.make().snapshotReferredBalancesInfo(snapshot, totalInfo)
       expectedBalances = createBalances(address1, address2, address5)
     } yield expect.same(result, expectedBalances)
   }
@@ -125,7 +123,7 @@ object GlobalSnapshotInfoFilterSuite extends MutableIOSuite {
       )
       snapshot <- incrementalGlobalSnapshot[IO](100L, 10L, 20L, Hash("abc"), Hash("def"), totalInfo, blocks)
 
-      result = GlobalSnapshotInfoFilter.snapshotReferredBalancesInfo(snapshot, totalInfo)
+      result = GlobalSnapshotMapper.make().snapshotReferredBalancesInfo(snapshot, totalInfo)
       expectedBalances = SortedMap(address1 -> Balance(1000L), address2 -> Balance(0L))
     } yield expect.same(result, expectedBalances)
   }
@@ -141,7 +139,7 @@ object GlobalSnapshotInfoFilterSuite extends MutableIOSuite {
     for {
       snapshot <- incrementalGlobalSnapshot[IO](100L, 10L, 20L, Hash("abc"), Hash("def"), totalInfo, rewards = rewards)
 
-      result = GlobalSnapshotInfoFilter.snapshotReferredBalancesInfo(snapshot, totalInfo)
+      result = GlobalSnapshotMapper.make().snapshotReferredBalancesInfo(snapshot, totalInfo)
       expectedBalances = createBalances(address1, address2, address5)
     } yield expect.same(result, expectedBalances)
   }
@@ -157,7 +155,7 @@ object GlobalSnapshotInfoFilterSuite extends MutableIOSuite {
     for {
       snapshot <- incrementalGlobalSnapshot[IO](100L, 10L, 20L, Hash("abc"), Hash("def"), totalInfo, rewards = rewards)
 
-      result = GlobalSnapshotInfoFilter.snapshotReferredBalancesInfo(snapshot, totalInfo)
+      result = GlobalSnapshotMapper.make().snapshotReferredBalancesInfo(snapshot, totalInfo)
       expectedBalances = createBalances(address1, address2)
     } yield expect.same(result, expectedBalances)
   }
