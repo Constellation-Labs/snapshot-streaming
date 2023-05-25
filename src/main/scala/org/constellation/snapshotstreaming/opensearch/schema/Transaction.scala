@@ -2,7 +2,7 @@ package org.constellation.snapshotstreaming.opensearch.schema
 
 import java.util.Date
 
-import org.tessellation.schema.transaction.DAGTransaction
+import org.tessellation.schema.transaction.{Transaction => OriginalTransaction}
 import org.tessellation.security.signature.Signed
 
 import io.circe.Encoder
@@ -10,7 +10,7 @@ import io.circe.generic.semiauto._
 
 import schema._
 
-final case class Transaction(
+final case class Transaction[T <: OriginalTransaction](
   hash: String,
   amount: Long,
   source: String,
@@ -21,13 +21,13 @@ final case class Transaction(
   blockHash: String,
   snapshotHash: String,
   snapshotOrdinal: Long,
-  transactionOriginal: Signed[DAGTransaction],
+  transactionOriginal: Signed[T],
   timestamp: Date
 )
 
 object Transaction {
 
-  implicit val transactionEncoder: Encoder[Transaction] = deriveEncoder
+  implicit def transactionEncoder[T <: OriginalTransaction: Encoder]: Encoder[Transaction[T]] = deriveEncoder
 }
 
 case class TransactionReference(hash: String, ordinal: Long)
