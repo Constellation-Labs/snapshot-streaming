@@ -12,8 +12,6 @@ import org.constellation.snapshotstreaming.SnapshotProcessor.GlobalSnapshotWithS
 import org.constellation.snapshotstreaming.opensearch.mapper.{CurrencySnapshotMapper, GlobalSnapshotMapper}
 import org.constellation.snapshotstreaming.opensearch.schema._
 import org.constellation.snapshotstreaming.Configuration
-import org.tessellation.currency.schema.currency.CurrencyTransaction
-import org.tessellation.schema.transaction.DAGTransaction
 
 trait UpdateRequestBuilder[F[_]] {
 
@@ -51,11 +49,11 @@ object UpdateRequestBuilder {
       def updateRequests[T](
        snapshot: Snapshot,
        blocks: Seq[Block],
-       transactions: Seq[Transaction[DAGTransaction]],
+       transactions: Seq[Transaction],
        balances: Seq[AddressBalance],
        currencySnapshots: Seq[CurrencyData[Snapshot]],
        currencyBlocks: Seq[CurrencyData[Block]],
-       currencyTransactions: Seq[CurrencyData[Transaction[CurrencyTransaction]]],
+       currencyTransactions: Seq[CurrencyData[Transaction]],
        currencyBalances: Seq[CurrencyData[AddressBalance]]
       ): Seq[UpdateRequest] =
         Seq(updateById(config.snapshotsIndex, snapshot.hash).docAsUpsert(snapshot)) ++

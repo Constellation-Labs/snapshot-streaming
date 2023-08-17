@@ -11,11 +11,9 @@ import org.tessellation.ext.cats.effect.ResourceIO
 import org.tessellation.kryo.KryoSerializer
 import org.tessellation.schema.address.Address
 import org.tessellation.schema.balance.Balance
-import org.tessellation.schema.block.DAGBlock
 import org.tessellation.schema.height.Height
-import org.tessellation.schema.transaction.DAGTransaction._
 import org.tessellation.schema.transaction._
-import org.tessellation.schema.{BlockAsActiveTip, BlockReference, GlobalSnapshotInfo}
+import org.tessellation.schema.{Block, BlockAsActiveTip, BlockReference, GlobalSnapshotInfo}
 import org.tessellation.sdk.sdkKryoRegistrar
 import org.tessellation.security.hash.{Hash, ProofsHash}
 import org.tessellation.security.key.ops.PublicKeyOps
@@ -168,12 +166,12 @@ object GlobalSnapshotInfoFilterSuite extends MutableIOSuite {
 
   private def createBlocksWithTransactions[F[_]: Async: KryoSerializer: SecurityProvider](
     keyToSign: KeyPair,
-    transactionsForBlock: NonEmptySet[Signed[DAGTransaction]]*
+    transactionsForBlock: NonEmptySet[Signed[Transaction]]*
   ) = {
     val parent = BlockReference(Height(4L), ProofsHash("parent"))
     transactionsForBlock
       .traverse(txns =>
-        forAsyncKryo[F, DAGBlock](DAGBlock(NonEmptyList.one(parent), txns), keyToSign)
+        forAsyncKryo[F, Block](Block(NonEmptyList.one(parent), txns), keyToSign)
           .map(BlockAsActiveTip(_, 0L))
       )
       .map(_.toList.toSortedSet)
@@ -184,9 +182,9 @@ object GlobalSnapshotInfoFilterSuite extends MutableIOSuite {
     src: Address,
     srcKey: KeyPair,
     dst: Address
-  ): F[Signed[DAGTransaction]] =
-    forAsyncKryo[F, DAGTransaction](
-      DAGTransaction(
+  ): F[Signed[Transaction]] =
+    forAsyncKryo[F, Transaction](
+      Transaction(
         src,
         dst,
         TransactionAmount(1L),

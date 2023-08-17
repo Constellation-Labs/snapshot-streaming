@@ -9,7 +9,6 @@ import scala.collection.immutable.{SortedMap, SortedSet}
 import org.tessellation.kryo.KryoSerializer
 import org.tessellation.schema.ID.Id
 import org.tessellation.schema._
-import org.tessellation.schema.block.DAGBlock
 import org.tessellation.schema.epoch.EpochProgress
 import org.tessellation.schema.height.{Height, SubHeight}
 import org.tessellation.schema.peer.PeerId
@@ -59,7 +58,7 @@ object data {
     lastSnapshot: Hash,
     hash: Hash,
     globalSnapshotInfo: GlobalSnapshotInfo = GlobalSnapshotInfo.empty,
-    blocks: SortedSet[BlockAsActiveTip[DAGBlock]] = SortedSet.empty,
+    blocks: SortedSet[BlockAsActiveTip] = SortedSet.empty,
     rewards: SortedSet[RewardTransaction] = SortedSet.empty
   ): F[Hashed[GlobalIncrementalSnapshot]] =
     globalSnapshotInfo.stateProof.map { sp =>

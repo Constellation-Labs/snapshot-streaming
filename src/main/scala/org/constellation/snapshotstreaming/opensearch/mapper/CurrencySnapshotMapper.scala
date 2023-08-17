@@ -6,7 +6,7 @@ import cats.syntax.flatMap._
 import cats.syntax.functor._
 import cats.syntax.foldable._
 import org.constellation.snapshotstreaming.opensearch.schema.{AddressBalance, Block, CurrencyData, Snapshot, Transaction}
-import org.tessellation.currency.schema.currency.{CurrencyIncrementalSnapshot, CurrencySnapshot, CurrencySnapshotInfo, CurrencyTransaction}
+import org.tessellation.currency.schema.currency.{CurrencyIncrementalSnapshot, CurrencySnapshot, CurrencySnapshotInfo}
 import org.tessellation.kryo.KryoSerializer
 import org.tessellation.schema.address.Address
 import org.tessellation.security.Hashed
@@ -21,7 +21,7 @@ trait CurrencySnapshotMapper[F[_]] {
     (
       Seq[CurrencyData[Snapshot]],
       Seq[CurrencyData[Block]],
-      Seq[CurrencyData[Transaction[CurrencyTransaction]]],
+      Seq[CurrencyData[Transaction]],
       Seq[CurrencyData[AddressBalance]]
     )
   ]
@@ -43,12 +43,12 @@ object CurrencySnapshotMapper {
         (
           Seq[CurrencyData[Snapshot]],
             Seq[CurrencyData[Block]],
-            Seq[CurrencyData[Transaction[CurrencyTransaction]]],
+            Seq[CurrencyData[Transaction]],
             Seq[CurrencyData[AddressBalance]]
           )
       ] =
         snapshots.toList.flatMap { case (i, s) => s.toList.map((i, _)) }
-          .foldLeftM((Seq.empty[CurrencyData[Snapshot]], Seq.empty[CurrencyData[Block]], Seq.empty[CurrencyData[Transaction[CurrencyTransaction]]], Seq.empty[CurrencyData[AddressBalance]])) {
+          .foldLeftM((Seq.empty[CurrencyData[Snapshot]], Seq.empty[CurrencyData[Block]], Seq.empty[CurrencyData[Transaction]], Seq.empty[CurrencyData[AddressBalance]])) {
             case ((aggSnap, aggBlocks, aggTxs, aggBalances), (identifier, fullOrIncremental)) =>
               val identifierStr = identifier.value.value
 

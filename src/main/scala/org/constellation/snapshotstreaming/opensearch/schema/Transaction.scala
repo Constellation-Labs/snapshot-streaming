@@ -10,7 +10,7 @@ import io.circe.generic.semiauto._
 
 import schema._
 
-final case class Transaction[T <: OriginalTransaction](
+final case class Transaction(
   hash: String,
   amount: Long,
   source: String,
@@ -21,13 +21,13 @@ final case class Transaction[T <: OriginalTransaction](
   blockHash: String,
   snapshotHash: String,
   snapshotOrdinal: Long,
-  transactionOriginal: Signed[T],
+  transactionOriginal: Signed[OriginalTransaction],
   timestamp: Date
 )
 
 object Transaction {
 
-  implicit def transactionEncoder[T <: OriginalTransaction: Encoder]: Encoder[Transaction[T]] = deriveEncoder
+  implicit def transactionEncoder: Encoder[Transaction] = deriveEncoder
 }
 
 case class TransactionReference(hash: String, ordinal: Long)

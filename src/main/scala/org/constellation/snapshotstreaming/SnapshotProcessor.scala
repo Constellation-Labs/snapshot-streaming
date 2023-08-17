@@ -7,7 +7,6 @@ import cats.effect._
 import cats.effect.std.Random
 import cats.syntax.applicative._
 import cats.syntax.applicativeError._
-import cats.syntax.contravariantSemigroupal._
 import cats.syntax.either._
 import cats.syntax.flatMap._
 import cats.syntax.foldable._
@@ -35,6 +34,7 @@ import org.constellation.snapshotstreaming.s3.S3DAO
 import org.http4s.ember.client.EmberClientBuilder
 import org.tessellation.currency.schema.currency.{CurrencyIncrementalSnapshot, CurrencySnapshot, CurrencySnapshotInfo}
 import org.tessellation.schema.address.Address
+import org.tessellation.security.signature.Signed
 import org.typelevel.log4cats.slf4j.Slf4jLogger
 
 trait SnapshotProcessor[F[_]] {
@@ -165,7 +165,7 @@ object SnapshotProcessor {
                 )
                 .flatMap(_.liftTo[F])
                 .flatMap { incrementalSnapshots =>
-                  incrementalSnapshots.foldM(ProcessedSnapshots(lastSnapshot.signed.value, lastState, List.empty)) {
+                  incrementalSnapshots.foldM(ProcessedSnapshots(lastSnapshot.signed, lastState, List.empty)) {
                     (processedSnapshots, snapshot) =>
                         tessellationServices.globalSnapshotContextService.createContext(
                           processedSnapshots.lastState,
@@ -174,7 +174,7 @@ object SnapshotProcessor {
                         )
                         .map { globalSnapshotsWithState =>
                           ProcessedSnapshots(
-                            snapshot.signed.value,
+                            snapshot.signed,
                             globalSnapshotsWithState.snapshotInfo,
                             processedSnapshots.snapshotsWithState.appended(globalSnapshotsWithState)
                           )
@@ -188,20 +188,9 @@ object SnapshotProcessor {
                 case Some(signedFullGlobalSnapshot) =>
                   l0Service
                     .pullGlobalSnapshot(signedFullGlobalSnapshot.value.ordinal.next)
-                    .flatMap(
-                      _.traverse(nextSnapshot =>
-                        GlobalIncrementalSnapshot
-                          .fromGlobalSnapshot(signedFullGlobalSnapshot.value)
-                          .flatMap(previousSnapshot =>
-                            tessellationServices.globalSnapshotContextService
-                              .createContext(
-                                signedFullGlobalSnapshot.value.info,
-                                previousSnapshot,
-                                nextSnapshot
-                              )
-                          )
-                      )
-                    )
+                    .map(_.map(nextSnapshot =>
+                      GlobalSnapshotWithState(nextSnapshot, signedFullGlobalSnapshot.value.info, Map.empty)
+                    ))
                     .map(_.toList)
                 case None =>
                   new Throwable(
@@ -249,7 +238,7 @@ object SnapshotProcessor {
     currencySnapshots: Map[Address, NonEmptyList[Either[Hashed[CurrencySnapshot], (Hashed[CurrencyIncrementalSnapshot], CurrencySnapshotInfo)]]]
   )
   case class ProcessedSnapshots(
-    lastSnapshot: GlobalIncrementalSnapshot,
+    lastSnapshot: Signed[GlobalIncrementalSnapshot],
     lastState: GlobalSnapshotInfo,
     snapshotsWithState: List[GlobalSnapshotWithState]
   )
