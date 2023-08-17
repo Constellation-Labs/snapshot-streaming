@@ -1,6 +1,6 @@
 package org.constellation.snapshotstreaming.opensearch.mapper
 
-import cats.Monad
+import cats.effect.Async
 
 import java.util.Date
 import cats.syntax.flatMap._
@@ -16,16 +16,20 @@ import org.tessellation.security.Hashed
 import org.tessellation.security.signature.Signed
 import eu.timepit.refined.auto._
 import org.constellation.snapshotstreaming.opensearch.schema._
-import org.tessellation.schema.snapshot.{Snapshot => OriginalSnapshot, SnapshotInfo}
+import org.tessellation.kryo.KryoSerializer
+import org.tessellation.schema.snapshot.{SnapshotInfo, Snapshot => OriginalSnapshot}
 import org.tessellation.syntax.sortedCollection._
 
-abstract class SnapshotMapper[F[_]: Monad, T <: OriginalTransaction, B <: OriginalBlock[T], S <: OriginalSnapshot[T, B]] {
-
-  def hashBlock(block: Signed[B]): F[String]
-
-  def hashTransaction(transaction: Signed[T]): F[String]
+abstract class SnapshotMapper[F[_]: Async: KryoSerializer, S <: OriginalSnapshot] {
 
   def fetchRewards(snapshot: S): SortedSet[OriginalRewardTransaction]
+
+  def hashBlock(block: Signed[OriginalBlock]): F[String] =
+    block.toHashed.map(_.proofsHash.value)
+
+  def hashTransaction(transaction: Signed[OriginalTransaction]): F[String] =
+    transaction.toHashed.map(_.hash.value)
+
   def mapSnapshot(snapshot: Hashed[S], timestamp: Date): F[Snapshot] = for {
     blocksHashes <- snapshot.blocks.unsorted.map(_.block).map(hashBlock).toList.sequence
   } yield Snapshot(
@@ -53,7 +57,7 @@ abstract class SnapshotMapper[F[_]: Monad, T <: OriginalTransaction, B <: Origin
   } yield blocks
 
   private def mapBlock(snapshotHash: String, snapshotOrdinal: Long, timestamp: Date)(
-    block: Signed[B]
+    block: Signed[OriginalBlock]
   ): F[Block] =
     for {
       blockHash <- hashBlock(block)
@@ -77,7 +81,7 @@ abstract class SnapshotMapper[F[_]: Monad, T <: OriginalTransaction, B <: Origin
   } yield transactions.flatten
 
   private def mapTransactionsFromBlock(snapshotHash: String, snapshotOrdinal: Long, timestamp: Date)(
-    block: Signed[B]
+    block: Signed[OriginalBlock]
   ) = for {
     blockHash <- hashBlock(block)
     transactions <- block.transactions.toSortedSet.unsorted
@@ -87,8 +91,8 @@ abstract class SnapshotMapper[F[_]: Monad, T <: OriginalTransaction, B <: Origin
   } yield transactions
 
   private def mapTransaction(blockHash: String, snapshotHash: String, snapshotOrdinal: Long, timestamp: Date)(
-    transaction: Signed[T]
-  ): F[Transaction[T]] = for {
+    transaction: Signed[OriginalTransaction]
+  ): F[Transaction] = for {
     transactionHash <- hashTransaction(transaction)
   } yield Transaction(
     hash = transactionHash,
@@ -126,7 +130,7 @@ abstract class SnapshotMapper[F[_]: Monad, T <: OriginalTransaction, B <: Origin
     filteredBalances ++ setZeroBalances
   }
 
-  private def extractTxnAddresses[A](getAddress: T => A)(snapshot: S): List[A] =
+  private def extractTxnAddresses[A](getAddress: OriginalTransaction => A)(snapshot: S): List[A] =
     snapshot.blocks.toList.flatMap(
       _.block.transactions.toSortedSet.toList.map(signedTxn => getAddress(signedTxn.value))
     )

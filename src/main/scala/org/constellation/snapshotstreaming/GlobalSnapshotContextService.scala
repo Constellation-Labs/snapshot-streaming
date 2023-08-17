@@ -11,10 +11,11 @@ import org.tessellation.kryo.KryoSerializer
 import org.tessellation.schema.{GlobalIncrementalSnapshot, GlobalSnapshotInfo}
 import org.tessellation.sdk.infrastructure.snapshot.{GlobalSnapshotContextFunctions, GlobalSnapshotStateChannelEventsProcessor}
 import org.tessellation.security.Hashed
+import org.tessellation.security.signature.Signed
 
 trait GlobalSnapshotContextService[F[_]] {
 
-  def createContext(context: GlobalSnapshotInfo, lastArtifact: GlobalIncrementalSnapshot, artifact: Hashed[GlobalIncrementalSnapshot]): F[GlobalSnapshotWithState]
+  def createContext(context: GlobalSnapshotInfo, lastArtifact: Signed[GlobalIncrementalSnapshot], artifact: Hashed[GlobalIncrementalSnapshot]): F[GlobalSnapshotWithState]
 }
 
 object GlobalSnapshotContextService {
@@ -24,7 +25,7 @@ object GlobalSnapshotContextService {
     globalSnapshotContextFns: GlobalSnapshotContextFunctions[F]
   ): GlobalSnapshotContextService[F] =
     new GlobalSnapshotContextService[F] {
-      def createContext(context: GlobalSnapshotInfo, lastArtifact: GlobalIncrementalSnapshot, artifact: Hashed[GlobalIncrementalSnapshot]): F[GlobalSnapshotWithState] =
+      def createContext(context: GlobalSnapshotInfo, lastArtifact: Signed[GlobalIncrementalSnapshot], artifact: Hashed[GlobalIncrementalSnapshot]): F[GlobalSnapshotWithState] =
         globalSnapshotContextFns.createContext(context, lastArtifact, artifact.signed)
           .flatMap { newContext =>
             globalSnapshotStateChannelEventsProcessor
