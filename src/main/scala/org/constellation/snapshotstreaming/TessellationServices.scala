@@ -25,7 +25,7 @@ object TessellationServices {
       currencySnapshotCreator = CurrencySnapshotCreator.make[F](currencySnapshotAcceptanceManager, None)
       currencySnapshotValidator = CurrencySnapshotValidator.make[F](currencySnapshotCreator, SignedValidator.make[F], None, None)
       currencySnapshotContextFns = CurrencySnapshotContextFunctions.make(currencySnapshotValidator)
-      stateChannelManager <- GlobalSnapshotStateChannelAcceptanceManager.make(None, None)
+      stateChannelManager <- GlobalSnapshotStateChannelAcceptanceManager.make(None)
       globalSnapshotStateChannelEventsProcessor =
         GlobalSnapshotStateChannelEventsProcessor.make[F](validators.stateChannelValidator, stateChannelManager, currencySnapshotContextFns)
       globalSnapshotAcceptanceManager = GlobalSnapshotAcceptanceManager.make(
