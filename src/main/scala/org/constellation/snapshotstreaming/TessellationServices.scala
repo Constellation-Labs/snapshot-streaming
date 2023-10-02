@@ -10,6 +10,7 @@ import org.tessellation.sdk.infrastructure.snapshot._
 import org.tessellation.sdk.modules.SdkValidators
 import org.tessellation.security.SecurityProvider
 import eu.timepit.refined.auto._
+import org.tessellation.json.JsonBrotliBinarySerializer
 import org.tessellation.security.signature.SignedValidator
 
 object TessellationServices {
@@ -26,8 +27,9 @@ object TessellationServices {
       currencySnapshotValidator = CurrencySnapshotValidator.make[F](currencySnapshotCreator, SignedValidator.make[F], None, None)
       currencySnapshotContextFns = CurrencySnapshotContextFunctions.make(currencySnapshotValidator)
       stateChannelManager <- GlobalSnapshotStateChannelAcceptanceManager.make(None)
+      jsonBrotliBinarySerializer <- JsonBrotliBinarySerializer.make()
       globalSnapshotStateChannelEventsProcessor =
-        GlobalSnapshotStateChannelEventsProcessor.make[F](validators.stateChannelValidator, stateChannelManager, currencySnapshotContextFns)
+        GlobalSnapshotStateChannelEventsProcessor.make[F](validators.stateChannelValidator, stateChannelManager, currencySnapshotContextFns, jsonBrotliBinarySerializer)
       globalSnapshotAcceptanceManager = GlobalSnapshotAcceptanceManager.make(
         BlockAcceptanceManager.make[F](validators.blockValidator),
         globalSnapshotStateChannelEventsProcessor,

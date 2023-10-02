@@ -66,7 +66,8 @@ object SnapshotProcessor {
           globalSnapshotClient,
           l0ClusterStorage,
           lastIncrementalGlobalSnapshotStorage,
-          configuration.pullLimit.some
+          configuration.pullLimit.some,
+          configuration.l0Peers.keys.some
         )
       requestBuilder = UpdateRequestBuilder.make[F](configuration)
       tesselationServices <- Resource.eval(TessellationServices.make[F](configuration))
