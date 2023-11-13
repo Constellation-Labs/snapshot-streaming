@@ -12,18 +12,20 @@ import org.tessellation.security.SecurityProvider
 import eu.timepit.refined.auto._
 import org.tessellation.json.JsonBrotliBinarySerializer
 import org.tessellation.security.signature.SignedValidator
+import org.tessellation.sdk.cli.CliMethod.snapshotSizeConfig
 
 object TessellationServices {
 
   def make[F[_]: Async: KryoSerializer: SecurityProvider](configuration: Configuration): F[TessellationServices[F]] =
     for {
       _ <- Async[F].unit
-      validators = SdkValidators.make[F](None, None, None)
+      validators = SdkValidators.make[F](None, None, None, snapshotSizeConfig.maxStateChannelSnapshotBinarySizeInBytes)
       currencySnapshotAcceptanceManager = CurrencySnapshotAcceptanceManager.make(
         BlockAcceptanceManager.make[F](validators.currencyBlockValidator),
         Amount(0L)
       )
-      currencySnapshotCreator = CurrencySnapshotCreator.make[F](currencySnapshotAcceptanceManager, None)
+      currencyEventsCutter = CurrencyEventsCutter.make[F]
+      currencySnapshotCreator = CurrencySnapshotCreator.make[F](currencySnapshotAcceptanceManager, None, snapshotSizeConfig, currencyEventsCutter)
       currencySnapshotValidator = CurrencySnapshotValidator.make[F](currencySnapshotCreator, SignedValidator.make[F], None, None)
       currencySnapshotContextFns = CurrencySnapshotContextFunctions.make(currencySnapshotValidator)
       stateChannelManager <- GlobalSnapshotStateChannelAcceptanceManager.make(None)
