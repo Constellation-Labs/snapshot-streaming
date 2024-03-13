@@ -1,17 +1,19 @@
 package org.constellation.snapshotstreaming.opensearch.mapper
 
+import java.util.Date
+
 import cats.data.NonEmptyList
 import cats.effect.Async
 import cats.syntax.flatMap._
-import cats.syntax.functor._
 import cats.syntax.foldable._
-import org.constellation.snapshotstreaming.opensearch.schema.{AddressBalance, Block, CurrencyData, Snapshot, Transaction}
+import cats.syntax.functor._
+
 import org.tessellation.currency.schema.currency.{CurrencyIncrementalSnapshot, CurrencySnapshot, CurrencySnapshotInfo}
 import org.tessellation.kryo.KryoSerializer
 import org.tessellation.schema.address.Address
-import org.tessellation.security.Hashed
+import org.tessellation.security.{Hashed, Hasher}
 
-import java.util.Date
+import org.constellation.snapshotstreaming.opensearch.schema._
 
 trait CurrencySnapshotMapper[F[_]] {
   def mapCurrencySnapshots(
@@ -28,7 +30,7 @@ trait CurrencySnapshotMapper[F[_]] {
 }
 
 object CurrencySnapshotMapper {
-  def make[F[_]: Async: KryoSerializer](): CurrencySnapshotMapper[F] =
+  def make[F[_]: Async: KryoSerializer: Hasher](): CurrencySnapshotMapper[F] =
     make(CurrencyFullSnapshotMapper.make(), CurrencyIncrementalSnapshotMapper.make())
 
   private def make[F[_] : Async : KryoSerializer](

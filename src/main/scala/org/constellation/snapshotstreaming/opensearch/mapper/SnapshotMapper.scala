@@ -1,26 +1,28 @@
 package org.constellation.snapshotstreaming.opensearch.mapper
 
-import cats.effect.Async
-
 import java.util.Date
+
+import cats.effect.Async
 import cats.syntax.flatMap._
 import cats.syntax.functor._
 import cats.syntax.traverse._
 
 import scala.collection.immutable.{SortedMap, SortedSet}
+
+import org.tessellation.kryo.KryoSerializer
 import org.tessellation.schema.address.Address
 import org.tessellation.schema.balance.Balance
-import org.tessellation.schema.{Block => OriginalBlock}
+import org.tessellation.schema.snapshot.{Snapshot => OriginalSnapshot, SnapshotInfo}
 import org.tessellation.schema.transaction.{RewardTransaction => OriginalRewardTransaction, Transaction => OriginalTransaction, TransactionReference => OriginalTransactionReference}
-import org.tessellation.security.Hashed
+import org.tessellation.schema.{Block => OriginalBlock}
 import org.tessellation.security.signature.Signed
-import eu.timepit.refined.auto._
-import org.constellation.snapshotstreaming.opensearch.schema._
-import org.tessellation.kryo.KryoSerializer
-import org.tessellation.schema.snapshot.{SnapshotInfo, Snapshot => OriginalSnapshot}
+import org.tessellation.security.{Hashed, Hasher}
 import org.tessellation.syntax.sortedCollection._
 
-abstract class SnapshotMapper[F[_]: Async: KryoSerializer, S <: OriginalSnapshot] {
+import eu.timepit.refined.auto._
+import org.constellation.snapshotstreaming.opensearch.schema._
+
+abstract class SnapshotMapper[F[_]: Async: KryoSerializer: Hasher, S <: OriginalSnapshot] {
 
   def fetchRewards(snapshot: S): SortedSet[OriginalRewardTransaction]
 

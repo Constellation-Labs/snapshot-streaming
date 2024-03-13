@@ -14,11 +14,11 @@ import cats.{Applicative, MonadThrow}
 
 import org.tessellation.kryo.KryoSerializer
 import org.tessellation.merkletree.StateProofValidator
+import org.tessellation.node.shared.domain.snapshot.Validator.isNextSnapshot
+import org.tessellation.node.shared.domain.snapshot.storage.LastSnapshotStorage
 import org.tessellation.schema._
 import org.tessellation.schema.height.Height
-import org.tessellation.sdk.domain.snapshot.Validator.isNextSnapshot
-import org.tessellation.sdk.domain.snapshot.storage.LastSnapshotStorage
-import org.tessellation.security.Hashed
+import org.tessellation.security.{HashSelect, Hashed, Hasher}
 
 import fs2.io.file._
 import fs2.{Stream, text}
@@ -29,15 +29,17 @@ import io.circe.syntax._
 
 object FileBasedLastIncrementalGlobalSnapshotStorage {
 
-  def make[F[_]: Async: Files: KryoSerializer](
-    path: Path
+  def make[F[_]: Async: Files: KryoSerializer: Hasher](
+    path: Path,
+    hashSelect: HashSelect
   ): F[LastSnapshotStorage[F, GlobalIncrementalSnapshot, GlobalSnapshotInfo]] =
     Semaphore[F](1)
-      .map(make(path, _))
+      .map(make(path, _, hashSelect))
 
-  private def make[F[_]: Async: Files: KryoSerializer](
+  private def make[F[_]: Async: Files: KryoSerializer: Hasher](
     path: Path,
-    semaphore: Semaphore[F]
+    semaphore: Semaphore[F],
+    hashSelect: HashSelect
   ): LastSnapshotStorage[F, GlobalIncrementalSnapshot, GlobalSnapshotInfo] =
     new LastSnapshotStorage[F, GlobalIncrementalSnapshot, GlobalSnapshotInfo] {
 
@@ -83,7 +85,7 @@ object FileBasedLastIncrementalGlobalSnapshotStorage {
 
       private def validateStateProof(snapshot: Hashed[GlobalIncrementalSnapshot], state: GlobalSnapshotInfo) =
         StateProofValidator
-          .validate(snapshot, state)
+          .validate(snapshot, state, hashSelect)
           .map(_.isValid)
           .flatMap(new Throwable("State proof doesn't match!").raiseError[F, Unit].unlessA)
 
