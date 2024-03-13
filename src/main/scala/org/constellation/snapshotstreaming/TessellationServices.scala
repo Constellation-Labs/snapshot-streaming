@@ -3,33 +3,36 @@ package org.constellation.snapshotstreaming
 import cats.effect.Async
 import cats.syntax.flatMap._
 import cats.syntax.functor._
-import org.tessellation.kryo.KryoSerializer
-import org.tessellation.schema.balance.Amount
-import org.tessellation.sdk.infrastructure.block.processing.BlockAcceptanceManager
-import org.tessellation.sdk.infrastructure.snapshot._
-import org.tessellation.sdk.modules.SdkValidators
-import org.tessellation.security.SecurityProvider
-import eu.timepit.refined.auto._
+
 import org.tessellation.json.JsonBrotliBinarySerializer
+import org.tessellation.kryo.KryoSerializer
+import org.tessellation.node.shared.config.types.SnapshotSizeConfig
+import org.tessellation.node.shared.infrastructure.block.processing.BlockAcceptanceManager
+import org.tessellation.node.shared.infrastructure.snapshot._
+import org.tessellation.node.shared.modules.SharedValidators
+import org.tessellation.schema.balance.Amount
 import org.tessellation.security.signature.SignedValidator
-import org.tessellation.sdk.cli.CliMethod.snapshotSizeConfig
+import org.tessellation.security.{HashSelect, Hasher, SecurityProvider}
+
+import eu.timepit.refined.auto._
 
 object TessellationServices {
 
-  def make[F[_]: Async: KryoSerializer: SecurityProvider](configuration: Configuration): F[TessellationServices[F]] =
+  def make[F[_]: Async: KryoSerializer: SecurityProvider: Hasher](configuration: Configuration, hashSelect: HashSelect, snapshotSizeConfig: SnapshotSizeConfig): F[TessellationServices[F]] =
     for {
       _ <- Async[F].unit
-      validators = SdkValidators.make[F](None, None, None, snapshotSizeConfig.maxStateChannelSnapshotBinarySizeInBytes)
+      validators = SharedValidators.make[F](None, None, None, snapshotSizeConfig.maxStateChannelSnapshotBinarySizeInBytes)
       currencySnapshotAcceptanceManager = CurrencySnapshotAcceptanceManager.make(
         BlockAcceptanceManager.make[F](validators.currencyBlockValidator),
-        Amount(0L)
+        Amount(0L),
+        hashSelect
       )
       currencyEventsCutter = CurrencyEventsCutter.make[F]
       currencySnapshotCreator = CurrencySnapshotCreator.make[F](currencySnapshotAcceptanceManager, None, snapshotSizeConfig, currencyEventsCutter)
       currencySnapshotValidator = CurrencySnapshotValidator.make[F](currencySnapshotCreator, SignedValidator.make[F], None, None)
-      currencySnapshotContextFns = CurrencySnapshotContextFunctions.make(currencySnapshotValidator)
+      currencySnapshotContextFns = CurrencySnapshotContextFunctions.make(currencySnapshotValidator, hashSelect)
       stateChannelManager <- GlobalSnapshotStateChannelAcceptanceManager.make(None)
-      jsonBrotliBinarySerializer <- JsonBrotliBinarySerializer.make()
+      jsonBrotliBinarySerializer <- JsonBrotliBinarySerializer.forSync[F]
       globalSnapshotStateChannelEventsProcessor =
         GlobalSnapshotStateChannelEventsProcessor.make[F](validators.stateChannelValidator, stateChannelManager, currencySnapshotContextFns, jsonBrotliBinarySerializer)
       globalSnapshotAcceptanceManager = GlobalSnapshotAcceptanceManager.make(
@@ -37,7 +40,7 @@ object TessellationServices {
         globalSnapshotStateChannelEventsProcessor,
         configuration.collateral
       )
-      globalSnapshotContextFns = GlobalSnapshotContextFunctions.make[F](globalSnapshotAcceptanceManager)
+      globalSnapshotContextFns = GlobalSnapshotContextFunctions.make[F](globalSnapshotAcceptanceManager, hashSelect)
       globalSnapshotContextService = GlobalSnapshotContextService.make(globalSnapshotStateChannelEventsProcessor, globalSnapshotContextFns)
   } yield new TessellationServices[F](globalSnapshotContextService) {}
 

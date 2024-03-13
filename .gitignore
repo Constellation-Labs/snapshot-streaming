@@ -12,3 +12,4 @@ logs/
 .terraform.lock.hcl
 .java-version
 .DS_Store
+.direnv/

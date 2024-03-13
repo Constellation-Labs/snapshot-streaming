@@ -7,6 +7,7 @@ import scala.concurrent.duration.{Duration, FiniteDuration}
 import scala.jdk.CollectionConverters._
 import scala.util.Try
 
+import org.tessellation.env.AppEnvironment
 import org.tessellation.schema.SnapshotOrdinal
 import org.tessellation.schema.balance.Amount
 import org.tessellation.schema.peer.{L0Peer, PeerId}
@@ -28,6 +29,7 @@ class Configuration {
   val lastFullSnapshotPath: Path = Path(config.getString("snapshotStreaming.lastSnapshotPath"))
   val lastIncrementalSnapshotPath: Path = Path(config.getString("snapshotStreaming.lastIncrementalSnapshotPath"))
   val collateral: Amount = Amount(NonNegLong.unsafeFrom(config.getLong("snapshotStreaming.collateral")))
+  val environment: AppEnvironment = AppEnvironment.withNameInsensitive(config.getString("snapshotStreaming.environment"))
 
   val l0Peers: NonEmptyMap[PeerId, L0Peer] = NonEmptyMap.fromMapUnsafe(
     SortedMap.from(

@@ -1,17 +1,21 @@
 package org.constellation.snapshotstreaming.opensearch
 
 import java.util.Date
+
 import cats.effect.Async
 import cats.syntax.flatMap._
 import cats.syntax.functor._
+
 import org.tessellation.kryo.KryoSerializer
+import org.tessellation.security.Hasher
+
 import com.sksamuel.elastic4s.ElasticApi.updateById
 import com.sksamuel.elastic4s.circe._
 import com.sksamuel.elastic4s.requests.update.UpdateRequest
+import org.constellation.snapshotstreaming.Configuration
 import org.constellation.snapshotstreaming.SnapshotProcessor.GlobalSnapshotWithState
 import org.constellation.snapshotstreaming.opensearch.mapper.{CurrencySnapshotMapper, GlobalSnapshotMapper}
 import org.constellation.snapshotstreaming.opensearch.schema._
-import org.constellation.snapshotstreaming.Configuration
 
 trait UpdateRequestBuilder[F[_]] {
 
@@ -24,7 +28,7 @@ trait UpdateRequestBuilder[F[_]] {
 
 object UpdateRequestBuilder {
 
-  def make[F[_]: Async: KryoSerializer](config: Configuration): UpdateRequestBuilder[F] =
+  def make[F[_]: Async: KryoSerializer: Hasher](config: Configuration): UpdateRequestBuilder[F] =
     make(GlobalSnapshotMapper.make(), CurrencySnapshotMapper.make(), config)
 
   def make[F[_]: Async](globalMapper: GlobalSnapshotMapper[F], currencyMapper: CurrencySnapshotMapper[F], config: Configuration): UpdateRequestBuilder[F] =

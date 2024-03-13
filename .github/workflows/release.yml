@@ -21,7 +21,7 @@ jobs:
         with:
           path: tessellation
           repository: Constellation-Labs/tessellation
-          ref: v2.0.0
+          ref: v2.4.0-SNAPSHOT
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Java
@@ -32,7 +32,7 @@ jobs:
           cache: sbt
 
       - name: Build tessellation packages
-        run: (cd tessellation; sbt kernel/publishM2 shared/publishM2 keytool/publishM2 sdk/publishM2)
+        run: (cd tessellation; sbt kernel/publishM2 shared/publishM2 keytool/publishM2 sdk/publishM2 nodeShared/publishM2)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

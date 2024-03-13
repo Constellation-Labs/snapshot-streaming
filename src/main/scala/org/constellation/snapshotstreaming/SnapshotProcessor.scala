@@ -1,6 +1,7 @@
 package org.constellation.snapshotstreaming
 
 import java.util.Date
+
 import cats.Applicative
 import cats.data.{NonEmptyList, NonEmptyMap, Validated}
 import cats.effect._
@@ -15,26 +16,29 @@ import cats.syntax.option._
 import cats.syntax.order._
 import cats.syntax.show._
 import cats.syntax.traverse._
+
+import org.tessellation.currency.schema.currency.{CurrencyIncrementalSnapshot, CurrencySnapshot, CurrencySnapshotInfo}
 import org.tessellation.ext.cats.syntax.next._
 import org.tessellation.kryo.KryoSerializer
 import org.tessellation.merkletree.StateProofValidator
+import org.tessellation.node.shared.config.types.SnapshotSizeConfig
+import org.tessellation.node.shared.domain.snapshot.Validator
+import org.tessellation.node.shared.domain.snapshot.services.GlobalL0Service
+import org.tessellation.node.shared.domain.snapshot.storage.LastSnapshotStorage
+import org.tessellation.node.shared.http.p2p.clients.L0GlobalSnapshotClient
+import org.tessellation.node.shared.infrastructure.cluster.storage.L0ClusterStorage
 import org.tessellation.schema.SnapshotReference.{fromHashedSnapshot => getSnapshotReference}
+import org.tessellation.schema.address.Address
 import org.tessellation.schema.peer.{L0Peer, PeerId}
 import org.tessellation.schema.{GlobalIncrementalSnapshot, GlobalSnapshotInfo}
-import org.tessellation.sdk.domain.snapshot.Validator
-import org.tessellation.sdk.domain.snapshot.services.GlobalL0Service
-import org.tessellation.sdk.domain.snapshot.storage.LastSnapshotStorage
-import org.tessellation.sdk.http.p2p.clients.L0GlobalSnapshotClient
-import org.tessellation.sdk.infrastructure.cluster.storage.L0ClusterStorage
-import org.tessellation.security.{Hashed, SecurityProvider}
+import org.tessellation.security._
+import org.tessellation.security.signature.Signed
+
 import com.sksamuel.elastic4s.ElasticDsl.bulk
 import fs2.Stream
 import org.constellation.snapshotstreaming.opensearch.{OpensearchDAO, UpdateRequestBuilder}
 import org.constellation.snapshotstreaming.s3.S3DAO
 import org.http4s.ember.client.EmberClientBuilder
-import org.tessellation.currency.schema.currency.{CurrencyIncrementalSnapshot, CurrencySnapshot, CurrencySnapshotInfo}
-import org.tessellation.schema.address.Address
-import org.tessellation.security.signature.Signed
 import org.typelevel.log4cats.slf4j.Slf4jLogger
 
 trait SnapshotProcessor[F[_]] {
@@ -43,8 +47,10 @@ trait SnapshotProcessor[F[_]] {
 
 object SnapshotProcessor {
 
-  def make[F[_]: Async: KryoSerializer: SecurityProvider: Random](
-    configuration: Configuration
+  def make[F[_]: Async: KryoSerializer: SecurityProvider: Random: Hasher](
+    configuration: Configuration,
+    hashSelect: HashSelect,
+    snapshotSizeConfig: SnapshotSizeConfig
   ): Resource[F, SnapshotProcessor[F]] =
     for {
       client <- EmberClientBuilder
@@ -59,7 +65,7 @@ object SnapshotProcessor {
         Ref.of[F, NonEmptyMap[PeerId, L0Peer]](configuration.l0Peers).map(L0ClusterStorage.make(_))
       }
       lastIncrementalGlobalSnapshotStorage <- Resource.eval {
-        FileBasedLastIncrementalGlobalSnapshotStorage.make[F](configuration.lastIncrementalSnapshotPath)
+        FileBasedLastIncrementalGlobalSnapshotStorage.make[F](configuration.lastIncrementalSnapshotPath, hashSelect)
       }
       l0Service = GlobalL0Service
         .make[F](
@@ -67,10 +73,11 @@ object SnapshotProcessor {
           l0ClusterStorage,
           lastIncrementalGlobalSnapshotStorage,
           configuration.pullLimit.some,
-          configuration.l0Peers.keys.some
+          configuration.l0Peers.keys.some,
+          hashSelect
         )
       requestBuilder = UpdateRequestBuilder.make[F](configuration)
-      tesselationServices <- Resource.eval(TessellationServices.make[F](configuration))
+      tesselationServices <- Resource.eval(TessellationServices.make[F](configuration, hashSelect, snapshotSizeConfig))
       lastFullGlobalSnapshotStorage = FileBasedLastFullGlobalSnapshotStorage.make[F](configuration.lastFullSnapshotPath)
     } yield make(
       configuration,
@@ -80,10 +87,11 @@ object SnapshotProcessor {
       s3DAO,
       requestBuilder,
       tesselationServices,
-      lastFullGlobalSnapshotStorage
+      lastFullGlobalSnapshotStorage,
+      hashSelect
     )
 
-  def make[F[_]: Async: KryoSerializer](
+  def make[F[_]: Async: KryoSerializer: Hasher](
     configuration: Configuration,
     lastIncrementalGlobalSnapshotStorage: LastSnapshotStorage[F, GlobalIncrementalSnapshot, GlobalSnapshotInfo],
     l0Service: GlobalL0Service[F],
@@ -91,7 +99,8 @@ object SnapshotProcessor {
     s3DAO: S3DAO[F],
     updateRequestBuilder: UpdateRequestBuilder[F],
     tessellationServices: TessellationServices[F],
-    lastFullGlobalSnapshotStorage: FileBasedLastFullGlobalSnapshotStorage[F]
+    lastFullGlobalSnapshotStorage: FileBasedLastFullGlobalSnapshotStorage[F],
+    hashSelect: HashSelect
   ): SnapshotProcessor[F] = new SnapshotProcessor[F] {
     val logger = Slf4jLogger.getLogger[F]
 
@@ -115,7 +124,7 @@ object SnapshotProcessor {
     private def process(globalSnapshotWithState: GlobalSnapshotWithState): F[Unit] =
       globalSnapshotWithState.pure[F].flatMap {
         case state @ GlobalSnapshotWithState(snapshot, snapshotInfo, _) =>
-          StateProofValidator.validate(snapshot, snapshotInfo).flatMap {
+          StateProofValidator.validate(snapshot, snapshotInfo, hashSelect).flatMap {
             case Validated.Valid(()) =>
               lastIncrementalGlobalSnapshotStorage.get.flatMap {
                 case Some(last) if Validator.isNextSnapshot(last, snapshot.signed.value) =>

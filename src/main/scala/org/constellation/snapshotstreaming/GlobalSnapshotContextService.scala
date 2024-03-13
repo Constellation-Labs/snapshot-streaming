@@ -5,13 +5,15 @@ import cats.syntax.either._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
 import cats.syntax.traverse._
-import org.constellation.snapshotstreaming.SnapshotProcessor.GlobalSnapshotWithState
+
 import org.tessellation.currency.schema.currency.{CurrencyIncrementalSnapshot, CurrencySnapshot, CurrencySnapshotInfo}
 import org.tessellation.kryo.KryoSerializer
+import org.tessellation.node.shared.infrastructure.snapshot.{GlobalSnapshotContextFunctions, GlobalSnapshotStateChannelEventsProcessor}
 import org.tessellation.schema.{GlobalIncrementalSnapshot, GlobalSnapshotInfo}
-import org.tessellation.sdk.infrastructure.snapshot.{GlobalSnapshotContextFunctions, GlobalSnapshotStateChannelEventsProcessor}
-import org.tessellation.security.Hashed
 import org.tessellation.security.signature.Signed
+import org.tessellation.security.{Hashed, Hasher}
+
+import org.constellation.snapshotstreaming.SnapshotProcessor.GlobalSnapshotWithState
 
 trait GlobalSnapshotContextService[F[_]] {
 
@@ -20,7 +22,7 @@ trait GlobalSnapshotContextService[F[_]] {
 
 object GlobalSnapshotContextService {
 
-  def make[F[_]: Async: KryoSerializer](
+  def make[F[_]: Async: KryoSerializer: Hasher](
     globalSnapshotStateChannelEventsProcessor: GlobalSnapshotStateChannelEventsProcessor[F],
     globalSnapshotContextFns: GlobalSnapshotContextFunctions[F]
   ): GlobalSnapshotContextService[F] =
