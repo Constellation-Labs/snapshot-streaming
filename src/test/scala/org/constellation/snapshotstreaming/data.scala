@@ -20,8 +20,17 @@ import org.tessellation.security.signature.Signed
 import org.tessellation.security.signature.signature.{Signature, SignatureProof}
 
 import eu.timepit.refined.types.numeric.NonNegLong
+import cats.effect.kernel.Sync
+import org.tessellation.security.Hasher
+import org.tessellation.security.HashSelect
+import org.tessellation.security.HashLogic
+import org.tessellation.security.JsonHash
 
 object data {
+
+  val hashSelect = new HashSelect {
+    def select(ordinal: SnapshotOrdinal): HashLogic = JsonHash
+  }
 
   def globalSnapshot(
     ordinal: NonNegLong,
@@ -51,7 +60,7 @@ object data {
       ProofsHash(Hash.empty.value)
     )
 
-  def incrementalGlobalSnapshot[F[_]: MonadThrow: KryoSerializer](
+  def incrementalGlobalSnapshot[F[_]: Sync: Hasher](
     ordinal: NonNegLong,
     height: NonNegLong,
     subHeight: NonNegLong,
@@ -61,7 +70,7 @@ object data {
     blocks: SortedSet[BlockAsActiveTip] = SortedSet.empty,
     rewards: SortedSet[RewardTransaction] = SortedSet.empty
   ): F[Hashed[GlobalIncrementalSnapshot]] =
-    globalSnapshotInfo.stateProof.map { sp =>
+    globalSnapshotInfo.stateProof(SnapshotOrdinal(ordinal), hashSelect).map { sp =>
       Hashed(
         Signed(
           GlobalIncrementalSnapshot(
