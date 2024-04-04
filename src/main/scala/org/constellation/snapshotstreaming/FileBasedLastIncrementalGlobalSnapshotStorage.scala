@@ -95,6 +95,9 @@ object FileBasedLastIncrementalGlobalSnapshotStorage {
       def getCombined: F[Option[(Hashed[GlobalIncrementalSnapshot], GlobalSnapshotInfo)]] =
         getSnasphotWithState(sws => (sws.snapshot, sws.state))
 
+      def getCombinedStream: Stream[F, Option[(Hashed[GlobalIncrementalSnapshot], GlobalSnapshotInfo)]] = 
+        ???
+
       private def getSnasphotWithState[A](extract: SnapshotWithState => A): F[Option[A]] = Files[F]
         .readAll(path)
         .through(text.utf8.decode)

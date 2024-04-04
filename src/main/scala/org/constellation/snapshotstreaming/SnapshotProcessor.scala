@@ -20,6 +20,7 @@ import cats.syntax.traverse._
 import org.tessellation.currency.schema.currency.{CurrencyIncrementalSnapshot, CurrencySnapshot, CurrencySnapshotInfo}
 import org.tessellation.ext.cats.syntax.next._
 import org.tessellation.kryo.KryoSerializer
+import org.tessellation.json.JsonSerializer
 import org.tessellation.merkletree.StateProofValidator
 import org.tessellation.node.shared.config.types.SnapshotSizeConfig
 import org.tessellation.node.shared.domain.snapshot.Validator
@@ -47,7 +48,7 @@ trait SnapshotProcessor[F[_]] {
 
 object SnapshotProcessor {
 
-  def make[F[_]: Async: KryoSerializer: SecurityProvider: Random: Hasher](
+  def make[F[_]: Async: KryoSerializer: JsonSerializer: SecurityProvider: Random: Hasher](
     configuration: Configuration,
     hashSelect: HashSelect,
     snapshotSizeConfig: SnapshotSizeConfig

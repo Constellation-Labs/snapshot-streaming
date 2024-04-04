@@ -5,6 +5,7 @@ import cats.syntax.flatMap._
 import cats.syntax.functor._
 
 import org.tessellation.json.JsonBrotliBinarySerializer
+import org.tessellation.json.JsonSerializer
 import org.tessellation.kryo.KryoSerializer
 import org.tessellation.node.shared.config.types.SnapshotSizeConfig
 import org.tessellation.node.shared.infrastructure.block.processing.BlockAcceptanceManager
@@ -18,7 +19,7 @@ import eu.timepit.refined.auto._
 
 object TessellationServices {
 
-  def make[F[_]: Async: KryoSerializer: SecurityProvider: Hasher](configuration: Configuration, hashSelect: HashSelect, snapshotSizeConfig: SnapshotSizeConfig): F[TessellationServices[F]] =
+  def make[F[_]: Async: JsonSerializer: KryoSerializer: SecurityProvider: Hasher](configuration: Configuration, hashSelect: HashSelect, snapshotSizeConfig: SnapshotSizeConfig): F[TessellationServices[F]] =
     for {
       _ <- Async[F].unit
       validators = SharedValidators.make[F](None, None, None, snapshotSizeConfig.maxStateChannelSnapshotBinarySizeInBytes)
@@ -27,7 +28,7 @@ object TessellationServices {
         Amount(0L),
         hashSelect
       )
-      currencyEventsCutter = CurrencyEventsCutter.make[F]
+      currencyEventsCutter = CurrencyEventsCutter.make[F](None)
       currencySnapshotCreator = CurrencySnapshotCreator.make[F](currencySnapshotAcceptanceManager, None, snapshotSizeConfig, currencyEventsCutter)
       currencySnapshotValidator = CurrencySnapshotValidator.make[F](currencySnapshotCreator, SignedValidator.make[F], None, None)
       currencySnapshotContextFns = CurrencySnapshotContextFunctions.make(currencySnapshotValidator, hashSelect)
