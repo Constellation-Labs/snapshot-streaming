@@ -18,7 +18,7 @@ import org.tessellation.node.shared.domain.snapshot.Validator.isNextSnapshot
 import org.tessellation.node.shared.domain.snapshot.storage.LastSnapshotStorage
 import org.tessellation.schema._
 import org.tessellation.schema.height.Height
-import org.tessellation.security.{HashSelect, Hashed, Hasher}
+import org.tessellation.security._
 
 import fs2.io.file._
 import fs2.{Stream, text}
@@ -29,17 +29,15 @@ import io.circe.syntax._
 
 object FileBasedLastIncrementalGlobalSnapshotStorage {
 
-  def make[F[_]: Async: Files: KryoSerializer: Hasher](
-    path: Path,
-    hashSelect: HashSelect
+  def make[F[_]: Async: Files: KryoSerializer: HasherSelector](
+    path: Path
   ): F[LastSnapshotStorage[F, GlobalIncrementalSnapshot, GlobalSnapshotInfo]] =
     Semaphore[F](1)
-      .map(make(path, _, hashSelect))
+      .map(make(path, _))
 
-  private def make[F[_]: Async: Files: KryoSerializer: Hasher](
+  private def make[F[_]: Async: Files: KryoSerializer: HasherSelector](
     path: Path,
-    semaphore: Semaphore[F],
-    hashSelect: HashSelect
+    semaphore: Semaphore[F]
   ): LastSnapshotStorage[F, GlobalIncrementalSnapshot, GlobalSnapshotInfo] =
     new LastSnapshotStorage[F, GlobalIncrementalSnapshot, GlobalSnapshotInfo] {
 
@@ -84,10 +82,14 @@ object FileBasedLastIncrementalGlobalSnapshotStorage {
         }
 
       private def validateStateProof(snapshot: Hashed[GlobalIncrementalSnapshot], state: GlobalSnapshotInfo) =
-        StateProofValidator
-          .validate(snapshot, state, hashSelect)
-          .map(_.isValid)
-          .flatMap(new Throwable("State proof doesn't match!").raiseError[F, Unit].unlessA)
+        HasherSelector[F].forOrdinal(snapshot.ordinal) { implicit hasher =>
+          (hasher.getLogic(snapshot.ordinal) match {
+            case JsonHash => StateProofValidator.validate(snapshot, state)
+            case KryoHash => StateProofValidator.validate(snapshot, GlobalSnapshotInfoV2.fromGlobalSnapshotInfo(state))
+          })
+            .map(_.isValid)
+            .flatMap(new Throwable("State proof doesn't match!").raiseError[F, Unit].unlessA)
+        }
 
       def get: F[Option[Hashed[GlobalIncrementalSnapshot]]] =
         getSnasphotWithState(_.snapshot)
@@ -95,7 +97,7 @@ object FileBasedLastIncrementalGlobalSnapshotStorage {
       def getCombined: F[Option[(Hashed[GlobalIncrementalSnapshot], GlobalSnapshotInfo)]] =
         getSnasphotWithState(sws => (sws.snapshot, sws.state))
 
-      def getCombinedStream: Stream[F, Option[(Hashed[GlobalIncrementalSnapshot], GlobalSnapshotInfo)]] = 
+      def getCombinedStream: Stream[F, Option[(Hashed[GlobalIncrementalSnapshot], GlobalSnapshotInfo)]] =
         ???
 
       private def getSnasphotWithState[A](extract: SnapshotWithState => A): F[Option[A]] = Files[F]

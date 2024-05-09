@@ -1,24 +1,22 @@
 package org.constellation.snapshotstreaming.s3
 
-import java.io.ByteArrayInputStream
-
 import cats.Applicative
 import cats.effect.{Async, Resource}
 import cats.syntax.contravariantSemigroupal._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
 import cats.syntax.show._
-
 import org.tessellation.ext.kryo._
 import org.tessellation.kryo.KryoSerializer
 import org.tessellation.schema.GlobalIncrementalSnapshot
 import org.tessellation.security.Hashed
-
 import com.amazonaws.client.builder.AwsClientBuilder.EndpointConfiguration
 import com.amazonaws.services.s3.model.ObjectMetadata
 import com.amazonaws.services.s3.{AmazonS3, AmazonS3ClientBuilder}
 import org.constellation.snapshotstreaming.Configuration
 import org.typelevel.log4cats.slf4j.Slf4jLogger
+
+import java.io.ByteArrayInputStream
 
 trait S3DAO[F[_]] {
   def uploadSnapshot(snapshot: Hashed[GlobalIncrementalSnapshot]): F[Unit]
