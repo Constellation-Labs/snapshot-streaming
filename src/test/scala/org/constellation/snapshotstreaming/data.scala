@@ -28,12 +28,15 @@ import cats.effect.Async
 import org.tessellation.currency.schema.currency.CurrencyIncrementalSnapshot
 import org.tessellation.currency.schema.currency.CurrencySnapshotInfo
 import org.tessellation.currency.schema.feeTransaction.FeeTransaction
+import org.tessellation.currency.schema.feeTransaction.FeeTransactionReference
 import org.tessellation.kryo.KryoSerializer
 import org.tessellation.schema.address.Address
+import org.tessellation.schema.balance.Amount
 import org.tessellation.schema.balance.Balance
 import org.tessellation.schema.transaction.Transaction
 import org.tessellation.schema.transaction.TransactionAmount
 import org.tessellation.schema.transaction.TransactionFee
+import org.tessellation.schema.transaction.TransactionOrdinal
 import org.tessellation.schema.transaction.TransactionReference
 import org.tessellation.schema.transaction.TransactionSalt
 import org.tessellation.security.HasherSelector
@@ -125,7 +128,8 @@ object data {
   def applyTransactions(
     balances: SortedMap[Address, Balance],
     txs: List[Signed[Transaction]],
-    rewards: List[RewardTransaction]
+    rewards: List[RewardTransaction],
+    feeTxs: List[Signed[FeeTransaction]]
   ): SortedMap[Address, Balance] = {
     val txApplied = txs.foldLeft(balances.view.mapValues(_.value.toLong).toMap) { case (acc, tx) =>
       acc
@@ -138,7 +142,13 @@ object data {
         .updatedWith(tx.destination)(existing => (existing.getOrElse(0L) + tx.amount.value).some)
     }
 
-    val nonEmpty = rewardsApplied.filterNot { case (_, balance) => balance === 0L }
+    val feeTxsApplied = feeTxs.foldLeft(rewardsApplied) { case (acc, feeTx) =>
+      acc
+        .updatedWith(feeTx.source)(existing => (existing.getOrElse(0L) - feeTx.amount.value).some)
+        .updatedWith(feeTx.destination)(existing => (existing.getOrElse(0L) + feeTx.amount.value).some)
+    }
+
+    val nonEmpty = feeTxsApplied.filterNot { case (_, balance) => balance === 0L }
 
     nonEmpty.view.mapValues(v => Balance(NonNegLong.unsafeFrom(v))).toMap.toSortedMap
   }
@@ -176,6 +186,25 @@ object data {
         amount,
         TransactionFee.zero,
         TransactionReference.empty,
+        TransactionSalt(0L)
+      ),
+      srcKey
+    )
+  }
+
+  def createFeeTxn[F[_]: Async: KryoSerializer: HasherSelector: SecurityProvider](
+    src: Address,
+    srcKey: KeyPair,
+    dst: Address
+  ): F[Signed[FeeTransaction]] = {
+    implicit val hasher: Hasher[F] = HasherSelector[F].getCurrent
+
+    forAsyncHasher[F, FeeTransaction](
+      FeeTransaction(
+        src,
+        dst,
+        Amount(1L),
+        FeeTransactionReference(TransactionOrdinal(0L), Hash.empty),
         TransactionSalt(0L)
       ),
       srcKey

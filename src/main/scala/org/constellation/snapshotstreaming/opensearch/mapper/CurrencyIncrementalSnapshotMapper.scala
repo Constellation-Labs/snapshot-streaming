@@ -10,6 +10,7 @@ import org.constellation.snapshotstreaming.opensearch.schema.RewardTransaction
 import scala.collection.immutable.SortedSet
 import org.tessellation.currency.schema.currency.CurrencyIncrementalSnapshot
 import org.tessellation.currency.schema.currency.CurrencySnapshotInfo
+import org.tessellation.currency.schema.feeTransaction.FeeTransaction
 import org.tessellation.json.JsonSerializer
 import org.tessellation.json.SizeCalculator
 import org.tessellation.schema.currencyMessage.MessageType
@@ -44,8 +45,9 @@ object CurrencyIncrementalSnapshotMapper {
 
       def extractSnapshotReferredAddresses(snapshot: CurrencyIncrementalSnapshot): SnapshotReferredAddresses = {
         val transactions = snapshot.blocks.flatMap(_.block.transactions.toSortedSet)
-        val source = transactions.map(_.source)
-        val destination = transactions.map(_.destination)
+        val feeTransactions = snapshot.feeTransactions.getOrElse(SortedSet.empty[Signed[FeeTransaction]])
+        val source = transactions.map(_.source) ++ feeTransactions.map(_.source)
+        val destination = transactions.map(_.destination) ++ feeTransactions.map(_.destination)
         SnapshotReferredAddresses(source, destination)
       }
 

@@ -22,18 +22,19 @@ import eu.timepit.refined.auto._
 import org.constellation.snapshotstreaming.data.applyTransactions
 import org.constellation.snapshotstreaming.data.createBalances
 import org.constellation.snapshotstreaming.data.createBlocksWithTransactions
+import org.constellation.snapshotstreaming.data.createFeeTxn
 import org.constellation.snapshotstreaming.data.createRewards
 import org.constellation.snapshotstreaming.data.createTxn
 import org.constellation.snapshotstreaming.data.emptyCurrencySnapshotInfo
 import org.constellation.snapshotstreaming.data.hashSelect
 import org.constellation.snapshotstreaming.data.incrementalCurrencySnapshot
-import org.constellation.snapshotstreaming.opensearch.mapper.CurrencyIncrementalSnapshotMapper
 import org.tessellation.currency.schema.currency.CurrencyIncrementalSnapshot
 import org.tessellation.currency.schema.currency.CurrencySnapshotInfo
 import weaver.MutableIOSuite
 import org.tessellation.security.Hasher
 import org.tessellation.json.JsonSerializer
 import org.tessellation.schema.balance.Balance
+import org.tessellation.schema.BlockAsActiveTip
 import org.tessellation.security.Hashed
 import org.tessellation.security.HasherSelector
 
@@ -94,7 +95,8 @@ object CurrencySnapshotMapperSuite extends MutableIOSuite {
       updatedBalances = applyTransactions(
         initialBalances,
         blocks.flatMap(_.block.transactions.toList).toList,
-        List.empty
+        List.empty,
+        List.empty,
       )
 
       updatedInfo = CurrencySnapshotInfo(SortedMap.empty, updatedBalances, None, None)
@@ -140,7 +142,8 @@ object CurrencySnapshotMapperSuite extends MutableIOSuite {
       updatedBalances = applyTransactions(
         initialBalances,
         blocks.flatMap(_.block.transactions.toList).toList,
-        List.empty
+        List.empty,
+        List.empty,
       )
       updatedInfo = CurrencySnapshotInfo(SortedMap.empty, updatedBalances, None, None)
 
@@ -153,6 +156,44 @@ object CurrencySnapshotMapperSuite extends MutableIOSuite {
         updatedInfo,
         blocks,
         feeTransactions = None
+      )
+
+      result = CurrencyIncrementalSnapshotMapper
+        .make()
+        .balanceDiff(snapshot, initialBalances.some, updatedInfo)
+    } yield expect.same(
+      result,
+      updatedBalances - address1 - address2
+    )
+  }
+
+  test("removes addresses that have fee transactions but the result balance hasn't changed") { res =>
+    implicit val (h, ks, js, sp, key1, key2, _, _) = res
+    val address1 = key1.getPublic.toAddress
+    val address2 = key2.getPublic.toAddress
+    val initialBalances = createBalances(address1, address2)
+
+    for {
+      txn1 <- createFeeTxn(address1, key1, address2)
+      txn2 <- createFeeTxn(address2, key2, address1)
+      blocks = SortedSet.empty[BlockAsActiveTip]
+      feeTransactions = SortedSet(txn1, txn2).some
+      updatedBalances = applyTransactions(
+        initialBalances,
+        blocks.flatMap(_.block.transactions.toList).toList,
+        List.empty,
+        feeTransactions.toList.flatten
+      )
+      updatedInfo = CurrencySnapshotInfo(SortedMap.empty, updatedBalances, None, None)
+      snapshot <- incrementalCurrencySnapshot[IO](
+        100L,
+        10L,
+        20L,
+        Hash("abc"),
+        Hash("def"),
+        updatedInfo,
+        blocks,
+        feeTransactions = feeTransactions
       )
 
       result = CurrencyIncrementalSnapshotMapper
@@ -184,7 +225,8 @@ object CurrencySnapshotMapperSuite extends MutableIOSuite {
       updatedBalances = applyTransactions(
         initialBalances,
         blocks.flatMap(_.block.transactions.toList).toList,
-        List.empty
+        List.empty,
+        List.empty,
       )
       updatedInfo = CurrencySnapshotInfo(SortedMap.empty, updatedBalances, None, None)
       snapshot <- incrementalCurrencySnapshot[IO](
@@ -220,7 +262,8 @@ object CurrencySnapshotMapperSuite extends MutableIOSuite {
       val updatedBalances = applyTransactions(
         initialBalances,
         List.empty,
-        rewards.toList
+        rewards.toList,
+        List.empty,
       )
       val updatedInfo = CurrencySnapshotInfo(SortedMap.empty, updatedBalances, None, None)
 
