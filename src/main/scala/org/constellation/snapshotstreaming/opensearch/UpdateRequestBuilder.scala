@@ -1,54 +1,55 @@
 package org.constellation.snapshotstreaming.opensearch
 
 import java.util.Date
-
 import cats.effect.Async
-import cats.syntax.flatMap._
-import cats.syntax.functor._
-
+import cats.syntax.all._
 import org.tessellation.kryo.KryoSerializer
 import org.tessellation.security.Hasher
-
+import org.tessellation.security.HasherSelector
 import com.sksamuel.elastic4s.ElasticApi.updateById
 import com.sksamuel.elastic4s.circe._
 import com.sksamuel.elastic4s.requests.update.UpdateRequest
-import org.constellation.snapshotstreaming.Configuration
 import org.constellation.snapshotstreaming.SnapshotProcessor.GlobalSnapshotWithState
-import org.constellation.snapshotstreaming.opensearch.mapper.{CurrencySnapshotMapper, GlobalSnapshotMapper}
+import org.constellation.snapshotstreaming.opensearch.mapper.CurrencySnapshotMapper
+import org.constellation.snapshotstreaming.opensearch.mapper.GlobalSnapshotMapper
 import org.constellation.snapshotstreaming.opensearch.schema._
+import org.constellation.snapshotstreaming.Configuration
+import org.tessellation.json.JsonSerializer
 
 trait UpdateRequestBuilder[F[_]] {
 
   def bulkUpdateRequests(
     globalSnapshotWithState: GlobalSnapshotWithState,
-    timestamp: Date
+    timestamp: Date,
+    hasher: Hasher[F]
   ): F[Seq[Seq[UpdateRequest]]]
 
 }
 
 object UpdateRequestBuilder {
 
-  def make[F[_]: Async: KryoSerializer: Hasher](config: Configuration): UpdateRequestBuilder[F] =
-    make(GlobalSnapshotMapper.make(), CurrencySnapshotMapper.make(), config)
+  def make[F[_]: Async: KryoSerializer: JsonSerializer: HasherSelector](config: Configuration, txHasher: Hasher[F]): UpdateRequestBuilder[F] =
+    make(GlobalSnapshotMapper.make(), CurrencySnapshotMapper.make(), config, txHasher: Hasher[F])
 
-  def make[F[_]: Async](globalMapper: GlobalSnapshotMapper[F], currencyMapper: CurrencySnapshotMapper[F], config: Configuration): UpdateRequestBuilder[F] =
+  def make[F[_]: Async: HasherSelector](globalMapper: GlobalSnapshotMapper[F], currencyMapper: CurrencySnapshotMapper[F], config: Configuration, txHasher: Hasher[F]): UpdateRequestBuilder[F] =
     new UpdateRequestBuilder[F] {
 
       def bulkUpdateRequests(
         globalSnapshotWithState: GlobalSnapshotWithState,
-        timestamp: Date
+        timestamp: Date,
+        hasher: Hasher[F]
       ): F[Seq[Seq[UpdateRequest]]] =
         for {
           _ <- Async[F].unit
           GlobalSnapshotWithState(globalSnapshot, snapshotInfo, currencySnapshots) = globalSnapshotWithState
 
-          mappedGlobalData <- globalMapper.mapGlobalSnapshot(globalSnapshot, snapshotInfo, timestamp)
+          mappedGlobalData <- globalMapper.mapGlobalSnapshot(globalSnapshot, snapshotInfo, timestamp, txHasher, hasher)
           (snapshot, blocks, transactions, balances) = mappedGlobalData
 
-          mappedCurrencyData <- currencyMapper.mapCurrencySnapshots(currencySnapshots, timestamp)
-          (currSnapshot, currBlocks, currTransactions, currBalances) = mappedCurrencyData
+          mappedCurrencyData <- currencyMapper.mapCurrencySnapshots(currencySnapshots, timestamp, txHasher, hasher)
+          (currSnapshot, currIncrementalSnapshots, currBlocks, currTransactions, currBalances) = mappedCurrencyData
 
-        } yield updateRequests(snapshot, blocks, transactions, balances, currSnapshot, currBlocks, currTransactions, currBalances).grouped(config.bulkSize).toSeq
+        } yield updateRequests(snapshot, blocks, transactions, balances, currSnapshot, currIncrementalSnapshots, currBlocks, currTransactions, currBalances).grouped(config.bulkSize).toSeq
 
       def updateRequests[T](
        snapshot: Snapshot,
@@ -56,6 +57,7 @@ object UpdateRequestBuilder {
        transactions: Seq[Transaction],
        balances: Seq[AddressBalance],
        currencySnapshots: Seq[CurrencyData[Snapshot]],
+       currencyIncrementalSnapshots: Seq[CurrencyData[CurrencySnapshot]],
        currencyBlocks: Seq[CurrencyData[Block]],
        currencyTransactions: Seq[CurrencyData[Transaction]],
        currencyBalances: Seq[CurrencyData[AddressBalance]]
@@ -67,6 +69,10 @@ object UpdateRequestBuilder {
           ) ++
           balances.map(balance => updateById(config.balancesIndex, balance.docId).docAsUpsert(balance)) ++
           currencySnapshots.map { case cd @ CurrencyData(identifier, data) =>
+            val id = s"$identifier${data.hash}"
+            updateById(config.currencySnapshotsIndex, id).docAsUpsert(cd)
+          } ++
+          currencyIncrementalSnapshots.map { case cd @ CurrencyData(identifier, data) =>
             val id = s"$identifier${data.hash}"
             updateById(config.currencySnapshotsIndex, id).docAsUpsert(cd)
           } ++

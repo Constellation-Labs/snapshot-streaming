@@ -3,22 +3,27 @@ package org.constellation.snapshotstreaming
 import cats.data.NonEmptyMap
 
 import scala.collection.immutable.SortedMap
-import scala.concurrent.duration.{Duration, FiniteDuration}
+import scala.concurrent.duration.Duration
+import scala.concurrent.duration.FiniteDuration
 import scala.jdk.CollectionConverters._
 import scala.util.Try
-
 import org.tessellation.env.AppEnvironment
 import org.tessellation.schema.SnapshotOrdinal
 import org.tessellation.schema.balance.Amount
-import org.tessellation.schema.peer.{L0Peer, PeerId}
-
-import com.typesafe.config.{Config, ConfigFactory}
-import eu.timepit.refined.types.numeric.{NonNegLong, PosLong}
+import org.tessellation.schema.peer.L0Peer
+import org.tessellation.schema.peer.PeerId
+import com.typesafe.config.Config
+import com.typesafe.config.ConfigFactory
+import eu.timepit.refined.types.numeric.NonNegLong
+import eu.timepit.refined.types.numeric.PosLong
 import fs2.io.file.Path
 import io.circe.parser.decode
 import org.http4s.Uri
+import org.tessellation.node.shared.config.types
+import org.tessellation.node.shared.config.types.SharedConfigReader
+import org.tessellation.node.shared.domain.statechannel.FeeCalculatorConfig
 
-class Configuration {
+class Configuration(sharedConfigReader: SharedConfigReader) {
   private val config: Config = ConfigFactory.load().resolve()
 
   private val httpClient = config.getConfig("snapshotStreaming.httpClient")
@@ -29,7 +34,18 @@ class Configuration {
   val lastFullSnapshotPath: Path = Path(config.getString("snapshotStreaming.lastSnapshotPath"))
   val lastIncrementalSnapshotPath: Path = Path(config.getString("snapshotStreaming.lastIncrementalSnapshotPath"))
   val collateral: Amount = Amount(NonNegLong.unsafeFrom(config.getLong("snapshotStreaming.collateral")))
-  val environment: AppEnvironment = AppEnvironment.withNameInsensitive(config.getString("snapshotStreaming.environment"))
+
+  val environment: AppEnvironment =
+    AppEnvironment.withNameInsensitive(config.getString("snapshotStreaming.environment"))
+
+  val lastKryoHashOrdinal: SnapshotOrdinal =
+    sharedConfigReader.lastKryoHashOrdinal.getOrElse(environment, SnapshotOrdinal.MinValue)
+
+  val snapshotSize: types.SnapshotSizeConfig = sharedConfigReader.snapshot.size
+
+  val feeConfigs: SortedMap[SnapshotOrdinal, FeeCalculatorConfig] = sharedConfigReader.feeConfigs.get(environment)
+    .map(configs => SortedMap.from(configs))
+    .getOrElse(SortedMap.empty[SnapshotOrdinal, FeeCalculatorConfig])
 
   val l0Peers: NonEmptyMap[PeerId, L0Peer] = NonEmptyMap.fromMapUnsafe(
     SortedMap.from(

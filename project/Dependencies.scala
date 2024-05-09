@@ -9,7 +9,7 @@ object Dependencies {
     val circe = "0.14.3"
     val config = "1.4.2"
     val derevo = "0.13.0"
-    val elastic4s = "8.5.4"
+    val elastic4s = "8.13.0"
     val fs2 = "3.4.0"
     val guava = "31.1-jre"
     val http4s = "0.23.16"
@@ -18,7 +18,7 @@ object Dependencies {
     val logstash = "7.2"
     val organizeImports = "0.6.0"
     val refined = "0.10.1"
-    val tessellation = "2.5.0"
+    val tessellation = "2.7.0"
     val weaver = "0.8.1"
   }
 
@@ -33,7 +33,7 @@ object Dependencies {
     def derevo(artifact: String): ModuleID = "tf.tofu" %% s"derevo-$artifact" % V.derevo
 
     def elastic(artifact: String): ModuleID =
-      ("com.sksamuel.elastic4s" %% s"elastic4s-$artifact" % V.elastic4s).cross(CrossVersion.for3Use2_13)
+      ("nl.gn0s1s" %% s"elastic4s-$artifact" % V.elastic4s).cross(CrossVersion.for3Use2_13)
 
     def fs2(artifact: String): ModuleID = "co.fs2" %% s"fs2-$artifact" % V.fs2
 

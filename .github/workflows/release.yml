@@ -21,7 +21,7 @@ jobs:
         with:
           path: tessellation
           repository: Constellation-Labs/tessellation
-          ref: v2.5.0
+          ref: v2.7.0
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Java
