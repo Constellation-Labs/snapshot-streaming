@@ -1,69 +1,83 @@
 package org.constellation.snapshotstreaming.opensearch.mapper
 
 import java.util.Date
-
 import cats.effect.Async
 import cats.syntax.flatMap._
 import cats.syntax.functor._
 import cats.syntax.traverse._
 
-import scala.collection.immutable.{SortedMap, SortedSet}
-
+import scala.collection.immutable.SortedMap
+import scala.collection.immutable.SortedSet
 import org.tessellation.kryo.KryoSerializer
 import org.tessellation.schema.address.Address
 import org.tessellation.schema.balance.Balance
-import org.tessellation.schema.snapshot.{Snapshot => OriginalSnapshot, SnapshotInfo}
-import org.tessellation.schema.transaction.{RewardTransaction => OriginalRewardTransaction, Transaction => OriginalTransaction, TransactionReference => OriginalTransactionReference}
+import org.tessellation.schema.snapshot.SnapshotInfo
+import org.tessellation.schema.snapshot.{Snapshot => OriginalSnapshot}
+import org.tessellation.schema.transaction.{TransactionReference => OriginalTransactionReference}
+import org.tessellation.schema.transaction.{Transaction => OriginalTransaction}
+import org.tessellation.schema.transaction.{RewardTransaction => OriginalRewardTransaction}
 import org.tessellation.schema.{Block => OriginalBlock}
 import org.tessellation.security.signature.Signed
-import org.tessellation.security.{Hashed, Hasher}
+import org.tessellation.security.Hashed
+import org.tessellation.security.Hasher
 import org.tessellation.syntax.sortedCollection._
-
 import eu.timepit.refined.auto._
 import org.constellation.snapshotstreaming.opensearch.schema._
 
-abstract class SnapshotMapper[F[_]: Async: KryoSerializer: Hasher, S <: OriginalSnapshot] {
+case class SnapshotReferredAddresses(source: Set[Address], destination: Set[Address])
+
+abstract class SnapshotMapper[F[_]: Async: KryoSerializer, S <: OriginalSnapshot] {
 
   def fetchRewards(snapshot: S): SortedSet[OriginalRewardTransaction]
 
-  def hashBlock(block: Signed[OriginalBlock]): F[String] =
+  def hashBlock(block: Signed[OriginalBlock], hasher: Hasher[F]): F[String] = {
+    implicit val h = hasher
     block.toHashed.map(_.proofsHash.value)
+  }
 
-  def hashTransaction(transaction: Signed[OriginalTransaction]): F[String] =
+  def hashTransaction(transaction: Signed[OriginalTransaction], txHasher: Hasher[F]): F[String] = {
+    implicit val hasher = txHasher
     transaction.toHashed.map(_.hash.value)
+  }
 
-  def mapSnapshot(snapshot: Hashed[S], timestamp: Date): F[Snapshot] = for {
-    blocksHashes <- snapshot.blocks.unsorted.map(_.block).map(hashBlock).toList.sequence
-  } yield Snapshot(
-    hash = snapshot.hash.value,
-    ordinal = snapshot.ordinal.value.value,
-    height = snapshot.height.value,
-    subHeight = snapshot.subHeight.value,
-    lastSnapshotHash = snapshot.lastSnapshotHash.value,
-    blocks = blocksHashes.toSet,
-    rewards = fetchRewards(snapshot).unsorted.map(reward =>
-      RewardTransaction(
-        reward.destination.value,
-        reward.amount.value
-      )
-    ),
-    timestamp = timestamp
-  )
+  def mapSnapshot(snapshot: Hashed[S], timestamp: Date, hasher: Hasher[F]): F[Snapshot] = {
 
-  def mapBlocks(snapshot: Hashed[S], timestamp: Date): F[Seq[Block]] = for {
+    for {
+      blocksHashes <- snapshot.blocks.unsorted.map(_.block).map(hashBlock(_, hasher)).toList.sequence
+    } yield Snapshot(
+      hash = snapshot.hash.value,
+      ordinal = snapshot.ordinal.value.value,
+      height = snapshot.height.value,
+      subHeight = snapshot.subHeight.value,
+      lastSnapshotHash = snapshot.lastSnapshotHash.value,
+      blocks = blocksHashes.toSet,
+      rewards = fetchRewards(snapshot).unsorted.map(reward =>
+        RewardTransaction(
+          reward.destination.value,
+          reward.amount.value
+        )
+      ),
+      timestamp = timestamp
+    )
+  }
+
+  def mapBlocks(snapshot: Hashed[S], timestamp: Date, txHasher: Hasher[F], hasher: Hasher[F]): F[Seq[Block]] = for {
     blocks <- snapshot.blocks.unsorted
       .map(_.block)
-      .map(mapBlock(snapshot.hash.value, snapshot.ordinal.value.value, timestamp))
+      .map(mapBlock(snapshot.hash.value, snapshot.ordinal.value.value, timestamp, txHasher, hasher))
       .toList
       .sequence
   } yield blocks
 
-  private def mapBlock(snapshotHash: String, snapshotOrdinal: Long, timestamp: Date)(
+  private def mapBlock(snapshotHash: String, snapshotOrdinal: Long, timestamp: Date, txHasher: Hasher[F], hasher: Hasher[F])(
     block: Signed[OriginalBlock]
   ): F[Block] =
     for {
-      blockHash <- hashBlock(block)
-      transactionsHashes <- block.value.transactions.toSortedSet.unsorted.map(hashTransaction).toList.sequence
+      blockHash <- hashBlock(block, hasher)
+      transactionsHashes <- block.value.transactions.toSortedSet.unsorted
+        .map(hashTransaction(_, txHasher))
+        .toList
+        .sequence
     } yield Block(
       hash = blockHash,
       height = block.height.value,
@@ -74,28 +88,40 @@ abstract class SnapshotMapper[F[_]: Async: KryoSerializer: Hasher, S <: Original
       timestamp = timestamp
     )
 
-  def mapTransactions(snapshot: Hashed[S], timestamp: Date) = for {
+  def mapTransactions(snapshot: Hashed[S], timestamp: Date, txHasher: Hasher[F], hasher: Hasher[F]) = for {
     transactions <- snapshot.blocks.unsorted
       .map(_.block)
-      .map(mapTransactionsFromBlock(snapshot.hash.value, snapshot.ordinal.value.value, timestamp))
+      .map(mapTransactionsFromBlock(snapshot.hash.value, snapshot.ordinal.value.value, timestamp, txHasher, hasher))
       .toList
       .sequence
   } yield transactions.flatten
 
-  private def mapTransactionsFromBlock(snapshotHash: String, snapshotOrdinal: Long, timestamp: Date)(
+  private def mapTransactionsFromBlock(
+    snapshotHash: String,
+    snapshotOrdinal: Long,
+    timestamp: Date,
+    txHasher: Hasher[F],
+    hasher: Hasher[F]
+  )(
     block: Signed[OriginalBlock]
   ) = for {
-    blockHash <- hashBlock(block)
+    blockHash <- hashBlock(block, hasher)
     transactions <- block.transactions.toSortedSet.unsorted
-      .map(mapTransaction(blockHash, snapshotHash, snapshotOrdinal, timestamp))
+      .map(mapTransaction(blockHash, snapshotHash, snapshotOrdinal, timestamp, txHasher))
       .toList
       .sequence
   } yield transactions
 
-  private def mapTransaction(blockHash: String, snapshotHash: String, snapshotOrdinal: Long, timestamp: Date)(
+  private def mapTransaction(
+    blockHash: String,
+    snapshotHash: String,
+    snapshotOrdinal: Long,
+    timestamp: Date,
+    txHasher: Hasher[F]
+  )(
     transaction: Signed[OriginalTransaction]
   ): F[Transaction] = for {
-    transactionHash <- hashTransaction(transaction)
+    transactionHash <- hashTransaction(transaction, txHasher)
   } yield Transaction(
     hash = transactionHash,
     amount = transaction.amount.value,
@@ -115,15 +141,16 @@ abstract class SnapshotMapper[F[_]: Async: KryoSerializer: Hasher, S <: Original
     TransactionReference(nodeRef.hash.value, nodeRef.ordinal.value)
 
   def snapshotReferredBalancesInfo(
-                                    snapshot: S,
-                                    info: SnapshotInfo[_]
-                                  ): SortedMap[Address, Balance] = {
-    val bothAddresses = extractTxnAddresses(txn => (txn.source, txn.destination))(snapshot)
+    snapshot: S,
+    info: SnapshotInfo[_]
+  ): SortedMap[Address, Balance] = {
+    val snapshotReferredAddresses = extractSnapshotReferredAddresses(snapshot)
+    val bothAddresses = snapshotReferredAddresses.source ++ snapshotReferredAddresses.destination
     val rewardsAddresses = fetchRewards(snapshot).toList.map(_.destination)
-    val addressesToKeep = bothAddresses.flatMap(addresses => List(addresses._1, addresses._2)) ++ rewardsAddresses
+    val addressesToKeep = bothAddresses ++ rewardsAddresses
     val filteredBalances = info.balances.filter { case (address, _) => addressesToKeep.contains(address) }
 
-    val srcTransactions = extractTxnAddresses(txn => txn.source)(snapshot)
+    val srcTransactions = snapshotReferredAddresses.source
     val setZeroBalances =
       (srcTransactions.toSet -- info.balances.keys.toSet)
         .map(address => address -> Balance(0L))
@@ -132,15 +159,13 @@ abstract class SnapshotMapper[F[_]: Async: KryoSerializer: Hasher, S <: Original
     filteredBalances ++ setZeroBalances
   }
 
-  private def extractTxnAddresses[A](getAddress: OriginalTransaction => A)(snapshot: S): List[A] =
-    snapshot.blocks.toList.flatMap(
-      _.block.transactions.toSortedSet.toList.map(signedTxn => getAddress(signedTxn.value))
-    )
+  def extractSnapshotReferredAddresses(snapshot: S): SnapshotReferredAddresses
+
   def mapBalances(
-                   globalSnapshot: Hashed[S],
-                   balances: SortedMap[Address, Balance],
-                   timestamp: Date
-                 ): Seq[AddressBalance] =
+    globalSnapshot: Hashed[S],
+    balances: SortedMap[Address, Balance],
+    timestamp: Date
+  ): Seq[AddressBalance] =
     balances.toSeq.map { case (address, balance) =>
       AddressBalance(
         address = address.value.value,

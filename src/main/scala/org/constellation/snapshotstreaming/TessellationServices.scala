@@ -3,46 +3,67 @@ package org.constellation.snapshotstreaming
 import cats.effect.Async
 import cats.syntax.flatMap._
 import cats.syntax.functor._
-
 import org.tessellation.json.JsonBrotliBinarySerializer
 import org.tessellation.json.JsonSerializer
 import org.tessellation.kryo.KryoSerializer
-import org.tessellation.node.shared.config.types.SnapshotSizeConfig
 import org.tessellation.node.shared.infrastructure.block.processing.BlockAcceptanceManager
 import org.tessellation.node.shared.infrastructure.snapshot._
 import org.tessellation.node.shared.modules.SharedValidators
 import org.tessellation.schema.balance.Amount
 import org.tessellation.security.signature.SignedValidator
-import org.tessellation.security.{HashSelect, Hasher, SecurityProvider}
-
+import org.tessellation.security.Hasher
+import org.tessellation.security.HasherSelector
+import org.tessellation.security.SecurityProvider
 import eu.timepit.refined.auto._
+import org.tessellation.node.shared.domain.statechannel.FeeCalculator
 
 object TessellationServices {
 
-  def make[F[_]: Async: JsonSerializer: KryoSerializer: SecurityProvider: Hasher](configuration: Configuration, hashSelect: HashSelect, snapshotSizeConfig: SnapshotSizeConfig): F[TessellationServices[F]] =
+  def make[F[_]: Async: JsonSerializer: KryoSerializer: SecurityProvider](configuration: Configuration, hasherSelector: HasherSelector[F]): F[TessellationServices[F]] =
     for {
       _ <- Async[F].unit
-      validators = SharedValidators.make[F](None, None, None, snapshotSizeConfig.maxStateChannelSnapshotBinarySizeInBytes)
+      txHasher = Hasher.forKryo
+      validators = SharedValidators.make[F](None, None, None, configuration.feeConfigs, configuration.snapshotSize.maxStateChannelSnapshotBinarySizeInBytes, txHasher)
       currencySnapshotAcceptanceManager = CurrencySnapshotAcceptanceManager.make(
-        BlockAcceptanceManager.make[F](validators.currencyBlockValidator),
+        BlockAcceptanceManager.make[F](validators.currencyBlockValidator, txHasher),
         Amount(0L),
-        hashSelect
+        validators.currencyMessageValidator
       )
       currencyEventsCutter = CurrencyEventsCutter.make[F](None)
-      currencySnapshotCreator = CurrencySnapshotCreator.make[F](currencySnapshotAcceptanceManager, None, snapshotSizeConfig, currencyEventsCutter)
-      currencySnapshotValidator = CurrencySnapshotValidator.make[F](currencySnapshotCreator, SignedValidator.make[F], None, None)
-      currencySnapshotContextFns = CurrencySnapshotContextFunctions.make(currencySnapshotValidator, hashSelect)
+      alwaysCurrentHasherSelector = HasherSelector.forSyncAlwaysCurrent(Hasher.forJson)
+      currencySnapshotCreator = {
+        implicit val hs = alwaysCurrentHasherSelector
+        CurrencySnapshotCreator.make[F](currencySnapshotAcceptanceManager, None, configuration.snapshotSize, currencyEventsCutter)
+      }
+      currencySnapshotValidator = {
+        implicit val hs = alwaysCurrentHasherSelector
+        CurrencySnapshotValidator.make[F](currencySnapshotCreator, SignedValidator.make[F], None, None)
+      }
+      currencySnapshotContextFns = {
+        implicit val hs = alwaysCurrentHasherSelector
+        CurrencySnapshotContextFunctions.make(currencySnapshotValidator)
+      }
       stateChannelManager <- GlobalSnapshotStateChannelAcceptanceManager.make(None)
       jsonBrotliBinarySerializer <- JsonBrotliBinarySerializer.forSync[F]
+      feeCalculator = FeeCalculator.make(configuration.feeConfigs)
       globalSnapshotStateChannelEventsProcessor =
-        GlobalSnapshotStateChannelEventsProcessor.make[F](validators.stateChannelValidator, stateChannelManager, currencySnapshotContextFns, jsonBrotliBinarySerializer)
-      globalSnapshotAcceptanceManager = GlobalSnapshotAcceptanceManager.make(
-        BlockAcceptanceManager.make[F](validators.blockValidator),
+        GlobalSnapshotStateChannelEventsProcessor.make[F](validators.stateChannelValidator, stateChannelManager, currencySnapshotContextFns, jsonBrotliBinarySerializer, feeCalculator)
+      globalSnapshotAcceptanceManager = {
+        implicit val hs = hasherSelector
+        GlobalSnapshotAcceptanceManager.make(
+        BlockAcceptanceManager.make[F](validators.blockValidator, txHasher),
         globalSnapshotStateChannelEventsProcessor,
         configuration.collateral
       )
-      globalSnapshotContextFns = GlobalSnapshotContextFunctions.make[F](globalSnapshotAcceptanceManager, hashSelect)
-      globalSnapshotContextService = GlobalSnapshotContextService.make(globalSnapshotStateChannelEventsProcessor, globalSnapshotContextFns)
+      }
+      globalSnapshotContextFns = {
+        implicit val hs = hasherSelector
+        GlobalSnapshotContextFunctions.make[F](globalSnapshotAcceptanceManager)
+      }
+      globalSnapshotContextService = {
+        implicit val hs = hasherSelector
+        GlobalSnapshotContextService.make(globalSnapshotStateChannelEventsProcessor, globalSnapshotContextFns)
+      }
   } yield new TessellationServices[F](globalSnapshotContextService) {}
 
 }

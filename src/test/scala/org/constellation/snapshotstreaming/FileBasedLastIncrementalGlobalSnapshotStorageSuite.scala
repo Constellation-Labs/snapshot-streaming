@@ -1,11 +1,11 @@
 package org.constellation.snapshotstreaming
 
 import cats.effect.std.Random
-import cats.effect.{IO, Resource}
+import cats.effect.IO
+import cats.effect.Resource
 import cats.syntax.option._
 
 import scala.collection.immutable.SortedMap
-
 import org.tessellation.ext.cats.effect.ResourceIO
 import org.tessellation.kryo.KryoSerializer
 import org.tessellation.schema._
@@ -16,36 +16,35 @@ import org.tessellation.schema.transaction.TransactionReference
 import org.tessellation.node.shared.domain.snapshot.storage.LastSnapshotStorage
 import org.tessellation.security.hash.Hash
 import org.tessellation.shared.sharedKryoRegistrar
-
 import eu.timepit.refined.auto._
-import fs2.io.file.{Files, Path}
+import fs2.io.file.Files
+import fs2.io.file.Path
+import org.constellation.snapshotstreaming.data.hashSelect
 import org.constellation.snapshotstreaming.data.incrementalGlobalSnapshot
 import weaver.MutableIOSuite
-import org.tessellation.security.HashSelect
-import org.tessellation.security.HashLogic
-import org.tessellation.security.JsonHash
 import org.tessellation.security.Hasher
 import org.tessellation.json.JsonSerializer
+import org.tessellation.security.HasherSelector
 
 object FileBasedLastIncrementalGlobalSnapshotStorageSuite extends MutableIOSuite {
 
-  type Res = (KryoSerializer[IO], Hasher[IO])
+  type Res = (KryoSerializer[IO], HasherSelector[IO])
 
   override def sharedResource: Resource[IO, Res] =
     KryoSerializer.forAsync[IO](sharedKryoRegistrar).flatMap { implicit ks =>
       JsonSerializer.forSync[IO].asResource.map { implicit jsonSerializer =>
-        (ks, Hasher.forSync[IO](data.hashSelect))
+        (ks, HasherSelector.forSync[IO](Hasher.forJson[IO], Hasher.forKryo[IO], hashSelect))
       }
     }
 
   def fileBasedStorage(implicit
     ks: KryoSerializer[IO],
-    h: Hasher[IO]
+    h: HasherSelector[IO]
   ): Resource[IO, LastSnapshotStorage[IO, GlobalIncrementalSnapshot, GlobalSnapshotInfo]] =
     Random.scalaUtilRandom.asResource.flatMap { rnd =>
       rnd.nextLong.asResource.map(l => Path(l.toString)).flatMap { path =>
         Resource.make(
-          FileBasedLastIncrementalGlobalSnapshotStorage.make(path, data.hashSelect)
+          FileBasedLastIncrementalGlobalSnapshotStorage.make(path)
         )(_ => Files[IO].deleteIfExists(path).as(()))
       }
     }
@@ -60,7 +59,7 @@ object FileBasedLastIncrementalGlobalSnapshotStorageSuite extends MutableIOSuite
     SortedMap.empty
   )
 
-  private def mkInitialSnapshot()(implicit ks: KryoSerializer[IO], h: Hasher[IO]) =
+  private def mkInitialSnapshot()(implicit ks: KryoSerializer[IO], h: HasherSelector[IO]) =
     incrementalGlobalSnapshot(100L, 10L, 20L, Hash("abc"), Hash("def"), snapshotInfo)
 
   test("get should return None before initial snapshot is set") { res =>
