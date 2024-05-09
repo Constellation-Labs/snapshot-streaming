@@ -18,7 +18,9 @@ import org.constellation.snapshotstreaming.opensearch.schema._
 trait CurrencySnapshotMapper[F[_]] {
   def mapCurrencySnapshots(
     snapshots: Map[Address, NonEmptyList[Either[Hashed[CurrencySnapshot], (Hashed[CurrencyIncrementalSnapshot], CurrencySnapshotInfo)]]],
-    timestamp: Date
+    timestamp: Date,
+    txHasher: Hasher[F],
+    hasher: Hasher[F]
   ): F[
     (
       Seq[CurrencyData[Snapshot]],
@@ -30,7 +32,7 @@ trait CurrencySnapshotMapper[F[_]] {
 }
 
 object CurrencySnapshotMapper {
-  def make[F[_]: Async: KryoSerializer: Hasher](): CurrencySnapshotMapper[F] =
+  def make[F[_]: Async: KryoSerializer](): CurrencySnapshotMapper[F] =
     make(CurrencyFullSnapshotMapper.make(), CurrencyIncrementalSnapshotMapper.make())
 
   private def make[F[_] : Async : KryoSerializer](
@@ -40,7 +42,9 @@ object CurrencySnapshotMapper {
     new CurrencySnapshotMapper[F] {
       def mapCurrencySnapshots(
         snapshots: Map[Address, NonEmptyList[Either[Hashed[CurrencySnapshot], (Hashed[CurrencyIncrementalSnapshot], CurrencySnapshotInfo)]]],
-        timestamp: Date
+        timestamp: Date,
+        txHasher: Hasher[F],
+        hasher: Hasher[F]
       ): F[
         (
           Seq[CurrencyData[Snapshot]],
@@ -57,11 +61,11 @@ object CurrencySnapshotMapper {
               fullOrIncremental match {
                 case Left(full) =>
                   for {
-                    snapshot <- fullMapper.mapSnapshot(full, timestamp)
+                    snapshot <- fullMapper.mapSnapshot(full, timestamp, hasher)
                       .map(CurrencyData(identifierStr, _))
-                    blocks <- fullMapper.mapBlocks(full, timestamp)
+                    blocks <- fullMapper.mapBlocks(full, timestamp, txHasher, hasher)
                       .map(_.map(CurrencyData(identifierStr, _)))
-                    transactions <- fullMapper.mapTransactions(full, timestamp)
+                    transactions <- fullMapper.mapTransactions(full, timestamp, txHasher, hasher)
                       .map(_.map(CurrencyData(identifierStr, _)))
                     balances = fullMapper.mapBalances(full, full.info.balances, timestamp)
                       .map(CurrencyData(identifierStr, _))
@@ -69,11 +73,11 @@ object CurrencySnapshotMapper {
 
                 case Right((incremental, info)) =>
                   for {
-                    snapshot <- incrementalMapper.mapSnapshot(incremental, timestamp)
+                    snapshot <- incrementalMapper.mapSnapshot(incremental, timestamp, hasher)
                       .map(CurrencyData(identifierStr, _))
-                    blocks <- incrementalMapper.mapBlocks(incremental, timestamp)
+                    blocks <- incrementalMapper.mapBlocks(incremental, timestamp, txHasher, hasher)
                       .map(_.map(CurrencyData(identifierStr, _)))
-                    transactions <- incrementalMapper.mapTransactions(incremental, timestamp)
+                    transactions <- incrementalMapper.mapTransactions(incremental, timestamp, txHasher, hasher)
                       .map(_.map(CurrencyData(identifierStr, _)))
                     filteredBalances = incrementalMapper.snapshotReferredBalancesInfo(incremental, info)
                     balances = incrementalMapper.mapBalances(incremental, filteredBalances, timestamp)

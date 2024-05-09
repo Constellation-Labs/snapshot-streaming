@@ -38,11 +38,12 @@ object App extends IOApp {
           .use { implicit random =>
             KryoSerializer.forAsync[IO](shared.sharedKryoRegistrar).use { implicit ks =>
               JsonSerializer.forSync[IO].asResource.use { implicit jsonSerializer =>
-                implicit val hasher = Hasher.forSync[IO](hashSelect)
+                implicit val hasherSelector = HasherSelector.forSync[IO](Hasher.forJson[IO], Hasher.forKryo[IO], hashSelect)
+                val txHasher = Hasher.forKryo[IO]
 
                 SecurityProvider.forAsync[IO].use { implicit sp =>
                   SnapshotProcessor
-                    .make[IO](configuration, hashSelect, sharedCfg.snapshot.size)
+                    .make[IO](configuration, sharedCfg.snapshot.size, txHasher)
                     .use { snapshotProcessor =>
                       snapshotProcessor.runtime.compile.drain
                         .flatTap(_ => logger.info("Done!"))

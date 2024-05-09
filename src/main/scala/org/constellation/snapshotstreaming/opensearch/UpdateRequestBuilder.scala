@@ -7,7 +7,7 @@ import cats.syntax.flatMap._
 import cats.syntax.functor._
 
 import org.tessellation.kryo.KryoSerializer
-import org.tessellation.security.Hasher
+import org.tessellation.security.{Hasher, HasherSelector}
 
 import com.sksamuel.elastic4s.ElasticApi.updateById
 import com.sksamuel.elastic4s.circe._
@@ -28,10 +28,10 @@ trait UpdateRequestBuilder[F[_]] {
 
 object UpdateRequestBuilder {
 
-  def make[F[_]: Async: KryoSerializer: Hasher](config: Configuration): UpdateRequestBuilder[F] =
-    make(GlobalSnapshotMapper.make(), CurrencySnapshotMapper.make(), config)
+  def make[F[_]: Async: KryoSerializer: HasherSelector](config: Configuration, txHasher: Hasher[F]): UpdateRequestBuilder[F] =
+    make(GlobalSnapshotMapper.make(), CurrencySnapshotMapper.make(), config, txHasher: Hasher[F])
 
-  def make[F[_]: Async](globalMapper: GlobalSnapshotMapper[F], currencyMapper: CurrencySnapshotMapper[F], config: Configuration): UpdateRequestBuilder[F] =
+  def make[F[_]: Async: HasherSelector](globalMapper: GlobalSnapshotMapper[F], currencyMapper: CurrencySnapshotMapper[F], config: Configuration, txHasher: Hasher[F]): UpdateRequestBuilder[F] =
     new UpdateRequestBuilder[F] {
 
       def bulkUpdateRequests(
@@ -42,10 +42,11 @@ object UpdateRequestBuilder {
           _ <- Async[F].unit
           GlobalSnapshotWithState(globalSnapshot, snapshotInfo, currencySnapshots) = globalSnapshotWithState
 
-          mappedGlobalData <- globalMapper.mapGlobalSnapshot(globalSnapshot, snapshotInfo, timestamp)
+          mappedGlobalData <- globalMapper.mapGlobalSnapshot(globalSnapshot, snapshotInfo, timestamp, txHasher)
           (snapshot, blocks, transactions, balances) = mappedGlobalData
 
-          mappedCurrencyData <- currencyMapper.mapCurrencySnapshots(currencySnapshots, timestamp)
+          hasher = HasherSelector[F].getForOrdinal(globalSnapshot.ordinal)
+          mappedCurrencyData <- currencyMapper.mapCurrencySnapshots(currencySnapshots, timestamp, txHasher, hasher)
           (currSnapshot, currBlocks, currTransactions, currBalances) = mappedCurrencyData
 
         } yield updateRequests(snapshot, blocks, transactions, balances, currSnapshot, currBlocks, currTransactions, currBalances).grouped(config.bulkSize).toSeq
