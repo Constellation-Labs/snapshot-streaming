@@ -80,7 +80,8 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
       updatedBalances = applyTransactions(
         initialBalances,
         blocks.flatMap(_.block.transactions.toList).toList,
-        List.empty
+        List.empty,
+        List.empty,
       )
 
       updatedInfo = GlobalSnapshotInfo(SortedMap.empty, SortedMap.empty, updatedBalances, SortedMap.empty, SortedMap.empty)
@@ -126,7 +127,8 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
       updatedBalances = applyTransactions(
         initialBalances,
         blocks.flatMap(_.block.transactions.toList).toList,
-        List.empty
+        List.empty,
+        List.empty,
       )
       updatedInfo = GlobalSnapshotInfo(SortedMap.empty, SortedMap.empty, updatedBalances, SortedMap.empty, SortedMap.empty)
 
@@ -169,7 +171,8 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
       updatedBalances = applyTransactions(
         initialBalances,
         blocks.flatMap(_.block.transactions.toList).toList,
-        List.empty
+        List.empty,
+        List.empty,
       )
       updatedInfo = GlobalSnapshotInfo(SortedMap.empty, SortedMap.empty, updatedBalances, SortedMap.empty, SortedMap.empty)
       snapshot <- incrementalGlobalSnapshot[IO](
@@ -204,7 +207,8 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
     val updatedBalances = applyTransactions(
       initialBalances,
       List.empty,
-      rewards.toList
+      rewards.toList,
+      List.empty,
     )
     val updatedInfo = GlobalSnapshotInfo(SortedMap.empty, SortedMap.empty, updatedBalances, SortedMap.empty, SortedMap.empty)
 
