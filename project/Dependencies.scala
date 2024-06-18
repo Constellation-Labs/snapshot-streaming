@@ -3,7 +3,7 @@ import sbt._
 object Dependencies {
 
   object V {
-    val amazonaws = "1.11.1000"
+    val amazonaws = "1.12.744"
     val cats = "2.9.0"
     val catsEffect = "3.4.2"
     val circe = "0.14.3"
