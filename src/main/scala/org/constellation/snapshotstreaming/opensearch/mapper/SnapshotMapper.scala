@@ -2,9 +2,7 @@ package org.constellation.snapshotstreaming.opensearch.mapper
 
 import java.util.Date
 import cats.effect.Async
-import cats.syntax.flatMap._
-import cats.syntax.functor._
-import cats.syntax.traverse._
+import cats.syntax.all._
 
 import scala.collection.immutable.SortedMap
 import scala.collection.immutable.SortedSet
@@ -25,7 +23,7 @@ import org.constellation.snapshotstreaming.opensearch.schema._
 
 case class SnapshotReferredAddresses(source: Set[Address], destination: Set[Address])
 
-abstract class SnapshotMapper[F[_]: Async, S <: OriginalSnapshot] {
+abstract class SnapshotMapper[F[_]: Async, S <: OriginalSnapshot, SI <: SnapshotInfo[_]] {
 
   def fetchRewards(snapshot: S): SortedSet[OriginalRewardTransaction]
 
@@ -47,7 +45,13 @@ abstract class SnapshotMapper[F[_]: Async, S <: OriginalSnapshot] {
       .sequence
   } yield blocks
 
-  private def mapBlock(snapshotHash: String, snapshotOrdinal: Long, timestamp: Date, txHasher: Hasher[F], hasher: Hasher[F])(
+  private def mapBlock(
+    snapshotHash: String,
+    snapshotOrdinal: Long,
+    timestamp: Date,
+    txHasher: Hasher[F],
+    hasher: Hasher[F]
+  )(
     block: Signed[OriginalBlock]
   ): F[Block] =
     for {
@@ -118,24 +122,32 @@ abstract class SnapshotMapper[F[_]: Async, S <: OriginalSnapshot] {
   private def mapTransactionRef(nodeRef: OriginalTransactionReference): TransactionReference =
     TransactionReference(nodeRef.hash.value, nodeRef.ordinal.value)
 
-  def snapshotReferredBalancesInfo(
+  def balanceDiff(
     snapshot: S,
-    info: SnapshotInfo[_]
-  ): SortedMap[Address, Balance] = {
-    val snapshotReferredAddresses = extractSnapshotReferredAddresses(snapshot)
-    val bothAddresses = snapshotReferredAddresses.source ++ snapshotReferredAddresses.destination
-    val rewardsAddresses = fetchRewards(snapshot).toList.map(_.destination)
-    val addressesToKeep = bothAddresses ++ rewardsAddresses
-    val filteredBalances = info.balances.filter { case (address, _) => addressesToKeep.contains(address) }
+    prevBalances: Option[SortedMap[Address, Balance]],
+    info: SnapshotInfo[_],
+  ): SortedMap[Address, Balance] =
+    prevBalances match {
+      case Some(prev) =>
+        val changed = info.balances.filterNot { case (address, balance) =>
+          prev.get(address).exists(_ === balance)
+        }
 
-    val srcTransactions = snapshotReferredAddresses.source
-    val setZeroBalances =
-      (srcTransactions.toSet -- info.balances.keys.toSet)
-        .map(address => address -> Balance(0L))
-        .toSortedMap
+        /* NOTE: SnapshotInfo calculation optimization gets rid of addresses that have empty balances.
+         It is fine for node but in snapshot-streaming we need to keep such addresses set to Balance.empty.
+         We do that by finding addresses that are missing in info but are referenced in the transactions.
+         */
+        val explicitlyZeroed = {
+          val srcTransactions = extractSnapshotReferredAddresses(snapshot).source
+          (srcTransactions -- info.balances.keys)
+            .map(address => address -> Balance.empty)
+            .toSortedMap
+        }
 
-    filteredBalances ++ setZeroBalances
-  }
+        changed ++ explicitlyZeroed
+      case None =>
+        info.balances
+    }
 
   def extractSnapshotReferredAddresses(snapshot: S): SnapshotReferredAddresses
 

@@ -21,6 +21,7 @@ import fs2.io.file.Files
 import fs2.io.file.Path
 import org.constellation.snapshotstreaming.data.hashSelect
 import org.constellation.snapshotstreaming.data.incrementalGlobalSnapshot
+import org.constellation.snapshotstreaming.storage.FileBasedLastIncrementalGlobalSnapshotStorage
 import weaver.MutableIOSuite
 import org.tessellation.security.Hasher
 import org.tessellation.json.JsonSerializer

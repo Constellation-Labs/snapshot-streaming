@@ -14,6 +14,7 @@ import org.constellation.snapshotstreaming.opensearch.mapper.CurrencySnapshotMap
 import org.constellation.snapshotstreaming.opensearch.mapper.GlobalSnapshotMapper
 import org.constellation.snapshotstreaming.opensearch.schema._
 import org.constellation.snapshotstreaming.Configuration
+import org.constellation.snapshotstreaming.storage.LastCurrencySnapshotStorage
 import org.tessellation.json.JsonSerializer
 
 trait UpdateRequestBuilder[F[_]] {
@@ -28,39 +29,76 @@ trait UpdateRequestBuilder[F[_]] {
 
 object UpdateRequestBuilder {
 
-  def make[F[_]: Async: KryoSerializer: JsonSerializer: HasherSelector](config: Configuration, txHasher: Hasher[F]): UpdateRequestBuilder[F] =
-    make(GlobalSnapshotMapper.make(), CurrencySnapshotMapper.make(), config, txHasher: Hasher[F])
+  def make[F[_]: Async: KryoSerializer: JsonSerializer: HasherSelector](
+    config: Configuration,
+    txHasher: Hasher[F]
+  ): F[UpdateRequestBuilder[F]] =
+    LastCurrencySnapshotStorage.make(config.lastCurrencySnapshotsPath).map { storage =>
+      make(
+        GlobalSnapshotMapper.make(),
+        CurrencySnapshotMapper.make(storage),
+        config,
+        txHasher: Hasher[F]
+      )
+    }
 
-  def make[F[_]: Async: HasherSelector](globalMapper: GlobalSnapshotMapper[F], currencyMapper: CurrencySnapshotMapper[F], config: Configuration, txHasher: Hasher[F]): UpdateRequestBuilder[F] =
+
+  def make[F[_]: Async](
+    globalMapper: GlobalSnapshotMapper[F],
+    currencyMapper: CurrencySnapshotMapper[F],
+    config: Configuration,
+    txHasher: Hasher[F]
+  ): UpdateRequestBuilder[F] =
     new UpdateRequestBuilder[F] {
 
       def bulkUpdateRequests(
         globalSnapshotWithState: GlobalSnapshotWithState,
         timestamp: Date,
         hasher: Hasher[F]
-      ): F[Seq[Seq[UpdateRequest]]] =
+      ): F[
+        Seq[Seq[UpdateRequest]]
+      ] =
         for {
           _ <- Async[F].unit
-          GlobalSnapshotWithState(globalSnapshot, snapshotInfo, currencySnapshots) = globalSnapshotWithState
+          GlobalSnapshotWithState(globalSnapshot, snapshotInfo, maybePrevSnapshotInfo, currencySnapshots) =
+            globalSnapshotWithState
 
-          mappedGlobalData <- globalMapper.mapGlobalSnapshot(globalSnapshot, snapshotInfo, timestamp, txHasher, hasher)
+          mappedGlobalData <- globalMapper.mapGlobalSnapshot(
+            globalSnapshot,
+            maybePrevSnapshotInfo,
+            snapshotInfo,
+            timestamp,
+            txHasher,
+            hasher
+          )
           (snapshot, blocks, transactions, balances) = mappedGlobalData
 
           mappedCurrencyData <- currencyMapper.mapCurrencySnapshots(currencySnapshots, timestamp, txHasher, hasher)
-          (currSnapshot, currIncrementalSnapshots, currBlocks, currTransactions, currBalances) = mappedCurrencyData
+          (currSnapshot, currIncrementalSnapshots, currBlocks, currTransactions, currBalances) =
+            mappedCurrencyData
 
-        } yield updateRequests(snapshot, blocks, transactions, balances, currSnapshot, currIncrementalSnapshots, currBlocks, currTransactions, currBalances).grouped(config.bulkSize).toSeq
+        } yield updateRequests(
+          snapshot,
+          blocks,
+          transactions,
+          balances,
+          currSnapshot,
+          currIncrementalSnapshots,
+          currBlocks,
+          currTransactions,
+          currBalances
+        ).grouped(config.bulkSize).toSeq
 
       def updateRequests[T](
-       snapshot: Snapshot,
-       blocks: Seq[Block],
-       transactions: Seq[Transaction],
-       balances: Seq[AddressBalance],
-       currencySnapshots: Seq[CurrencyData[Snapshot]],
-       currencyIncrementalSnapshots: Seq[CurrencyData[CurrencySnapshot]],
-       currencyBlocks: Seq[CurrencyData[Block]],
-       currencyTransactions: Seq[CurrencyData[Transaction]],
-       currencyBalances: Seq[CurrencyData[AddressBalance]]
+        snapshot: Snapshot,
+        blocks: Seq[Block],
+        transactions: Seq[Transaction],
+        balances: Seq[AddressBalance],
+        currencySnapshots: Seq[CurrencyData[Snapshot]],
+        currencyIncrementalSnapshots: Seq[CurrencyData[CurrencySnapshot]],
+        currencyBlocks: Seq[CurrencyData[Block]],
+        currencyTransactions: Seq[CurrencyData[Transaction]],
+        currencyBalances: Seq[CurrencyData[AddressBalance]]
       ): Seq[UpdateRequest] =
         Seq(updateById(config.snapshotsIndex, snapshot.hash).docAsUpsert(snapshot)) ++
           blocks.map(block => updateById(config.blocksIndex, block.hash).docAsUpsert(block)) ++

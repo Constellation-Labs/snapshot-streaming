@@ -20,12 +20,13 @@ import org.tessellation.security.Hasher
 import org.tessellation.security.HasherSelector
 
 abstract class GlobalSnapshotMapper[F[_]: Async: KryoSerializer: HasherSelector]
-    extends SnapshotMapper[F, GlobalIncrementalSnapshot] {
+    extends SnapshotMapper[F, GlobalIncrementalSnapshot, GlobalSnapshotInfo] {
 
   def mapSnapshot(snapshot: Hashed[GlobalIncrementalSnapshot], timestamp: Date, hasher: Hasher[F]): F[Snapshot]
 
   def mapGlobalSnapshot(
     globalSnapshot: Hashed[GlobalIncrementalSnapshot],
+    prevInfo: Option[GlobalSnapshotInfo],
     info: GlobalSnapshotInfo,
     timestamp: Date,
     txHasher: Hasher[F],
@@ -36,9 +37,10 @@ abstract class GlobalSnapshotMapper[F[_]: Async: KryoSerializer: HasherSelector]
       snapshot <- mapSnapshot(globalSnapshot, timestamp, hasher)
       blocks <- mapBlocks(globalSnapshot, timestamp, txHasher, hasher)
       transactions <- mapTransactions(globalSnapshot, timestamp, txHasher, hasher)
-      filteredBalances = snapshotReferredBalancesInfo(
+      filteredBalances = balanceDiff(
         globalSnapshot.signed.value,
-        info
+         prevInfo.map(prev => prev.balances),
+        info,
       )
       balances = mapBalances(globalSnapshot, filteredBalances, timestamp)
     } yield (snapshot, blocks, transactions, balances)

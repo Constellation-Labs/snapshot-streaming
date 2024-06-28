@@ -4,15 +4,13 @@ import java.security.KeyPair
 import cats.data.NonEmptySet
 import cats.effect.IO
 import cats.effect.Resource
-import cats.syntax.functor._
-import cats.syntax.traverse._
+import cats.implicits.catsSyntaxOptionId
+import cats.syntax.all._
 
 import scala.collection.immutable.SortedMap
 import scala.collection.immutable.SortedSet
 import org.tessellation.ext.cats.effect.ResourceIO
 import org.tessellation.kryo.KryoSerializer
-import org.tessellation.schema.address.Address
-import org.tessellation.schema.balance.Balance
 import org.tessellation.schema.transaction._
 import org.tessellation.schema.GlobalSnapshotInfo
 import org.tessellation.node.shared.nodeSharedKryoRegistrar
@@ -23,6 +21,7 @@ import org.tessellation.security.SecurityProvider
 import org.tessellation.shared.sharedKryoRegistrar
 import org.tessellation.syntax.sortedCollection._
 import eu.timepit.refined.auto._
+import org.constellation.snapshotstreaming.data.applyTransactions
 import org.constellation.snapshotstreaming.data.createBalances
 import org.constellation.snapshotstreaming.data.createBlocksWithTransactions
 import org.constellation.snapshotstreaming.data.createRewards
@@ -34,12 +33,13 @@ import weaver.MutableIOSuite
 import org.tessellation.security.Hasher
 import org.tessellation.json.JsonSerializer
 import org.tessellation.schema.GlobalIncrementalSnapshot
+import org.tessellation.schema.balance.Balance
 import org.tessellation.security.Hashed
 import org.tessellation.security.HasherSelector
 
 object GlobalSnapshotMapperSuite extends MutableIOSuite {
 
-  type Res = (HasherSelector[IO], KryoSerializer[IO], SecurityProvider[IO], KeyPair, KeyPair)
+  type Res = (HasherSelector[IO], KryoSerializer[IO], SecurityProvider[IO], KeyPair, KeyPair, KeyPair, KeyPair)
 
   override def sharedResource: Resource[IO, Res] =
     SecurityProvider.forAsync[IO].flatMap { implicit sp =>
@@ -47,131 +47,184 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
         for {
           key1 <- KeyPairGenerator.makeKeyPair[IO].asResource
           key2 <- KeyPairGenerator.makeKeyPair[IO].asResource
+          key3 <- KeyPairGenerator.makeKeyPair[IO].asResource
+          key4 <- KeyPairGenerator.makeKeyPair[IO].asResource
 
           js <- JsonSerializer.forSync[IO].asResource
           hasherSelector = {
             implicit val j: JsonSerializer[IO] = js
             HasherSelector.forSync[IO](Hasher.forJson[IO], Hasher.forKryo[IO], hashSelect)
           }
-        } yield (hasherSelector, kp, sp, key1, key2)
+        } yield (hasherSelector, kp, sp, key1, key2, key3, key4)
       }
     }
 
   def mkInitialSnapshot()(implicit ks: KryoSerializer[IO], h: HasherSelector[IO]): IO[Hashed[GlobalIncrementalSnapshot]] =
     incrementalGlobalSnapshot(100L, 10L, 20L, Hash("abc"), Hash("def"))
 
-  private val address3 = Address("DAG2AUdecqFwEGcgAcH1ac2wrsg8acrgGwrQojzw")
-  private val address4 = Address("DAG2EUdecqFwEGcgAcH1ac2wrsg8acrgGwrQivxq")
-  private val address5 = Address("DAG2EUdecqFwEGcgAcH1ac2wrsg8acrgGwrQitrs")
-
-  test("set balance to 0 for source when not in info") { res =>
-    implicit val (h, ks, sp, key1, key2) = res
+  test("explicitly sets balance to 0 for addressees missing in in info") { res =>
+    implicit val (h, ks, sp, key1, key2, key3, _) = res
     val address1 = key1.getPublic.toAddress
     val address2 = key2.getPublic.toAddress
-    val totalInfo = GlobalSnapshotInfo.empty
+    val address3 = key3.getPublic.toAddress
+    val initialBalances = createBalances(address1, address2)
 
-    val rewards = createRewards(address1, address2, address5)
     for {
-      txn1 <- createTxn(address1, key1, address2)
-      txn2 <- createTxn(address2, key2, address1)
-      txn3 <- createTxn(address2, key2, address5)
+      txn1 <- createTxn(address1, key1, address2, TransactionAmount(1000L))
+      txn2 <- createTxn(address2, key2, address3, TransactionAmount(2000L))
+
       blocks <- createBlocksWithTransactions(
         key1,
-        NonEmptySet.fromSetUnsafe(SortedSet(txn1, txn2)),
-        NonEmptySet.fromSetUnsafe(SortedSet(txn3))
+        NonEmptySet.fromSetUnsafe(SortedSet(txn1)),
+        NonEmptySet.fromSetUnsafe(SortedSet(txn2))
       )
+
+      updatedBalances = applyTransactions(
+        initialBalances,
+        blocks.flatMap(_.block.transactions.toList).toList,
+        List.empty
+      )
+
+      updatedInfo = GlobalSnapshotInfo(SortedMap.empty, SortedMap.empty, updatedBalances, SortedMap.empty, SortedMap.empty)
+
       snapshot <- incrementalGlobalSnapshot[IO](
         100L,
         10L,
         20L,
         Hash("abc"),
         Hash("def"),
-        totalInfo,
+        updatedInfo,
         blocks,
-        rewards = rewards
       )
 
-      result = GlobalSnapshotMapper.make().snapshotReferredBalancesInfo(snapshot, totalInfo)
-    } yield expect.same(result, SortedMap(address1 -> Balance(0L), address2 -> Balance(0L)))
-
+      result = GlobalSnapshotMapper
+        .make()
+        .balanceDiff(snapshot, initialBalances.some, GlobalSnapshotInfo.empty)
+    } yield expect.all(
+      initialBalances(address1) === Balance(1000L),
+      initialBalances(address2) === Balance(1000L),
+      !initialBalances.contains(address3),
+      !updatedBalances.contains(address1),
+      !updatedBalances.contains(address2),
+      updatedBalances(address3) === Balance(2000L),
+      result === SortedMap(address1 -> Balance(0L), address2 -> Balance(0L))
+    )
   }
 
-  test("leave balances for addresses from transactions") { res =>
-    implicit val (h, ks, sp, key1, key2) = res
+
+  test("removes addresses that have transactions but the result balance hasn't changed") { res =>
+    implicit val (h, ks, sp, key1, key2, _, _) = res
     val address1 = key1.getPublic.toAddress
     val address2 = key2.getPublic.toAddress
-    val balances = createBalances(address1, address2, address3, address4, address5)
-    val totalInfo = GlobalSnapshotInfo(SortedMap.empty, SortedMap.empty, balances, SortedMap.empty, SortedMap.empty)
+    val initialBalances = createBalances(address1, address2)
 
     for {
-      txn1 <- createTxn(address1, key1, address2)
-      txn2 <- createTxn(address2, key2, address1)
-      txn3 <- createTxn(address2, key2, address5)
+      txn1 <- createTxn(address1, key1, address2, TransactionAmount(1L))
+      txn2 <- createTxn(address2, key2, address1, TransactionAmount(1L))
+      blocks <- createBlocksWithTransactions(
+        key1,
+        NonEmptySet.fromSetUnsafe(SortedSet(txn1, txn2)),
+      )
+      updatedBalances = applyTransactions(
+        initialBalances,
+        blocks.flatMap(_.block.transactions.toList).toList,
+        List.empty
+      )
+      updatedInfo = GlobalSnapshotInfo(SortedMap.empty, SortedMap.empty, updatedBalances, SortedMap.empty, SortedMap.empty)
+
+      snapshot <- incrementalGlobalSnapshot[IO](
+        100L,
+        10L,
+        20L,
+        Hash("abc"),
+        Hash("def"),
+        updatedInfo,
+        blocks,
+      )
+
+      result = GlobalSnapshotMapper
+        .make()
+        .balanceDiff(snapshot, initialBalances.some, updatedInfo)
+    } yield expect.same(
+      result,
+      updatedBalances - address1 - address2
+    )
+  }
+
+  test("leaves addresses that changed") { res =>
+    implicit val (h, ks, sp, key1, key2, key3, key4) = res
+    val address1 = key1.getPublic.toAddress
+    val address2 = key2.getPublic.toAddress
+    val address3 = key3.getPublic.toAddress
+    val address4 = key4.getPublic.toAddress
+    val initialBalances = createBalances(address1, address2, address3, address4)
+
+    for {
+      txn1 <- createTxn(address1, key1, address2, TransactionAmount(3L))
+      txn2 <- createTxn(address2, key2, address1, TransactionAmount(5L))
+      txn3 <- createTxn(address2, key2, address3, TransactionAmount(13L))
       blocks <- createBlocksWithTransactions(
         key1,
         NonEmptySet.fromSetUnsafe(SortedSet(txn1, txn2)),
         NonEmptySet.fromSetUnsafe(SortedSet(txn3))
       )
-      snapshot <- incrementalGlobalSnapshot[IO](100L, 10L, 20L, Hash("abc"), Hash("def"), totalInfo, blocks)
-
-      result = GlobalSnapshotMapper.make().snapshotReferredBalancesInfo(snapshot, totalInfo)
-      expectedBalances = createBalances(address1, address2, address5)
-    } yield expect.same(result, expectedBalances)
-  }
-
-  test("leave balances for addresses from transactions, but not set zero for destinations not in balances ") { res =>
-    implicit val (h, ks, sp, key1, key2) = res
-    val address1 = key1.getPublic.toAddress
-    val address2 = key2.getPublic.toAddress
-    val balances = createBalances(address1, address3, address4)
-    val totalInfo = GlobalSnapshotInfo(SortedMap.empty, SortedMap.empty, balances, SortedMap.empty, SortedMap.empty)
-
-    for {
-      txn1 <- createTxn(address1, key1, address2)
-      txn2 <- createTxn(address2, key2, address1)
-      txn3 <- createTxn(address2, key2, address5)
-      blocks <- createBlocksWithTransactions(
-        key1,
-        NonEmptySet.fromSetUnsafe(SortedSet(txn1, txn2)),
-        NonEmptySet.fromSetUnsafe(SortedSet(txn3))
+      updatedBalances = applyTransactions(
+        initialBalances,
+        blocks.flatMap(_.block.transactions.toList).toList,
+        List.empty
       )
-      snapshot <- incrementalGlobalSnapshot[IO](100L, 10L, 20L, Hash("abc"), Hash("def"), totalInfo, blocks)
+      updatedInfo = GlobalSnapshotInfo(SortedMap.empty, SortedMap.empty, updatedBalances, SortedMap.empty, SortedMap.empty)
+      snapshot <- incrementalGlobalSnapshot[IO](
+        100L,
+        10L,
+        20L,
+        Hash("abc"),
+        Hash("def"),
+        updatedInfo,
+        blocks,
+      )
 
-      result = GlobalSnapshotMapper.make().snapshotReferredBalancesInfo(snapshot, totalInfo)
-      expectedBalances = SortedMap(address1 -> Balance(1000L), address2 -> Balance(0L))
-    } yield expect.same(result, expectedBalances)
+      result = GlobalSnapshotMapper
+        .make()
+        .balanceDiff(snapshot, initialBalances.some, updatedInfo)
+    } yield expect.same(
+      result,
+      updatedBalances - address4
+    )
   }
 
   test("leave balances for addresses from rewards") { res =>
-    implicit val (h, ks, _, key1, key2) = res
+    implicit val (h, ks, sp, key1, key2, key3, key4) = res
     val address1 = key1.getPublic.toAddress
     val address2 = key2.getPublic.toAddress
-    val balances = createBalances(address1, address2, address3, address4, address5)
-    val totalInfo = GlobalSnapshotInfo(SortedMap.empty, SortedMap.empty, balances, SortedMap.empty, SortedMap.empty)
+    val address3 = key3.getPublic.toAddress
+    val address4 = key4.getPublic.toAddress
 
-    val rewards = createRewards(address1, address2, address5)
+    val initialBalances = createBalances(address1, address2, address3, address4)
+    val rewards = createRewards(address1, address2)
+
+    val updatedBalances = applyTransactions(
+      initialBalances,
+      List.empty,
+      rewards.toList
+    )
+    val updatedInfo = GlobalSnapshotInfo(SortedMap.empty, SortedMap.empty, updatedBalances, SortedMap.empty, SortedMap.empty)
+
     for {
-      snapshot <- incrementalGlobalSnapshot[IO](100L, 10L, 20L, Hash("abc"), Hash("def"), totalInfo, rewards = rewards)
+      snapshot <- incrementalGlobalSnapshot[IO](
+        100L,
+        10L,
+        20L,
+        Hash("abc"),
+        Hash("def"),
+        updatedInfo,
+        rewards = rewards
+      )
 
-      result = GlobalSnapshotMapper.make().snapshotReferredBalancesInfo(snapshot, totalInfo)
-      expectedBalances = createBalances(address1, address2, address5)
-    } yield expect.same(result, expectedBalances)
+      result = GlobalSnapshotMapper.make().balanceDiff(snapshot, initialBalances.some, updatedInfo)
+    } yield expect.same(
+      result,
+      updatedBalances - address3 - address4
+    )
   }
-
-  test("leave balances for addresses from rewards, but not set zero for these not in balances") { res =>
-    implicit val (h, ks, _, key1, key2) = res
-    val address1 = key1.getPublic.toAddress
-    val address2 = key2.getPublic.toAddress
-    val balances = createBalances(address1, address2, address3, address4)
-    val totalInfo = GlobalSnapshotInfo(SortedMap.empty, SortedMap.empty, balances, SortedMap.empty, SortedMap.empty)
-
-    val rewards = createRewards(address1, address2, address5)
-    for {
-      snapshot <- incrementalGlobalSnapshot[IO](100L, 10L, 20L, Hash("abc"), Hash("def"), totalInfo, rewards = rewards)
-
-      result = GlobalSnapshotMapper.make().snapshotReferredBalancesInfo(snapshot, totalInfo)
-      expectedBalances = createBalances(address1, address2)
-    } yield expect.same(result, expectedBalances)
-  }
-
 }
