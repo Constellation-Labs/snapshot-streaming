@@ -22,7 +22,7 @@ import org.tessellation.statechannel.StateChannelSnapshotBinary
 import java.util.Date
 
 abstract class CurrencyIncrementalSnapshotMapper[F[_]: Async: JsonSerializer]
-    extends SnapshotMapper[F, CurrencyIncrementalSnapshot] {
+    extends SnapshotMapper[F, CurrencyIncrementalSnapshot, CurrencySnapshotInfo] {
 
   def mapSnapshot(
     snapshot: Hashed[CurrencyIncrementalSnapshot],

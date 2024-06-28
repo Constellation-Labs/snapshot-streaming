@@ -28,9 +28,6 @@ trait GlobalSnapshotContextService[F[_]] {
 
 object GlobalSnapshotContextService {
 
-  type CurrencySnapshotWithState =
-    Either[Signed[CurrencySnapshot], (Signed[CurrencyIncrementalSnapshot], CurrencySnapshotInfo)]
-
   def make[F[_]: Async: KryoSerializer: HasherSelector](
     globalSnapshotStateChannelEventsProcessor: GlobalSnapshotStateChannelEventsProcessor[F],
     globalSnapshotContextFns: GlobalSnapshotContextFunctions[F]
@@ -60,7 +57,7 @@ object GlobalSnapshotContextService {
                     }
                   })
                 }
-                .map(GlobalSnapshotWithState(artifact, newContext, _))
+                .map(GlobalSnapshotWithState(artifact, newContext, context.some, _))
             }
           }
 

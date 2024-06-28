@@ -34,7 +34,11 @@ import fs2.Stream
 import org.constellation.snapshotstreaming.opensearch.OpensearchDAO
 import org.constellation.snapshotstreaming.opensearch.UpdateRequestBuilder
 import org.constellation.snapshotstreaming.s3.S3DAO
+import org.constellation.snapshotstreaming.storage.FileBasedLastFullSnapshotStorage
+import org.constellation.snapshotstreaming.storage.FileBasedLastIncrementalGlobalSnapshotStorage
+import org.constellation.snapshotstreaming.storage.LastCurrencySnapshotStorage
 import org.http4s.ember.client.EmberClientBuilder
+import org.tessellation.schema.GlobalSnapshot
 import org.tessellation.statechannel.StateChannelSnapshotBinary
 import org.typelevel.log4cats.slf4j.Slf4jLogger
 
@@ -71,11 +75,14 @@ object SnapshotProcessor {
           configuration.pullLimit.some,
           configuration.l0Peers.keys.some
         )
-      requestBuilder = UpdateRequestBuilder.make[F](configuration, txHasher: Hasher[F])
+      requestBuilder <- Resource.eval(UpdateRequestBuilder.make[F](configuration, txHasher: Hasher[F]))
       tesselationServices <- Resource.eval(
         TessellationServices.make[F](configuration)
       )
-      lastFullGlobalSnapshotStorage = FileBasedLastFullGlobalSnapshotStorage.make[F](configuration.lastFullSnapshotPath)
+      lastFullGlobalSnapshotStorage = FileBasedLastFullSnapshotStorage.make[F, GlobalSnapshot](
+        configuration.lastFullSnapshotPath
+      )
+      lastCurrencySnapshotStorage <- Resource.eval(LastCurrencySnapshotStorage.make[F](configuration.lastCurrencySnapshotsPath))
     } yield make(
       configuration,
       lastIncrementalGlobalSnapshotStorage,
@@ -84,10 +91,11 @@ object SnapshotProcessor {
       s3DAO,
       requestBuilder,
       tesselationServices,
-      lastFullGlobalSnapshotStorage
+      lastFullGlobalSnapshotStorage,
+      lastCurrencySnapshotStorage
     )
 
-  def make[F[_]: Async: KryoSerializer: JsonSerializer: HasherSelector](
+  def make[F[_]: Async: HasherSelector](
     configuration: Configuration,
     lastIncrementalGlobalSnapshotStorage: LastSnapshotStorage[F, GlobalIncrementalSnapshot, GlobalSnapshotInfo],
     l0Service: GlobalL0Service[F],
@@ -95,7 +103,8 @@ object SnapshotProcessor {
     s3DAO: S3DAO[F],
     updateRequestBuilder: UpdateRequestBuilder[F],
     tessellationServices: TessellationServices[F],
-    lastFullGlobalSnapshotStorage: FileBasedLastFullGlobalSnapshotStorage[F]
+    lastFullGlobalSnapshotStorage: FileBasedLastFullSnapshotStorage[F, GlobalSnapshot],
+    lastCurrencySnapshotStorage: LastCurrencySnapshotStorage[F]
   ): SnapshotProcessor[F] = new SnapshotProcessor[F] {
     val logger = Slf4jLogger.getLogger[F]
 
@@ -103,7 +112,7 @@ object SnapshotProcessor {
       globalSnapshotWithState: GlobalSnapshotWithState,
       hasher: Hasher[F]
     ): F[Unit] =
-      globalSnapshotWithState.pure[F].flatMap { case state @ GlobalSnapshotWithState(snapshot, _, _) =>
+      globalSnapshotWithState.pure[F].flatMap { case state @ GlobalSnapshotWithState(snapshot, _, _, _) =>
         Clock[F].realTime
           .map(d => new Date(d.toMillis))
           .flatMap(updateRequestBuilder.bulkUpdateRequests(state, _, hasher))
@@ -116,8 +125,19 @@ object SnapshotProcessor {
           .void
       }
 
+    private def setLastCurrencySnapshots(
+      snapshots: Map[Address, NonEmptyList[
+        Either[Hashed[
+          CurrencySnapshot
+        ], (Hashed[CurrencyIncrementalSnapshot], CurrencySnapshotInfo, Signed[StateChannelSnapshotBinary])]
+      ]],
+      hasher: Hasher[F]
+    ): F[Unit] = snapshots.toList.flatTraverse { case (addr, snapshots) =>
+      snapshots.traverse(s => lastCurrencySnapshotStorage.set(addr, s, hasher)).map(_.toList)
+    }.void
+
     private def process(globalSnapshotWithState: GlobalSnapshotWithState, hasher: Hasher[F]): F[Unit] =
-      globalSnapshotWithState.pure[F].flatMap { case state @ GlobalSnapshotWithState(snapshot, snapshotInfo, _) =>
+      globalSnapshotWithState.pure[F].flatMap { case state @ GlobalSnapshotWithState(snapshot, snapshotInfo, _, _) =>
         HasherSelector[F]
           .forOrdinal(snapshot.ordinal) { implicit hasher =>
             logger.info(
@@ -135,6 +155,7 @@ object SnapshotProcessor {
                 case Some(last) if Validator.isNextSnapshot(last, snapshot.signed.value) =>
                   s3DAO.uploadSnapshot(snapshot) >>
                     prepareAndExecuteBulkUpdate(state, hasher) >>
+                    setLastCurrencySnapshots(globalSnapshotWithState.currencySnapshots, hasher) >>
                     lastIncrementalGlobalSnapshotStorage.set(snapshot, snapshotInfo)
 
                 case Some(last) =>
@@ -151,6 +172,7 @@ object SnapshotProcessor {
                       case Some(last) if Validator.isNextSnapshot(last, snapshot.signed.value) =>
                         s3DAO.uploadSnapshot(snapshot) >>
                           prepareAndExecuteBulkUpdate(state, hasher) >>
+                          setLastCurrencySnapshots(globalSnapshotWithState.currencySnapshots, hasher) >>
                           lastIncrementalGlobalSnapshotStorage
                             .setInitial(snapshot, snapshotInfo)
                             .onError(e => logger.error(e)(s"Failure setting initial global snapshot!"))
@@ -210,7 +232,7 @@ object SnapshotProcessor {
                     .pullGlobalSnapshot(signedFullGlobalSnapshot.value.ordinal.next)
                     .map(
                       _.map(nextSnapshot =>
-                        GlobalSnapshotWithState(nextSnapshot, signedFullGlobalSnapshot.value.info, Map.empty)
+                        GlobalSnapshotWithState(nextSnapshot, signedFullGlobalSnapshot.value.info, None, Map.empty)
                       )
                     )
                     .map(_.toList)
@@ -223,13 +245,13 @@ object SnapshotProcessor {
           }
         }
         .evalTap { snapshots =>
-          snapshots.traverse { case GlobalSnapshotWithState(snapshot, _, _) =>
+          snapshots.traverse { case GlobalSnapshotWithState(snapshot, _, _, _) =>
             logger.info(s"Pulled following global snapshot: ${getSnapshotReference(snapshot).show}")
           }
         }
         .evalMap {
           _.tailRecM {
-            case (state @ GlobalSnapshotWithState(snapshot, _, _)) :: nextSnapshots
+            case (state @ GlobalSnapshotWithState(snapshot, _, _, _)) :: nextSnapshots
                 if configuration.terminalSnapshotOrdinal.forall(snapshot.ordinal <= _) =>
               val hasher = HasherSelector[F].getForOrdinal(snapshot.ordinal)
               process(state, hasher).as {
@@ -258,6 +280,7 @@ object SnapshotProcessor {
   case class GlobalSnapshotWithState(
     snapshot: Hashed[GlobalIncrementalSnapshot],
     snapshotInfo: GlobalSnapshotInfo,
+    prevSnapshotInfo: Option[GlobalSnapshotInfo],
     currencySnapshots: Map[Address, NonEmptyList[
       Either[Hashed[
         CurrencySnapshot

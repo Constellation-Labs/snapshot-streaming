@@ -122,6 +122,27 @@ object data {
   def createBalances(addresses: Address*) =
     addresses.map(address => address -> Balance(1000L)).toMap.toSortedMap
 
+  def applyTransactions(
+    balances: SortedMap[Address, Balance],
+    txs: List[Signed[Transaction]],
+    rewards: List[RewardTransaction]
+  ): SortedMap[Address, Balance] = {
+    val txApplied = txs.foldLeft(balances.view.mapValues(_.value.toLong).toMap) { case (acc, tx) =>
+      acc
+        .updatedWith(tx.source)(existing => (existing.getOrElse(0L) - tx.amount.value).some)
+        .updatedWith(tx.destination)(existing => (existing.getOrElse(0L) + tx.amount.value).some)
+    }
+
+    val rewardsApplied = rewards.foldLeft(txApplied) { case (acc, tx) =>
+      acc
+        .updatedWith(tx.destination)(existing => (existing.getOrElse(0L) + tx.amount.value).some)
+    }
+
+    val nonEmpty = rewardsApplied.filterNot { case (_, balance) => balance === 0L }
+
+    nonEmpty.view.mapValues(v => Balance(NonNegLong.unsafeFrom(v))).toMap.toSortedMap
+  }
+
   def createRewards(addresses: Address*) =
     addresses.map(address => RewardTransaction(address, TransactionAmount(1000L))).toSortedSet
 
@@ -143,7 +164,8 @@ object data {
   def createTxn[F[_]: Async: KryoSerializer: HasherSelector: SecurityProvider](
     src: Address,
     srcKey: KeyPair,
-    dst: Address
+    dst: Address,
+    amount: TransactionAmount = TransactionAmount(1L)
   ): F[Signed[Transaction]] = {
     implicit val hasher: Hasher[F] = HasherSelector[F].getCurrent
 
@@ -151,7 +173,7 @@ object data {
       Transaction(
         src,
         dst,
-        TransactionAmount(1L),
+        amount,
         TransactionFee.zero,
         TransactionReference.empty,
         TransactionSalt(0L)

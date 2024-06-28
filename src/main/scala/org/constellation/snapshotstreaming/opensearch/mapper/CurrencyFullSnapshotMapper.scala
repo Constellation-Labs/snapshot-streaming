@@ -13,10 +13,11 @@ import org.tessellation.syntax.sortedCollection._
 import eu.timepit.refined.auto._
 import io.estatico.newtype.ops._
 import org.constellation.snapshotstreaming.opensearch.schema._
+import org.tessellation.currency.schema.currency.CurrencySnapshotInfo
 
 import java.util.Date
 
-abstract class CurrencyFullSnapshotMapper[F[_]: Async] extends SnapshotMapper[F, OriginalCurrencySnapshot] {
+abstract class CurrencyFullSnapshotMapper[F[_]: Async] extends SnapshotMapper[F, OriginalCurrencySnapshot, CurrencySnapshotInfo] {
   def mapSnapshot(snapshot: Hashed[OriginalCurrencySnapshot], timestamp: Date, hasher: Hasher[F]): F[Snapshot]
 }
 

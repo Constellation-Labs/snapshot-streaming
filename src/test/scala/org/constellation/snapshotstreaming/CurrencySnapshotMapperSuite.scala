@@ -10,8 +10,6 @@ import scala.collection.immutable.SortedMap
 import scala.collection.immutable.SortedSet
 import org.tessellation.ext.cats.effect.ResourceIO
 import org.tessellation.kryo.KryoSerializer
-import org.tessellation.schema.address.Address
-import org.tessellation.schema.balance.Balance
 import org.tessellation.schema.transaction._
 import org.tessellation.node.shared.nodeSharedKryoRegistrar
 import org.tessellation.security.hash.Hash
@@ -21,6 +19,7 @@ import org.tessellation.security.SecurityProvider
 import org.tessellation.shared.sharedKryoRegistrar
 import org.tessellation.syntax.sortedCollection._
 import eu.timepit.refined.auto._
+import org.constellation.snapshotstreaming.data.applyTransactions
 import org.constellation.snapshotstreaming.data.createBalances
 import org.constellation.snapshotstreaming.data.createBlocksWithTransactions
 import org.constellation.snapshotstreaming.data.createRewards
@@ -34,6 +33,7 @@ import org.tessellation.currency.schema.currency.CurrencySnapshotInfo
 import weaver.MutableIOSuite
 import org.tessellation.security.Hasher
 import org.tessellation.json.JsonSerializer
+import org.tessellation.schema.balance.Balance
 import org.tessellation.security.Hashed
 import org.tessellation.security.HasherSelector
 
@@ -74,194 +74,171 @@ object CurrencySnapshotMapperSuite extends MutableIOSuite {
   ): IO[Hashed[CurrencyIncrementalSnapshot]] =
     incrementalCurrencySnapshot(100L, 10L, 20L, Hash("abc"), Hash("def"))
 
-  private val address5 = Address("DAG2AUdecqFwEGcgAcH1ac2wrsg8acrgGwrQojzw")
-  private val address6 = Address("DAG2EUdecqFwEGcgAcH1ac2wrsg8acrgGwrQivxq")
-  private val address7 = Address("DAG2EUdecqFwEGcgAcH1ac2wrsg8acrgGwrQitrs")
-
-  test("set balance to 0 for source when not in info") { res =>
-    implicit val (h, ks, js, sp, key1, key2, key3, key4) = res
+  test("explicitly sets balance to 0 for addressees missing in in info") { res =>
+    implicit val (h, ks, js, sp, key1, key2, key3, _) = res
     val address1 = key1.getPublic.toAddress
     val address2 = key2.getPublic.toAddress
-    val address4 = key4.getPublic.toAddress
-    val totalInfo = emptyCurrencySnapshotInfo
+    val address3 = key3.getPublic.toAddress
+    val initialBalances = createBalances(address1, address2)
 
-    val rewards = createRewards(address1, address2, address7)
     for {
-      txn1 <- createTxn(address1, key1, address2)
-      txn2 <- createTxn(address2, key2, address1)
-      txn3 <- createTxn(address2, key2, address4)
+      txn1 <- createTxn(address1, key1, address2, TransactionAmount(1000L))
+      txn2 <- createTxn(address2, key2, address3, TransactionAmount(2000L))
 
       blocks <- createBlocksWithTransactions(
         key1,
-        NonEmptySet.fromSetUnsafe(SortedSet(txn1, txn2)),
-        NonEmptySet.fromSetUnsafe(SortedSet(txn3))
+        NonEmptySet.fromSetUnsafe(SortedSet(txn1)),
+        NonEmptySet.fromSetUnsafe(SortedSet(txn2))
       )
+
+      updatedBalances = applyTransactions(
+        initialBalances,
+        blocks.flatMap(_.block.transactions.toList).toList,
+        List.empty
+      )
+
+      updatedInfo = CurrencySnapshotInfo(SortedMap.empty, updatedBalances, None, None)
+
       snapshot <- incrementalCurrencySnapshot[IO](
         100L,
         10L,
         20L,
         Hash("abc"),
         Hash("def"),
-        totalInfo,
+        updatedInfo,
         blocks,
-        rewards = rewards,
         feeTransactions = None
       )
 
-      result = CurrencyIncrementalSnapshotMapper.make().snapshotReferredBalancesInfo(snapshot, totalInfo)
+      result = CurrencyIncrementalSnapshotMapper
+        .make()
+        .balanceDiff(snapshot, initialBalances.some, emptyCurrencySnapshotInfo)
+    } yield expect.all(
+      initialBalances(address1) === Balance(1000L),
+      initialBalances(address2) === Balance(1000L),
+      !initialBalances.contains(address3),
+      !updatedBalances.contains(address1),
+      !updatedBalances.contains(address2),
+      updatedBalances(address3) === Balance(2000L),
+      result === SortedMap(address1 -> Balance(0L), address2 -> Balance(0L))
+    )
+  }
+
+  test("removes addresses that have transactions but the result balance hasn't changed") { res =>
+    implicit val (h, ks, js, sp, key1, key2, _, _) = res
+    val address1 = key1.getPublic.toAddress
+    val address2 = key2.getPublic.toAddress
+    val initialBalances = createBalances(address1, address2)
+
+    for {
+      txn1 <- createTxn(address1, key1, address2, TransactionAmount(1L))
+      txn2 <- createTxn(address2, key2, address1, TransactionAmount(1L))
+      blocks <- createBlocksWithTransactions(
+        key1,
+        NonEmptySet.fromSetUnsafe(SortedSet(txn1, txn2)),
+      )
+      updatedBalances = applyTransactions(
+        initialBalances,
+        blocks.flatMap(_.block.transactions.toList).toList,
+        List.empty
+      )
+      updatedInfo = CurrencySnapshotInfo(SortedMap.empty, updatedBalances, None, None)
+
+      snapshot <- incrementalCurrencySnapshot[IO](
+        100L,
+        10L,
+        20L,
+        Hash("abc"),
+        Hash("def"),
+        updatedInfo,
+        blocks,
+        feeTransactions = None
+      )
+
+      result = CurrencyIncrementalSnapshotMapper
+        .make()
+        .balanceDiff(snapshot, initialBalances.some, updatedInfo)
     } yield expect.same(
       result,
-      SortedMap(address1 -> Balance(0L), address2 -> Balance(0L))
+      updatedBalances - address1 - address2
     )
-
   }
 
-  test("leave balances for addresses from transactions") { res =>
-    implicit val (h, ks, js, sp, key1, key2, key3, key4) = res
-    val address1 = key1.getPublic.toAddress
-    val address2 = key2.getPublic.toAddress
-    val balances = createBalances(address1, address2, address5, address6, address7)
-    val totalInfo = CurrencySnapshotInfo(SortedMap.empty, balances, None, None)
-
-    for {
-      txn1 <- createTxn(address1, key1, address2)
-      txn2 <- createTxn(address2, key2, address1)
-      txn3 <- createTxn(address2, key2, address7)
-      blocks <- createBlocksWithTransactions(
-        key1,
-        NonEmptySet.fromSetUnsafe(SortedSet(txn1, txn2)),
-        NonEmptySet.fromSetUnsafe(SortedSet(txn3))
-      )
-      snapshot <- incrementalCurrencySnapshot[IO](
-        100L,
-        10L,
-        20L,
-        Hash("abc"),
-        Hash("def"),
-        totalInfo,
-        blocks,
-        feeTransactions = None
-      )
-
-      result = CurrencyIncrementalSnapshotMapper.make().snapshotReferredBalancesInfo(snapshot, totalInfo)
-      expectedBalances = createBalances(address1, address2, address7)
-    } yield expect.same(result, expectedBalances)
-  }
-
-  test(
-    "leave balances for addresses from transactions, but not set zero for destinations not in balances "
-  ) { res =>
-    implicit val (h, ks, js, sp, key1, key2, key3, key4) = res
-    val address1 = key1.getPublic.toAddress
-    val address2 = key2.getPublic.toAddress
-
-    val balances = createBalances(address1, address5, address6)
-    val totalInfo = CurrencySnapshotInfo(SortedMap.empty, balances, None, None)
-
-    for {
-      txn1 <- createTxn(address1, key1, address2)
-      txn2 <- createTxn(address2, key2, address1)
-      txn3 <- createTxn(address2, key2, address7)
-
-      blocks <- createBlocksWithTransactions(
-        key1,
-        NonEmptySet.fromSetUnsafe(SortedSet(txn1, txn2)),
-        NonEmptySet.fromSetUnsafe(SortedSet(txn3))
-      )
-      snapshot <- incrementalCurrencySnapshot[IO](
-        100L,
-        10L,
-        20L,
-        Hash("abc"),
-        Hash("def"),
-        totalInfo,
-        blocks,
-        feeTransactions = None
-      )
-
-      result = CurrencyIncrementalSnapshotMapper.make().snapshotReferredBalancesInfo(snapshot, totalInfo)
-      expectedBalances = SortedMap(
-        address1 -> Balance(1000L),
-        address2 -> Balance(0L),
-      )
-    } yield expect.same(result, expectedBalances)
-  }
-
-  test(
-    "leave balances for addresses from transactions, but not set zero for destinations not in balances "
-  ) { res =>
+  test("leaves addresses that changed") { res =>
     implicit val (h, ks, js, sp, key1, key2, key3, key4) = res
     val address1 = key1.getPublic.toAddress
     val address2 = key2.getPublic.toAddress
     val address3 = key3.getPublic.toAddress
     val address4 = key4.getPublic.toAddress
-    val balances = createBalances(address1, address3, address6)
-    val totalInfo = CurrencySnapshotInfo(SortedMap.empty, balances, None, None)
+    val initialBalances = createBalances(address1, address2, address3, address4)
 
     for {
-      txn1 <- createTxn(address1, key1, address2)
-      txn2 <- createTxn(address2, key2, address1)
-      txn3 <- createTxn(address2, key2, address5)
+      txn1 <- createTxn(address1, key1, address2, TransactionAmount(3L))
+      txn2 <- createTxn(address2, key2, address1, TransactionAmount(5L))
+      txn3 <- createTxn(address2, key2, address3, TransactionAmount(13L))
       blocks <- createBlocksWithTransactions(
         key1,
         NonEmptySet.fromSetUnsafe(SortedSet(txn1, txn2)),
         NonEmptySet.fromSetUnsafe(SortedSet(txn3))
       )
-      snapshot <- incrementalCurrencySnapshot[IO](100L, 10L, 20L, Hash("abc"), Hash("def"), totalInfo, blocks)
-
-      result = CurrencyIncrementalSnapshotMapper.make().snapshotReferredBalancesInfo(snapshot, totalInfo)
-      expectedBalances = SortedMap(address1 -> Balance(1000L), address2 -> Balance(0L))
-    } yield expect.same(result, expectedBalances)
-  }
-
-  test("leave balances for addresses from rewards") { res =>
-    implicit val (h, ks, js, sp, key1, key2, key3, key4) = res
-    val address1 = key1.getPublic.toAddress
-    val address2 = key2.getPublic.toAddress
-    val address3 = key3.getPublic.toAddress
-    val address4 = key4.getPublic.toAddress
-    val balances = createBalances(address1, address2, address7, address6, address7)
-    val totalInfo = CurrencySnapshotInfo(SortedMap.empty, balances, None, None)
-
-    val rewards = createRewards(address1, address2, address7)
-    for {
+      updatedBalances = applyTransactions(
+        initialBalances,
+        blocks.flatMap(_.block.transactions.toList).toList,
+        List.empty
+      )
+      updatedInfo = CurrencySnapshotInfo(SortedMap.empty, updatedBalances, None, None)
       snapshot <- incrementalCurrencySnapshot[IO](
         100L,
         10L,
         20L,
         Hash("abc"),
         Hash("def"),
-        totalInfo,
-        rewards = rewards
+        updatedInfo,
+        blocks,
+        feeTransactions = None
       )
 
-      result = CurrencyIncrementalSnapshotMapper.make().snapshotReferredBalancesInfo(snapshot, totalInfo)
-      expectedBalances = createBalances(address1, address2, address7)
-    } yield expect.same(result, expectedBalances)
+      result = CurrencyIncrementalSnapshotMapper
+        .make()
+        .balanceDiff(snapshot, initialBalances.some, updatedInfo)
+    } yield expect.same(
+      result,
+      updatedBalances - address4
+    )
   }
 
-  test("leave balances for addresses from rewards, but not set zero for these not in balances") { res =>
-    implicit val (h, ks, js, sp, key1, key2, key3, key4) = res
-    val address1 = key1.getPublic.toAddress
-    val address2 = key2.getPublic.toAddress
-    val balances = createBalances(address1, address2, address5, address6)
-    val totalInfo = CurrencySnapshotInfo(SortedMap.empty, balances, None, None)
+    test("leave balances for addresses from rewards") { res =>
+      implicit val (h, ks, js, sp, key1, key2, key3, key4) = res
+      val address1 = key1.getPublic.toAddress
+      val address2 = key2.getPublic.toAddress
+      val address3 = key3.getPublic.toAddress
+      val address4 = key4.getPublic.toAddress
 
-    val rewards = createRewards(address1, address2, address7)
-    for {
-      snapshot <- incrementalCurrencySnapshot[IO](
-        100L,
-        10L,
-        20L,
-        Hash("abc"),
-        Hash("def"),
-        totalInfo,
-        rewards = rewards
+      val initialBalances = createBalances(address1, address2, address3, address4)
+      val rewards = createRewards(address1, address2)
+
+      val updatedBalances = applyTransactions(
+        initialBalances,
+        List.empty,
+        rewards.toList
       )
+      val updatedInfo = CurrencySnapshotInfo(SortedMap.empty, updatedBalances, None, None)
 
-      result = CurrencyIncrementalSnapshotMapper.make().snapshotReferredBalancesInfo(snapshot, totalInfo)
-      expectedBalances = createBalances(address1, address2)
-    } yield expect.same(result, expectedBalances)
-  }
+      for {
+        snapshot <- incrementalCurrencySnapshot[IO](
+          100L,
+          10L,
+          20L,
+          Hash("abc"),
+          Hash("def"),
+          updatedInfo,
+          rewards = rewards
+        )
 
+        result = CurrencyIncrementalSnapshotMapper.make().balanceDiff(snapshot, initialBalances.some, updatedInfo)
+      } yield expect.same(
+        result,
+        updatedBalances - address3 - address4
+      )
+    }
 }
