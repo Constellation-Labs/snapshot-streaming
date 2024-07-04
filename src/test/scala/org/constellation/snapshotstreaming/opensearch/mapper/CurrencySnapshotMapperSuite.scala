@@ -1,4 +1,4 @@
-package org.constellation.snapshotstreaming
+package org.constellation.snapshotstreaming.opensearch.mapper
 
 import java.security.KeyPair
 import cats.data.NonEmptySet

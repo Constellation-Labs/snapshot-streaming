@@ -17,23 +17,23 @@ import io.circe.parser.decode
 import io.circe.syntax._
 import io.circe.Decoder
 import io.circe.Encoder
-import io.circe.generic.semiauto.deriveDecoder
-import io.circe.generic.semiauto.deriveEncoder
+import io.circe.Codec
+import io.circe.generic.semiauto.deriveCodec
 import org.tessellation.schema.snapshot.Snapshot
+import org.tessellation.schema.GlobalSnapshot
 
-trait FileBasedLastFullSnapshotStorage[F[_], S <: Snapshot] {
-  def set(snapshot: Hashed[S]): F[Unit]
-  def get: F[Option[Signed[S]]]
+trait FileBasedLastGlobalFullSnapshotStorage[F[_]] {
+  def set(snapshot: Hashed[GlobalSnapshot]): F[Unit]
+  def get: F[Option[Signed[GlobalSnapshot]]]
 }
 
-object FileBasedLastFullSnapshotStorage {
+object FileBasedLastGlobalFullSnapshotStorage {
 
-  def make[F[_]: Async, S <: Snapshot: Decoder: Encoder](path: Path): FileBasedLastFullSnapshotStorage[F, S] =
-    new FileBasedLastFullSnapshotStorage[F, S] {
-      implicit val decoder: Decoder[Hashed[S]] = deriveDecoder[Hashed[S]]
-      implicit val encoder: Encoder[Hashed[S]] = deriveEncoder[Hashed[S]]
+  def make[F[_]: Async, S <: Snapshot: Decoder: Encoder](path: Path): FileBasedLastGlobalFullSnapshotStorage[F] =
+    new FileBasedLastGlobalFullSnapshotStorage[F] {
+      implicit val codec: Codec[Hashed[GlobalSnapshot]] = deriveCodec[Hashed[GlobalSnapshot]]
 
-      def set(snapshot: Hashed[S]): F[Unit] =
+      def set(snapshot: Hashed[GlobalSnapshot]): F[Unit] =
         Stream
           .emit(snapshot.asJson.spaces2)
           .through(text.utf8.encode)
@@ -41,19 +41,19 @@ object FileBasedLastFullSnapshotStorage {
           .compile
           .drain
 
-      def get: F[Option[Signed[S]]] = Files[F]
+      def get: F[Option[Signed[GlobalSnapshot]]] = Files[F]
         .readAll(path)
         .through(text.utf8.decode)
         .compile
         .toList
         .map(_.mkString)
-        .map(decode[Hashed[S]])
+        .map(decode[Hashed[GlobalSnapshot]])
         .flatMap(_.liftTo[F])
         .map(_.signed)
         .map(_.some)
         .handleErrorWith {
           case _: NoSuchFileException => Applicative[F].pure(None)
-          case e                      => e.raiseError[F, Option[Signed[S]]]
+          case e                      => e.raiseError[F, Option[Signed[GlobalSnapshot]]]
         }
 
     }

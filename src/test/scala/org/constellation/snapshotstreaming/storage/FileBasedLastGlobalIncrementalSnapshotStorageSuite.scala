@@ -1,4 +1,4 @@
-package org.constellation.snapshotstreaming
+package org.constellation.snapshotstreaming.storage
 
 import cats.effect.std.Random
 import cats.effect.IO
@@ -21,13 +21,12 @@ import fs2.io.file.Files
 import fs2.io.file.Path
 import org.constellation.snapshotstreaming.data.hashSelect
 import org.constellation.snapshotstreaming.data.incrementalGlobalSnapshot
-import org.constellation.snapshotstreaming.storage.FileBasedLastIncrementalGlobalSnapshotStorage
 import weaver.MutableIOSuite
 import org.tessellation.security.Hasher
 import org.tessellation.json.JsonSerializer
 import org.tessellation.security.HasherSelector
 
-object FileBasedLastIncrementalGlobalSnapshotStorageSuite extends MutableIOSuite {
+object FileBasedLastGlobalIncrementalSnapshotStorageSuite extends MutableIOSuite {
 
   type Res = (KryoSerializer[IO], HasherSelector[IO])
 
@@ -45,7 +44,7 @@ object FileBasedLastIncrementalGlobalSnapshotStorageSuite extends MutableIOSuite
     Random.scalaUtilRandom.asResource.flatMap { rnd =>
       rnd.nextLong.asResource.map(l => Path(l.toString)).flatMap { path =>
         Resource.make(
-          FileBasedLastIncrementalGlobalSnapshotStorage.make(path)
+          FileBasedLastGlobalIncrementalSnapshotStorage.make(path)
         )(_ => Files[IO].deleteIfExists(path).as(()))
       }
     }

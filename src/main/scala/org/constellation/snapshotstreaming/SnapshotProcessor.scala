@@ -33,10 +33,11 @@ import com.sksamuel.elastic4s.ElasticDsl.bulk
 import fs2.Stream
 import org.constellation.snapshotstreaming.opensearch.OpensearchDAO
 import org.constellation.snapshotstreaming.opensearch.UpdateRequestBuilder
+import org.constellation.snapshotstreaming.opensearch.mapper.CurrencySnapshotMapper
+import org.constellation.snapshotstreaming.opensearch.mapper.GlobalSnapshotMapper
 import org.constellation.snapshotstreaming.s3.S3DAO
-import org.constellation.snapshotstreaming.storage.FileBasedLastFullSnapshotStorage
-import org.constellation.snapshotstreaming.storage.FileBasedLastIncrementalGlobalSnapshotStorage
-import org.constellation.snapshotstreaming.storage.LastCurrencySnapshotStorage
+import org.constellation.snapshotstreaming.storage.FileBasedLastGlobalFullSnapshotStorage
+import org.constellation.snapshotstreaming.storage.FileBasedLastGlobalIncrementalSnapshotStorage
 import org.http4s.ember.client.EmberClientBuilder
 import org.tessellation.schema.GlobalSnapshot
 import org.tessellation.statechannel.StateChannelSnapshotBinary
@@ -65,7 +66,7 @@ object SnapshotProcessor {
         Ref.of[F, NonEmptyMap[PeerId, L0Peer]](configuration.l0Peers).map(L0ClusterStorage.make(_))
       }
       lastIncrementalGlobalSnapshotStorage <- Resource.eval {
-        FileBasedLastIncrementalGlobalSnapshotStorage.make[F](configuration.lastIncrementalSnapshotPath)
+        FileBasedLastGlobalIncrementalSnapshotStorage.make[F](configuration.lastIncrementalSnapshotPath)
       }
       l0Service = GlobalL0Service
         .make[F](
@@ -75,14 +76,18 @@ object SnapshotProcessor {
           configuration.pullLimit.some,
           configuration.l0Peers.keys.some
         )
-      requestBuilder <- Resource.eval(UpdateRequestBuilder.make[F](configuration, txHasher: Hasher[F]))
+      requestBuilder = UpdateRequestBuilder.make(
+        GlobalSnapshotMapper.make(),
+        CurrencySnapshotMapper.make(),
+        configuration,
+        txHasher: Hasher[F]
+      )
       tesselationServices <- Resource.eval(
         TessellationServices.make[F](configuration)
       )
-      lastFullGlobalSnapshotStorage = FileBasedLastFullSnapshotStorage.make[F, GlobalSnapshot](
+      lastFullGlobalSnapshotStorage = FileBasedLastGlobalFullSnapshotStorage.make[F, GlobalSnapshot](
         configuration.lastFullSnapshotPath
       )
-      lastCurrencySnapshotStorage <- Resource.eval(LastCurrencySnapshotStorage.make[F](configuration.lastCurrencySnapshotsPath))
     } yield make(
       configuration,
       lastIncrementalGlobalSnapshotStorage,
@@ -91,8 +96,7 @@ object SnapshotProcessor {
       s3DAO,
       requestBuilder,
       tesselationServices,
-      lastFullGlobalSnapshotStorage,
-      lastCurrencySnapshotStorage
+      lastFullGlobalSnapshotStorage
     )
 
   def make[F[_]: Async: HasherSelector](
@@ -103,8 +107,7 @@ object SnapshotProcessor {
     s3DAO: S3DAO[F],
     updateRequestBuilder: UpdateRequestBuilder[F],
     tessellationServices: TessellationServices[F],
-    lastFullGlobalSnapshotStorage: FileBasedLastFullSnapshotStorage[F, GlobalSnapshot],
-    lastCurrencySnapshotStorage: LastCurrencySnapshotStorage[F]
+    lastFullGlobalSnapshotStorage: FileBasedLastGlobalFullSnapshotStorage[F]
   ): SnapshotProcessor[F] = new SnapshotProcessor[F] {
     val logger = Slf4jLogger.getLogger[F]
 
@@ -125,19 +128,8 @@ object SnapshotProcessor {
           .void
       }
 
-    private def setLastCurrencySnapshots(
-      snapshots: Map[Address, NonEmptyList[
-        Either[Hashed[
-          CurrencySnapshot
-        ], (Hashed[CurrencyIncrementalSnapshot], CurrencySnapshotInfo, Signed[StateChannelSnapshotBinary])]
-      ]],
-      hasher: Hasher[F]
-    ): F[Unit] = snapshots.toList.flatTraverse { case (addr, snapshots) =>
-      snapshots.traverse(s => lastCurrencySnapshotStorage.set(addr, s, hasher)).map(_.toList)
-    }.void
-
     private def process(globalSnapshotWithState: GlobalSnapshotWithState, hasher: Hasher[F]): F[Unit] =
-      globalSnapshotWithState.pure[F].flatMap { case state @ GlobalSnapshotWithState(snapshot, snapshotInfo, _, _) =>
+      globalSnapshotWithState.pure[F].flatMap { case state @ GlobalSnapshotWithState(snapshot, _, snapshotInfo, _) =>
         HasherSelector[F]
           .forOrdinal(snapshot.ordinal) { implicit hasher =>
             logger.info(
@@ -155,7 +147,6 @@ object SnapshotProcessor {
                 case Some(last) if Validator.isNextSnapshot(last, snapshot.signed.value) =>
                   s3DAO.uploadSnapshot(snapshot) >>
                     prepareAndExecuteBulkUpdate(state, hasher) >>
-                    setLastCurrencySnapshots(globalSnapshotWithState.currencySnapshots, hasher) >>
                     lastIncrementalGlobalSnapshotStorage.set(snapshot, snapshotInfo)
 
                 case Some(last) =>
@@ -172,7 +163,6 @@ object SnapshotProcessor {
                       case Some(last) if Validator.isNextSnapshot(last, snapshot.signed.value) =>
                         s3DAO.uploadSnapshot(snapshot) >>
                           prepareAndExecuteBulkUpdate(state, hasher) >>
-                          setLastCurrencySnapshots(globalSnapshotWithState.currencySnapshots, hasher) >>
                           lastIncrementalGlobalSnapshotStorage
                             .setInitial(snapshot, snapshotInfo)
                             .onError(e => logger.error(e)(s"Failure setting initial global snapshot!"))
@@ -232,7 +222,7 @@ object SnapshotProcessor {
                     .pullGlobalSnapshot(signedFullGlobalSnapshot.value.ordinal.next)
                     .map(
                       _.map(nextSnapshot =>
-                        GlobalSnapshotWithState(nextSnapshot, signedFullGlobalSnapshot.value.info, None, Map.empty)
+                        GlobalSnapshotWithState(nextSnapshot, None, signedFullGlobalSnapshot.value.info, Map.empty)
                       )
                     )
                     .map(_.toList)
@@ -279,8 +269,8 @@ object SnapshotProcessor {
 
   case class GlobalSnapshotWithState(
     snapshot: Hashed[GlobalIncrementalSnapshot],
+    maybePrevSnapshotInfo: Option[GlobalSnapshotInfo],
     snapshotInfo: GlobalSnapshotInfo,
-    prevSnapshotInfo: Option[GlobalSnapshotInfo],
     currencySnapshots: Map[Address, NonEmptyList[
       Either[Hashed[
         CurrencySnapshot

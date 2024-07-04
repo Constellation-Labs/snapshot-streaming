@@ -26,25 +26,23 @@ abstract class GlobalSnapshotMapper[F[_]: Async: KryoSerializer: HasherSelector]
 
   def mapGlobalSnapshot(
     globalSnapshot: Hashed[GlobalIncrementalSnapshot],
-    prevInfo: Option[GlobalSnapshotInfo],
+    maybePrevInfo: Option[GlobalSnapshotInfo],
     info: GlobalSnapshotInfo,
     timestamp: Date,
     txHasher: Hasher[F],
     hasher: Hasher[F]
-  ) = {
-
+  ): F[(Snapshot, Seq[Block], List[Transaction], Seq[AddressBalance])] =
     for {
       snapshot <- mapSnapshot(globalSnapshot, timestamp, hasher)
       blocks <- mapBlocks(globalSnapshot, timestamp, txHasher, hasher)
       transactions <- mapTransactions(globalSnapshot, timestamp, txHasher, hasher)
       filteredBalances = balanceDiff(
         globalSnapshot.signed.value,
-         prevInfo.map(prev => prev.balances),
-        info,
+        maybePrevInfo.map(prev => prev.balances),
+        info
       )
       balances = mapBalances(globalSnapshot, filteredBalances, timestamp)
     } yield (snapshot, blocks, transactions, balances)
-  }
 
 }
 
