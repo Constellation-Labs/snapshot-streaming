@@ -3,9 +3,7 @@ package org.constellation.snapshotstreaming.opensearch
 import java.util.Date
 import cats.effect.Async
 import cats.syntax.all._
-import org.tessellation.kryo.KryoSerializer
 import org.tessellation.security.Hasher
-import org.tessellation.security.HasherSelector
 import com.sksamuel.elastic4s.ElasticApi.updateById
 import com.sksamuel.elastic4s.circe._
 import com.sksamuel.elastic4s.requests.update.UpdateRequest
@@ -14,8 +12,6 @@ import org.constellation.snapshotstreaming.opensearch.mapper.CurrencySnapshotMap
 import org.constellation.snapshotstreaming.opensearch.mapper.GlobalSnapshotMapper
 import org.constellation.snapshotstreaming.opensearch.schema._
 import org.constellation.snapshotstreaming.Configuration
-import org.constellation.snapshotstreaming.storage.LastCurrencySnapshotStorage
-import org.tessellation.json.JsonSerializer
 
 trait UpdateRequestBuilder[F[_]] {
 
@@ -28,20 +24,6 @@ trait UpdateRequestBuilder[F[_]] {
 }
 
 object UpdateRequestBuilder {
-
-  def make[F[_]: Async: KryoSerializer: JsonSerializer: HasherSelector](
-    config: Configuration,
-    txHasher: Hasher[F]
-  ): F[UpdateRequestBuilder[F]] =
-    LastCurrencySnapshotStorage.make(config.lastCurrencySnapshotsPath).map { storage =>
-      make(
-        GlobalSnapshotMapper.make(),
-        CurrencySnapshotMapper.make(storage),
-        config,
-        txHasher: Hasher[F]
-      )
-    }
-
 
   def make[F[_]: Async](
     globalMapper: GlobalSnapshotMapper[F],
@@ -60,7 +42,7 @@ object UpdateRequestBuilder {
       ] =
         for {
           _ <- Async[F].unit
-          GlobalSnapshotWithState(globalSnapshot, snapshotInfo, maybePrevSnapshotInfo, currencySnapshots) =
+          GlobalSnapshotWithState(globalSnapshot, maybePrevSnapshotInfo, snapshotInfo, currencySnapshots) =
             globalSnapshotWithState
 
           mappedGlobalData <- globalMapper.mapGlobalSnapshot(
@@ -73,7 +55,13 @@ object UpdateRequestBuilder {
           )
           (snapshot, blocks, transactions, balances) = mappedGlobalData
 
-          mappedCurrencyData <- currencyMapper.mapCurrencySnapshots(currencySnapshots, timestamp, txHasher, hasher)
+          mappedCurrencyData <- currencyMapper.mapCurrencySnapshots(
+            currencySnapshots,
+            maybePrevSnapshotInfo.map(_.lastCurrencySnapshots),
+            timestamp,
+            txHasher,
+            hasher
+          )
           (currSnapshot, currIncrementalSnapshots, currBlocks, currTransactions, currBalances) =
             mappedCurrencyData
 

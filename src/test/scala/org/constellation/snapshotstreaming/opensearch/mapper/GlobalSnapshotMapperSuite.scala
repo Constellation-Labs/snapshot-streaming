@@ -1,4 +1,4 @@
-package org.constellation.snapshotstreaming
+package org.constellation.snapshotstreaming.opensearch.mapper
 
 import java.security.KeyPair
 import cats.data.NonEmptySet
@@ -19,7 +19,6 @@ import org.tessellation.security.key.ops.PublicKeyOps
 import org.tessellation.security.KeyPairGenerator
 import org.tessellation.security.SecurityProvider
 import org.tessellation.shared.sharedKryoRegistrar
-import org.tessellation.syntax.sortedCollection._
 import eu.timepit.refined.auto._
 import org.constellation.snapshotstreaming.data.applyTransactions
 import org.constellation.snapshotstreaming.data.createBalances
@@ -28,7 +27,6 @@ import org.constellation.snapshotstreaming.data.createRewards
 import org.constellation.snapshotstreaming.data.createTxn
 import org.constellation.snapshotstreaming.data.hashSelect
 import org.constellation.snapshotstreaming.data.incrementalGlobalSnapshot
-import org.constellation.snapshotstreaming.opensearch.mapper.GlobalSnapshotMapper
 import weaver.MutableIOSuite
 import org.tessellation.security.Hasher
 import org.tessellation.json.JsonSerializer
@@ -59,7 +57,7 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
       }
     }
 
-  def mkInitialSnapshot()(implicit ks: KryoSerializer[IO], h: HasherSelector[IO]): IO[Hashed[GlobalIncrementalSnapshot]] =
+  def mkInitialSnapshot()(implicit h: HasherSelector[IO]): IO[Hashed[GlobalIncrementalSnapshot]] =
     incrementalGlobalSnapshot(100L, 10L, 20L, Hash("abc"), Hash("def"))
 
   test("explicitly sets balance to 0 for addressees missing in in info") { res =>
@@ -194,7 +192,7 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
   }
 
   test("leave balances for addresses from rewards") { res =>
-    implicit val (h, ks, sp, key1, key2, key3, key4) = res
+    implicit val (h, ks, _, key1, key2, key3, key4) = res
     val address1 = key1.getPublic.toAddress
     val address2 = key2.getPublic.toAddress
     val address3 = key3.getPublic.toAddress

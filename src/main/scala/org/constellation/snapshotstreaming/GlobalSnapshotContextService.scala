@@ -33,6 +33,7 @@ object GlobalSnapshotContextService {
     globalSnapshotContextFns: GlobalSnapshotContextFunctions[F]
   ): GlobalSnapshotContextService[F] =
     new GlobalSnapshotContextService[F] {
+
       def createContext(
         context: GlobalSnapshotInfo,
         lastArtifact: Signed[GlobalIncrementalSnapshot],
@@ -44,20 +45,31 @@ object GlobalSnapshotContextService {
           }
           .flatMap { newContext =>
             HasherSelector[F].forOrdinal(artifact.ordinal) { implicit hasher =>
-              globalSnapshotStateChannelEventsProcessor.processCurrencySnapshots(artifact.ordinal, context, artifact.signed.value.stateChannelSnapshots)
+              globalSnapshotStateChannelEventsProcessor
+                .processCurrencySnapshots(artifact.ordinal, context, artifact.signed.value.stateChannelSnapshots)
                 .flatMap {
-                  _.mapFilter {
-                    case (snapshots, _) => snapshots.collect { case (binary, Some(currencySnapshotWithState)) => (binary, currencySnapshotWithState)}.toNel
+                  _.mapFilter { case (snapshots, _) =>
+                    snapshots.collect { case (binary, Some(currencySnapshotWithState)) =>
+                      (binary, currencySnapshotWithState)
+                    }.toNel
                   }.traverse(_.traverse { case (binary, currencySnapshotWithState) =>
                     currencySnapshotWithState match {
                       case Left(full) =>
-                        full.toHashed.map(_.asLeft[(Hashed[CurrencyIncrementalSnapshot], CurrencySnapshotInfo, Signed[StateChannelSnapshotBinary])])
+                        full.toHashed.map(
+                          _.asLeft[
+                            (
+                              Hashed[CurrencyIncrementalSnapshot],
+                              CurrencySnapshotInfo,
+                              Signed[StateChannelSnapshotBinary]
+                            )
+                          ]
+                        )
                       case Right((inc, info)) =>
                         inc.toHashed.map(hashed => (hashed, info, binary).asRight[Hashed[CurrencySnapshot]])
                     }
                   })
                 }
-                .map(GlobalSnapshotWithState(artifact, newContext, context.some, _))
+                .map(GlobalSnapshotWithState(artifact, context.some, newContext, _))
             }
           }
 
