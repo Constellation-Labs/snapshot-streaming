@@ -45,8 +45,12 @@ object GlobalSnapshotContextService {
           }
           .flatMap { newContext =>
             HasherSelector[F].forOrdinal(artifact.ordinal) { implicit hasher =>
+              // TODO: Instead of reversing here we should fix `allowedForProcessing` in acceptance manager so it preserves the order
+              val reversedStateChannelSnapshots = artifact.signed.value.stateChannelSnapshots
+                .map { case (address, snapshots) => address -> snapshots.reverse }
+
               globalSnapshotStateChannelEventsProcessor
-                .processCurrencySnapshots(artifact.ordinal, context, artifact.signed.value.stateChannelSnapshots)
+                .processCurrencySnapshots(artifact.ordinal, context, reversedStateChannelSnapshots)
                 .flatMap {
                   _.mapFilter { case (snapshots, _) =>
                     snapshots.collect { case (binary, Some(currencySnapshotWithState)) =>
