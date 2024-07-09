@@ -5,12 +5,16 @@ import cats.syntax.all._
 import eu.timepit.refined.auto._
 import io.estatico.newtype.ops._
 import org.constellation.snapshotstreaming.opensearch.schema.CurrencySnapshot
+import org.constellation.snapshotstreaming.opensearch.schema.FeeTransaction
+import org.constellation.snapshotstreaming.opensearch.schema.FeeTransactionReference
 import org.constellation.snapshotstreaming.opensearch.schema.RewardTransaction
+import org.tessellation.syntax.sortedCollection._
 
 import scala.collection.immutable.SortedSet
 import org.tessellation.currency.schema.currency.CurrencyIncrementalSnapshot
 import org.tessellation.currency.schema.currency.CurrencySnapshotInfo
-import org.tessellation.currency.schema.feeTransaction.FeeTransaction
+import org.tessellation.currency.schema.feeTransaction.{FeeTransaction => OriginalFeeTransaction}
+import org.tessellation.currency.schema.feeTransaction.{FeeTransactionReference => OriginalFeeTransactionReference}
 import org.tessellation.json.JsonSerializer
 import org.tessellation.json.SizeCalculator
 import org.tessellation.schema.currencyMessage.MessageType
@@ -33,6 +37,12 @@ abstract class CurrencyIncrementalSnapshotMapper[F[_]: Async: JsonSerializer]
     hasher: Hasher[F]
   ): F[CurrencySnapshot]
 
+  def mapFeeTransactions(
+    snapshot: Hashed[CurrencyIncrementalSnapshot],
+    timestamp: Date,
+    hasher: Hasher[F]
+  ): F[List[FeeTransaction]]
+
 }
 
 object CurrencyIncrementalSnapshotMapper {
@@ -45,10 +55,21 @@ object CurrencyIncrementalSnapshotMapper {
 
       def extractSnapshotReferredAddresses(snapshot: CurrencyIncrementalSnapshot): SnapshotReferredAddresses = {
         val transactions = snapshot.blocks.flatMap(_.block.transactions.toSortedSet)
-        val feeTransactions = snapshot.feeTransactions.getOrElse(SortedSet.empty[Signed[FeeTransaction]])
+        val feeTransactions = snapshot.feeTransactions.getOrElse(SortedSet.empty[Signed[OriginalFeeTransaction]])
         val source = transactions.map(_.source) ++ feeTransactions.map(_.source)
         val destination = transactions.map(_.destination) ++ feeTransactions.map(_.destination)
         SnapshotReferredAddresses(source, destination)
+      }
+
+      def mapFeeTransactions(
+        snapshot: Hashed[CurrencyIncrementalSnapshot],
+        timestamp: Date,
+        hasher: Hasher[F]
+      ): F[List[FeeTransaction]] = {
+        implicit val hs: Hasher[F] = hasher
+        snapshot.feeTransactions.toList.flatTraverse(
+          _.toList.traverse(mapFeeTransaction(snapshot.hash.value, snapshot.ordinal.value, timestamp))
+        )
       }
 
       def mapSnapshot(
@@ -79,6 +100,26 @@ object CurrencyIncrementalSnapshotMapper {
         ownerAddress = getMessageAddress(MessageType.Owner, info),
         sizeInKB = sizeInKb.toLong
       )
+
+      private def mapFeeTransaction(snapshotHash: String, snapshotOrdinal: Long, timestamp: Date)(
+        feeTransaction: Signed[OriginalFeeTransaction]
+      )(implicit hasher: Hasher[F]): F[FeeTransaction] =
+        feeTransaction.toHashed.map { feeTx =>
+          FeeTransaction(
+            feeTx.hash.value,
+            feeTx.amount.value,
+            feeTx.source.value,
+            feeTx.destination.value,
+            mapFeeTransactionRef(feeTx.parent),
+            feeTx.salt.value,
+            snapshotHash,
+            snapshotOrdinal,
+            timestamp
+          )
+        }
+
+      private def mapFeeTransactionRef(ref: OriginalFeeTransactionReference): FeeTransactionReference =
+        FeeTransactionReference(ref.hash.value, ref.ordinal.value)
 
       private def getMessageAddress(messageType: MessageType, info: CurrencySnapshotInfo): Option[String] =
         info.lastMessages.flatMap(_.get(messageType)).map(_.address.value.value)
