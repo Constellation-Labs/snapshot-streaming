@@ -76,6 +76,7 @@ class Configuration(sharedConfigReader: SharedConfigReader) {
   val currencySnapshotsIndex: String = opensearch.getString("indexes.currency.snapshots")
   val currencyBlocksIndex: String = opensearch.getString("indexes.currency.blocks")
   val currencyTransactionsIndex: String = opensearch.getString("indexes.currency.transactions")
+  val currencyFeeTransactionsIndex: String = opensearch.getString("indexes.currency.fee-transactions")
   val currencyBalancesIndex: String = opensearch.getString("indexes.currency.balances")
   val bulkSize: Int = opensearch.getInt("bulkSize")
 

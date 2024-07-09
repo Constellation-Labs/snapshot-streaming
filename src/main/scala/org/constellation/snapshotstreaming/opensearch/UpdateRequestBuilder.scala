@@ -62,7 +62,7 @@ object UpdateRequestBuilder {
             txHasher,
             hasher
           )
-          (currSnapshot, currIncrementalSnapshots, currBlocks, currTransactions, currBalances) =
+          (currSnapshot, currIncrementalSnapshots, currBlocks, currTransactions, currFeeTransactions, currBalances) =
             mappedCurrencyData
 
         } yield updateRequests(
@@ -74,6 +74,7 @@ object UpdateRequestBuilder {
           currIncrementalSnapshots,
           currBlocks,
           currTransactions,
+          currFeeTransactions,
           currBalances
         ).grouped(config.bulkSize).toSeq
 
@@ -86,8 +87,10 @@ object UpdateRequestBuilder {
         currencyIncrementalSnapshots: Seq[CurrencyData[CurrencySnapshot]],
         currencyBlocks: Seq[CurrencyData[Block]],
         currencyTransactions: Seq[CurrencyData[Transaction]],
+        currencyFeeTransactions: Seq[CurrencyData[FeeTransaction]],
         currencyBalances: Seq[CurrencyData[AddressBalance]]
-      ): Seq[UpdateRequest] =
+      ): Seq[UpdateRequest] = {
+
         Seq(updateById(config.snapshotsIndex, snapshot.hash).docAsUpsert(snapshot)) ++
           blocks.map(block => updateById(config.blocksIndex, block.hash).docAsUpsert(block)) ++
           transactions.map(transaction =>
@@ -110,11 +113,15 @@ object UpdateRequestBuilder {
             val id = s"$identifier${data.hash}"
             updateById(config.currencyTransactionsIndex, id).docAsUpsert(cd)
           } ++
+          currencyFeeTransactions.map { case cd @ CurrencyData(identifier, data) =>
+            val id = s"$identifier${data.hash}"
+            updateById(config.currencyFeeTransactionsIndex, id).docAsUpsert(cd)
+          } ++
           currencyBalances.map { case cd @ CurrencyData(identifier, data) =>
             val id = s"$identifier${data.docId}"
             updateById(config.currencyBalancesIndex, id).docAsUpsert(cd)
           }
-
+      }
     }
 
 }
