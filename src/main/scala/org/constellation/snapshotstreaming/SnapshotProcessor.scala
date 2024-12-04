@@ -1,12 +1,13 @@
 package org.constellation.snapshotstreaming
 
 import java.util.Date
-import cats.Applicative
+import cats.{Applicative, Parallel}
 import cats.data.NonEmptyList
 import cats.data.NonEmptyMap
 import cats.data.Validated
 import cats.effect._
 import cats.effect.std.Random
+import cats.effect.syntax.all._
 import cats.syntax.all._
 import org.tessellation.currency.schema.currency.CurrencyIncrementalSnapshot
 import org.tessellation.currency.schema.currency.CurrencySnapshot
@@ -30,6 +31,7 @@ import org.tessellation.schema.GlobalSnapshotInfoV2
 import org.tessellation.security._
 import org.tessellation.security.signature.Signed
 import com.sksamuel.elastic4s.ElasticDsl.bulk
+import com.sksamuel.elastic4s.requests.update.UpdateRequest
 import fs2.Stream
 import org.constellation.snapshotstreaming.opensearch.OpensearchDAO
 import org.constellation.snapshotstreaming.opensearch.UpdateRequestBuilder
@@ -49,7 +51,7 @@ trait SnapshotProcessor[F[_]] {
 
 object SnapshotProcessor {
 
-  def make[F[_]: Async: KryoSerializer: JsonSerializer: SecurityProvider: Random: HasherSelector](
+  def make[F[_]: Async: Parallel: KryoSerializer: JsonSerializer: SecurityProvider: Random: HasherSelector](
     configuration: Configuration,
     txHasher: Hasher[F]
   ): Resource[F, SnapshotProcessor[F]] =
@@ -99,7 +101,7 @@ object SnapshotProcessor {
       lastFullGlobalSnapshotStorage
     )
 
-  def make[F[_]: Async: HasherSelector](
+  def make[F[_]: Async: Parallel: HasherSelector](
     configuration: Configuration,
     lastIncrementalGlobalSnapshotStorage: LastSnapshotStorage[F, GlobalIncrementalSnapshot, GlobalSnapshotInfo],
     l0Service: GlobalL0Service[F],
@@ -111,6 +113,13 @@ object SnapshotProcessor {
   ): SnapshotProcessor[F] = new SnapshotProcessor[F] {
     val logger = Slf4jLogger.getLogger[F]
 
+    private def logGroupedRequests(br: Seq[UpdateRequest], mode: String): F[Unit] = {
+      val groupedBr = br.groupBy(_.index.index)
+      groupedBr.toList.traverse_ { case (index, group) =>
+        logger.info(s"Processing $mode group for index: $index with ${group.size} requests")
+      }
+    }
+
     private def prepareAndExecuteBulkUpdate(
       globalSnapshotWithState: GlobalSnapshotWithState,
       hasher: Hasher[F]
@@ -119,7 +128,25 @@ object SnapshotProcessor {
         Clock[F].realTime
           .map(d => new Date(d.toMillis))
           .flatMap(updateRequestBuilder.bulkUpdateRequests(state, _, hasher))
-          .flatMap(_.traverse(br => opensearchDAO.sendToOpensearch(bulk(br).refreshImmediately)))
+          .flatMap { requests =>
+            for {
+              _ <- logger.info("Starting to send parallel bulk updates to Opensearch")
+              _ <- requests.parallelRequests.parTraverse { br =>
+                  logGroupedRequests(br, "parallel") >>
+                    opensearchDAO.sendToOpensearch(bulk(br))
+                }.timed.flatTap { case (elapsedTime, _) =>
+                  logger.info(s"Parallel bulk update operation took ${elapsedTime.toMillis} ms")
+                }
+
+              _ <- logger.info("Starting to send sequential bulk updates to Opensearch")
+              _ <- requests.sequentialRequests.traverse { br =>
+                  logGroupedRequests(br, "sequential") >>
+                    opensearchDAO.sendToOpensearch(bulk(br))
+                }.timed.flatTap { case (elapsedTime, _) =>
+                  logger.info(s"Sequential bulk update operation took ${elapsedTime.toMillis} ms")
+                }
+            } yield ()
+          }
           .flatMap(_ =>
             logger.info(
               s"Snapshot ${snapshot.ordinal.value.value} (hash: ${snapshot.hash.show.take(8)}) sent to opensearch."
