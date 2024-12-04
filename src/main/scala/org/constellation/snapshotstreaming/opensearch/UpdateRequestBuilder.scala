@@ -13,13 +13,18 @@ import org.constellation.snapshotstreaming.opensearch.mapper.GlobalSnapshotMappe
 import org.constellation.snapshotstreaming.opensearch.schema._
 import org.constellation.snapshotstreaming.Configuration
 
+case class UpdateRequests(
+  sequentialRequests: Seq[Seq[UpdateRequest]],
+  parallelRequests  : List[List[UpdateRequest]]
+)
+
 trait UpdateRequestBuilder[F[_]] {
 
   def bulkUpdateRequests(
     globalSnapshotWithState: GlobalSnapshotWithState,
     timestamp: Date,
     hasher: Hasher[F]
-  ): F[Seq[Seq[UpdateRequest]]]
+  ): F[UpdateRequests]
 
 }
 
@@ -37,9 +42,7 @@ object UpdateRequestBuilder {
         globalSnapshotWithState: GlobalSnapshotWithState,
         timestamp: Date,
         hasher: Hasher[F]
-      ): F[
-        Seq[Seq[UpdateRequest]]
-      ] =
+      ): F[UpdateRequests] =
         for {
           _ <- Async[F].unit
           GlobalSnapshotWithState(globalSnapshot, maybePrevSnapshotInfo, snapshotInfo, currencySnapshots) =
@@ -65,31 +68,42 @@ object UpdateRequestBuilder {
           (currSnapshot, currIncrementalSnapshots, currBlocks, currTransactions, currBalances) =
             mappedCurrencyData
 
-        } yield updateRequests(
-          snapshot,
-          blocks,
-          transactions,
-          balances,
-          currSnapshot,
-          currIncrementalSnapshots,
-          currBlocks,
-          currTransactions,
-          currBalances
-        ).grouped(config.bulkSize).toSeq
+          parallelRequests = updateParallelRequests(
+            blocks,
+            transactions,
+            balances,
+            currSnapshot,
+            currIncrementalSnapshots,
+            currBlocks,
+            currTransactions,
+            currBalances
+          ).grouped(config.bulkSize).toList
 
-      def updateRequests[T](
+          sequentialRequests = updateSequentialRequests(
+            snapshot,
+          ).grouped(config.bulkSize).toSeq
+
+        } yield UpdateRequests(
+          sequentialRequests,
+          parallelRequests
+        )
+
+      def updateSequentialRequests(
         snapshot: Snapshot,
-        blocks: Seq[Block],
-        transactions: Seq[Transaction],
-        balances: Seq[AddressBalance],
-        currencySnapshots: Seq[CurrencyData[Snapshot]],
-        currencyIncrementalSnapshots: Seq[CurrencyData[CurrencySnapshot]],
-        currencyBlocks: Seq[CurrencyData[Block]],
-        currencyTransactions: Seq[CurrencyData[Transaction]],
-        currencyBalances: Seq[CurrencyData[AddressBalance]]
       ): Seq[UpdateRequest] =
-        Seq(updateById(config.snapshotsIndex, snapshot.hash).docAsUpsert(snapshot)) ++
-          blocks.map(block => updateById(config.blocksIndex, block.hash).docAsUpsert(block)) ++
+        Seq(updateById(config.snapshotsIndex, snapshot.hash).docAsUpsert(snapshot))
+
+      def updateParallelRequests(
+        blocks                      : Seq[Block],
+        transactions                : Seq[Transaction],
+        balances                    : Seq[AddressBalance],
+        currencySnapshots           : Seq[CurrencyData[Snapshot]],
+        currencyIncrementalSnapshots: Seq[CurrencyData[CurrencySnapshot]],
+        currencyBlocks              : Seq[CurrencyData[Block]],
+        currencyTransactions        : Seq[CurrencyData[Transaction]],
+        currencyBalances            : Seq[CurrencyData[AddressBalance]]
+      ): List[UpdateRequest] = {
+        blocks.toList.map(block => updateById(config.blocksIndex, block.hash).docAsUpsert(block)) ++
           transactions.map(transaction =>
             updateById(config.transactionsIndex, transaction.hash).docAsUpsert(transaction)
           ) ++
@@ -114,7 +128,7 @@ object UpdateRequestBuilder {
             val id = s"$identifier${data.docId}"
             updateById(config.currencyBalancesIndex, id).docAsUpsert(cd)
           }
-
+      }
     }
 
 }
