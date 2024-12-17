@@ -8,16 +8,16 @@ import cats.syntax.all._
 
 import scala.collection.immutable.SortedMap
 import scala.collection.immutable.SortedSet
-import org.tessellation.ext.cats.effect.ResourceIO
-import org.tessellation.kryo.KryoSerializer
-import org.tessellation.schema.transaction._
-import org.tessellation.node.shared.nodeSharedKryoRegistrar
-import org.tessellation.security.hash.Hash
-import org.tessellation.security.key.ops.PublicKeyOps
-import org.tessellation.security.KeyPairGenerator
-import org.tessellation.security.SecurityProvider
-import org.tessellation.shared.sharedKryoRegistrar
-import org.tessellation.syntax.sortedCollection._
+import io.constellationnetwork.ext.cats.effect.ResourceIO
+import io.constellationnetwork.kryo.KryoSerializer
+import io.constellationnetwork.schema.transaction._
+import io.constellationnetwork.node.shared.nodeSharedKryoRegistrar
+import io.constellationnetwork.security.hash.Hash
+import io.constellationnetwork.security.key.ops.PublicKeyOps
+import io.constellationnetwork.security.KeyPairGenerator
+import io.constellationnetwork.security.SecurityProvider
+import io.constellationnetwork.shared.sharedKryoRegistrar
+import io.constellationnetwork.syntax.sortedCollection._
 import eu.timepit.refined.auto._
 import org.constellation.snapshotstreaming.data.applyTransactions
 import org.constellation.snapshotstreaming.data.createBalances
@@ -28,15 +28,15 @@ import org.constellation.snapshotstreaming.data.createTxn
 import org.constellation.snapshotstreaming.data.emptyCurrencySnapshotInfo
 import org.constellation.snapshotstreaming.data.hashSelect
 import org.constellation.snapshotstreaming.data.incrementalCurrencySnapshot
-import org.tessellation.currency.schema.currency.CurrencyIncrementalSnapshot
-import org.tessellation.currency.schema.currency.CurrencySnapshotInfo
+import io.constellationnetwork.currency.schema.currency.CurrencyIncrementalSnapshot
+import io.constellationnetwork.currency.schema.currency.CurrencySnapshotInfo
 import weaver.MutableIOSuite
-import org.tessellation.security.Hasher
-import org.tessellation.json.JsonSerializer
-import org.tessellation.schema.balance.Balance
-import org.tessellation.schema.BlockAsActiveTip
-import org.tessellation.security.Hashed
-import org.tessellation.security.HasherSelector
+import io.constellationnetwork.security.Hasher
+import io.constellationnetwork.json.JsonSerializer
+import io.constellationnetwork.schema.balance.Balance
+import io.constellationnetwork.schema.BlockAsActiveTip
+import io.constellationnetwork.security.Hashed
+import io.constellationnetwork.security.HasherSelector
 
 object CurrencySnapshotMapperSuite extends MutableIOSuite {
 
@@ -99,7 +99,7 @@ object CurrencySnapshotMapperSuite extends MutableIOSuite {
         List.empty,
       )
 
-      updatedInfo = CurrencySnapshotInfo(SortedMap.empty, updatedBalances, None, None)
+      updatedInfo = CurrencySnapshotInfo(SortedMap.empty, updatedBalances, None, None, None, None, None, None, None)
 
       snapshot <- incrementalCurrencySnapshot[IO](
         100L,
@@ -145,7 +145,7 @@ object CurrencySnapshotMapperSuite extends MutableIOSuite {
         List.empty,
         List.empty,
       )
-      updatedInfo = CurrencySnapshotInfo(SortedMap.empty, updatedBalances, None, None)
+      updatedInfo = CurrencySnapshotInfo(SortedMap.empty, updatedBalances, None, None, None, None, None, None, None)
 
       snapshot <- incrementalCurrencySnapshot[IO](
         100L,
@@ -184,7 +184,7 @@ object CurrencySnapshotMapperSuite extends MutableIOSuite {
         List.empty,
         feeTransactions.toList.flatten
       )
-      updatedInfo = CurrencySnapshotInfo(SortedMap.empty, updatedBalances, None, None)
+      updatedInfo = CurrencySnapshotInfo(SortedMap.empty, updatedBalances, None, None, None, None, None, None, None)
       snapshot <- incrementalCurrencySnapshot[IO](
         100L,
         10L,
@@ -228,7 +228,7 @@ object CurrencySnapshotMapperSuite extends MutableIOSuite {
         List.empty,
         List.empty,
       )
-      updatedInfo = CurrencySnapshotInfo(SortedMap.empty, updatedBalances, None, None)
+      updatedInfo = CurrencySnapshotInfo(SortedMap.empty, updatedBalances, None, None, None, None, None, None, None)
       snapshot <- incrementalCurrencySnapshot[IO](
         100L,
         10L,
@@ -265,7 +265,7 @@ object CurrencySnapshotMapperSuite extends MutableIOSuite {
         rewards.toList,
         List.empty,
       )
-      val updatedInfo = CurrencySnapshotInfo(SortedMap.empty, updatedBalances, None, None)
+      val updatedInfo = CurrencySnapshotInfo(SortedMap.empty, updatedBalances, None, None, None, None, None, None, None)
 
       for {
         snapshot <- incrementalCurrencySnapshot[IO](

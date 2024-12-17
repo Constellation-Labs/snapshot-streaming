@@ -3,7 +3,7 @@ package org.constellation.snapshotstreaming.opensearch.mapper
 import java.util.Date
 import cats.effect.Async
 import cats.syntax.all._
-import org.tessellation.syntax.sortedCollection._
+import io.constellationnetwork.syntax.sortedCollection._
 import eu.timepit.refined.auto._
 import org.constellation.snapshotstreaming.opensearch.schema._
 import eu.timepit.refined.auto._
@@ -11,13 +11,13 @@ import org.constellation.snapshotstreaming.opensearch.schema.Snapshot
 import shapeless.syntax.std.tuple._
 
 import scala.collection.immutable.SortedSet
-import org.tessellation.kryo.KryoSerializer
-import org.tessellation.schema.GlobalIncrementalSnapshot
-import org.tessellation.schema.GlobalSnapshotInfo
-import org.tessellation.schema.transaction
-import org.tessellation.security.Hashed
-import org.tessellation.security.Hasher
-import org.tessellation.security.HasherSelector
+import io.constellationnetwork.kryo.KryoSerializer
+import io.constellationnetwork.schema.GlobalIncrementalSnapshot
+import io.constellationnetwork.schema.GlobalSnapshotInfo
+import io.constellationnetwork.schema.transaction
+import io.constellationnetwork.security.Hashed
+import io.constellationnetwork.security.Hasher
+import io.constellationnetwork.security.HasherSelector
 
 abstract class GlobalSnapshotMapper[F[_]: Async: KryoSerializer: HasherSelector]
     extends SnapshotMapper[F, GlobalIncrementalSnapshot, GlobalSnapshotInfo] {

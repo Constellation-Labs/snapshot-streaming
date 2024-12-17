@@ -7,11 +7,11 @@ import scala.concurrent.duration.Duration
 import scala.concurrent.duration.FiniteDuration
 import scala.jdk.CollectionConverters._
 import scala.util.Try
-import org.tessellation.env.AppEnvironment
-import org.tessellation.schema.SnapshotOrdinal
-import org.tessellation.schema.balance.Amount
-import org.tessellation.schema.peer.L0Peer
-import org.tessellation.schema.peer.PeerId
+import io.constellationnetwork.env.AppEnvironment
+import io.constellationnetwork.schema.SnapshotOrdinal
+import io.constellationnetwork.schema.balance.Amount
+import io.constellationnetwork.schema.peer.L0Peer
+import io.constellationnetwork.schema.peer.PeerId
 import com.typesafe.config.Config
 import com.typesafe.config.ConfigFactory
 import eu.timepit.refined.types.numeric.NonNegLong
@@ -19,9 +19,9 @@ import eu.timepit.refined.types.numeric.PosLong
 import fs2.io.file.Path
 import io.circe.parser.decode
 import org.http4s.Uri
-import org.tessellation.node.shared.config.types
-import org.tessellation.node.shared.config.types.SharedConfigReader
-import org.tessellation.node.shared.domain.statechannel.FeeCalculatorConfig
+import io.constellationnetwork.node.shared.config.types
+import io.constellationnetwork.node.shared.config.types.SharedConfigReader
+import io.constellationnetwork.node.shared.domain.statechannel.FeeCalculatorConfig
 
 class Configuration(sharedConfigReader: SharedConfigReader) {
   private val config: Config = ConfigFactory.load().resolve()

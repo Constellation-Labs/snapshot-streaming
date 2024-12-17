@@ -3,7 +3,7 @@ package org.constellation.snapshotstreaming.opensearch
 import java.util.Date
 import cats.effect.Async
 import cats.syntax.all._
-import org.tessellation.security.Hasher
+import io.constellationnetwork.security.Hasher
 import com.sksamuel.elastic4s.ElasticApi.updateById
 import com.sksamuel.elastic4s.circe._
 import com.sksamuel.elastic4s.requests.update.UpdateRequest

@@ -5,15 +5,15 @@ import cats.syntax.all._
 import org.constellation.snapshotstreaming.opensearch.schema.Snapshot
 
 import scala.collection.immutable.SortedSet
-import org.tessellation.currency.schema.currency.{CurrencySnapshot => OriginalCurrencySnapshot}
-import org.tessellation.schema.transaction
-import org.tessellation.security.Hashed
-import org.tessellation.security.Hasher
-import org.tessellation.syntax.sortedCollection._
+import io.constellationnetwork.currency.schema.currency.{CurrencySnapshot => OriginalCurrencySnapshot}
+import io.constellationnetwork.schema.transaction
+import io.constellationnetwork.security.Hashed
+import io.constellationnetwork.security.Hasher
+import io.constellationnetwork.syntax.sortedCollection._
 import eu.timepit.refined.auto._
 import io.estatico.newtype.ops._
 import org.constellation.snapshotstreaming.opensearch.schema._
-import org.tessellation.currency.schema.currency.CurrencySnapshotInfo
+import io.constellationnetwork.currency.schema.currency.CurrencySnapshotInfo
 
 import java.util.Date
 
