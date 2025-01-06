@@ -23,10 +23,10 @@ object FileBasedLastGlobalIncrementalSnapshotStorage {
 
   private case class SnapshotWithState(snapshot: Hashed[GlobalIncrementalSnapshot], state: GlobalSnapshotInfo)
 
-  def make[F[_]: Async: HasherSelector](path: Path): F[LastSnapshotStorage[F, GlobalIncrementalSnapshot, GlobalSnapshotInfo]] =
+  def make[F[_]: Async: HasherSelector: Files](path: Path): F[LastSnapshotStorage[F, GlobalIncrementalSnapshot, GlobalSnapshotInfo]] =
     Mutex[F].map(make(_, path))
 
-  def make[F[_]: Async: HasherSelector](
+  def make[F[_]: Async: HasherSelector: Files](
     mutex: Mutex[F],
     path: Path
   ): LastSnapshotStorage[F, GlobalIncrementalSnapshot, GlobalSnapshotInfo] =

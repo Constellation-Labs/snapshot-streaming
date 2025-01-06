@@ -3,12 +3,7 @@ package org.constellation.snapshotstreaming.opensearch.mapper
 import cats.effect.Async
 import cats.syntax.all._
 import eu.timepit.refined.auto._
-import io.estatico.newtype.ops._
-import org.constellation.snapshotstreaming.opensearch.schema.CurrencySnapshot
-import org.constellation.snapshotstreaming.opensearch.schema.FeeTransaction
-import org.constellation.snapshotstreaming.opensearch.schema.FeeTransactionReference
-import org.constellation.snapshotstreaming.opensearch.schema.RewardTransaction
-import org.tessellation.syntax.sortedCollection._
+import org.constellation.snapshotstreaming.opensearch.schema.{CurrencySnapshot, FeeTransaction, FeeTransactionReference, RewardTransaction}
 
 import scala.collection.immutable.SortedSet
 import org.tessellation.currency.schema.currency.CurrencyIncrementalSnapshot
@@ -26,7 +21,7 @@ import org.tessellation.statechannel.StateChannelSnapshotBinary
 
 import java.util.Date
 
-abstract class CurrencyIncrementalSnapshotMapper[F[_]: Async: JsonSerializer]
+abstract class CurrencyIncrementalSnapshotMapper[F[_]: Async]
     extends SnapshotMapper[F, CurrencyIncrementalSnapshot, CurrencySnapshotInfo] {
 
   def mapSnapshot(

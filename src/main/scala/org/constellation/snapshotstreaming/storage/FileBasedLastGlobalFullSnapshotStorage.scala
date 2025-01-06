@@ -15,8 +15,6 @@ import fs2.Stream
 import fs2.text
 import io.circe.parser.decode
 import io.circe.syntax._
-import io.circe.Decoder
-import io.circe.Encoder
 import io.circe.Codec
 import io.circe.generic.semiauto.deriveCodec
 import org.tessellation.schema.snapshot.Snapshot
@@ -29,7 +27,7 @@ trait FileBasedLastGlobalFullSnapshotStorage[F[_]] {
 
 object FileBasedLastGlobalFullSnapshotStorage {
 
-  def make[F[_]: Async, S <: Snapshot: Decoder: Encoder](path: Path): FileBasedLastGlobalFullSnapshotStorage[F] =
+  def make[F[_]: Async: Files, S <: Snapshot](path: Path): FileBasedLastGlobalFullSnapshotStorage[F] =
     new FileBasedLastGlobalFullSnapshotStorage[F] {
       implicit val codec: Codec[Hashed[GlobalSnapshot]] = deriveCodec[Hashed[GlobalSnapshot]]
 

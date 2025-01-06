@@ -3,23 +3,19 @@ package org.constellation.snapshotstreaming.opensearch.mapper
 import java.util.Date
 import cats.effect.Async
 import cats.syntax.all._
-import org.tessellation.syntax.sortedCollection._
 import eu.timepit.refined.auto._
 import org.constellation.snapshotstreaming.opensearch.schema._
-import eu.timepit.refined.auto._
 import org.constellation.snapshotstreaming.opensearch.schema.Snapshot
 import shapeless.syntax.std.tuple._
 
 import scala.collection.immutable.SortedSet
-import org.tessellation.kryo.KryoSerializer
 import org.tessellation.schema.GlobalIncrementalSnapshot
 import org.tessellation.schema.GlobalSnapshotInfo
 import org.tessellation.schema.transaction
 import org.tessellation.security.Hashed
 import org.tessellation.security.Hasher
-import org.tessellation.security.HasherSelector
 
-abstract class GlobalSnapshotMapper[F[_]: Async: KryoSerializer: HasherSelector]
+abstract class GlobalSnapshotMapper[F[_]: Async]
     extends SnapshotMapper[F, GlobalIncrementalSnapshot, GlobalSnapshotInfo] {
 
   def mapSnapshot(snapshot: Hashed[GlobalIncrementalSnapshot], timestamp: Date, hasher: Hasher[F]): F[Snapshot]
@@ -48,7 +44,7 @@ abstract class GlobalSnapshotMapper[F[_]: Async: KryoSerializer: HasherSelector]
 
 object GlobalSnapshotMapper {
 
-  def make[F[_]: Async: KryoSerializer: HasherSelector](): GlobalSnapshotMapper[F] =
+  def make[F[_]: Async](): GlobalSnapshotMapper[F] =
     new GlobalSnapshotMapper[F] {
 
       def fetchRewards(snapshot: GlobalIncrementalSnapshot): SortedSet[transaction.RewardTransaction] =
