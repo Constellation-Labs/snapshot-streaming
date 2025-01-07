@@ -7,13 +7,11 @@ import cats.syntax.all._
 import org.tessellation.currency.schema.currency.CurrencyIncrementalSnapshot
 import org.tessellation.currency.schema.currency.CurrencySnapshot
 import org.tessellation.currency.schema.currency.CurrencySnapshotInfo
-import org.constellation.snapshotstreaming.opensearch.schema.{CurrencySnapshot => OSCurrencySnapshot}
 import org.tessellation.schema.address.Address
 import org.tessellation.security.Hashed
 import org.tessellation.security.Hasher
-import org.constellation.snapshotstreaming.opensearch.schema._
+import org.constellation.snapshotstreaming.opensearch.schema.{AddressBalance, Block, CurrencyData, FeeTransaction, Snapshot, Transaction, CurrencySnapshot => OSCurrencySnapshot}
 import org.tessellation.json.JsonSerializer
-import org.tessellation.kryo.KryoSerializer
 import org.tessellation.schema.balance.Balance
 import org.tessellation.security.signature.Signed
 import org.tessellation.statechannel.StateChannelSnapshotBinary
@@ -49,7 +47,7 @@ trait CurrencySnapshotMapper[F[_]] {
 
 object CurrencySnapshotMapper {
 
-  def make[F[_]: Async: JsonSerializer: KryoSerializer](
+  def make[F[_]: Async: JsonSerializer](
   ): CurrencySnapshotMapper[F] =
     make(CurrencyFullSnapshotMapper.make(), CurrencyIncrementalSnapshotMapper.make())
 

@@ -17,7 +17,6 @@ import org.tessellation.security.key.ops.PublicKeyOps
 import org.tessellation.security.KeyPairGenerator
 import org.tessellation.security.SecurityProvider
 import org.tessellation.shared.sharedKryoRegistrar
-import org.tessellation.syntax.sortedCollection._
 import eu.timepit.refined.auto._
 import org.constellation.snapshotstreaming.data.applyTransactions
 import org.constellation.snapshotstreaming.data.createBalances
@@ -70,7 +69,6 @@ object CurrencySnapshotMapperSuite extends MutableIOSuite {
     }
 
   def mkInitialSnapshot()(implicit
-    ks: KryoSerializer[IO],
     h: HasherSelector[IO]
   ): IO[Hashed[CurrencyIncrementalSnapshot]] =
     incrementalCurrencySnapshot(100L, 10L, 20L, Hash("abc"), Hash("def"))
@@ -250,7 +248,7 @@ object CurrencySnapshotMapperSuite extends MutableIOSuite {
   }
 
     test("leave balances for addresses from rewards") { res =>
-      implicit val (h, ks, js, sp, key1, key2, key3, key4) = res
+      implicit val (h, _, js, _, key1, key2, key3, key4) = res
       val address1 = key1.getPublic.toAddress
       val address2 = key2.getPublic.toAddress
       val address3 = key3.getPublic.toAddress

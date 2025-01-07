@@ -33,6 +33,8 @@ import org.tessellation.security.signature.Signed
 import com.sksamuel.elastic4s.ElasticDsl.bulk
 import com.sksamuel.elastic4s.requests.update.UpdateRequest
 import fs2.Stream
+import fs2.io.file.Files
+import fs2.io.net.Network
 import org.constellation.snapshotstreaming.opensearch.OpensearchDAO
 import org.constellation.snapshotstreaming.opensearch.UpdateRequestBuilder
 import org.constellation.snapshotstreaming.opensearch.mapper.CurrencySnapshotMapper
@@ -51,7 +53,7 @@ trait SnapshotProcessor[F[_]] {
 
 object SnapshotProcessor {
 
-  def make[F[_]: Async: Parallel: KryoSerializer: JsonSerializer: SecurityProvider: Random: HasherSelector](
+  def make[F[_]: Async: Parallel: KryoSerializer: JsonSerializer: SecurityProvider: Random: HasherSelector: Network: Files](
     configuration: Configuration,
     txHasher: Hasher[F]
   ): Resource[F, SnapshotProcessor[F]] =
