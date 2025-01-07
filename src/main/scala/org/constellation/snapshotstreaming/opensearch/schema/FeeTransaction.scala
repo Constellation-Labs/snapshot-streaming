@@ -10,8 +10,7 @@ final case class FeeTransaction(
   amount: Long,
   source: String,
   destination: String,
-  parent: FeeTransactionReference,
-  salt: Long,
+  dataUpdateRef: String,
   snapshotHash: String,
   snapshotOrdinal: Long,
   timestamp: Date

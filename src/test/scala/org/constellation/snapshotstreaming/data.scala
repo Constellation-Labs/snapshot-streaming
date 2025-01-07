@@ -4,48 +4,47 @@ import cats.data.NonEmptyList
 import cats.data.NonEmptySet
 import cats.syntax.all._
 import eu.timepit.refined.auto._
-import org.tessellation.syntax.sortedCollection._
+import io.constellationnetwork.syntax.sortedCollection._
 
 import scala.collection.immutable.SortedMap
 import scala.collection.immutable.SortedSet
-import org.tessellation.schema.ID.Id
-import org.tessellation.schema._
-import org.tessellation.schema.epoch.EpochProgress
-import org.tessellation.schema.height.Height
-import org.tessellation.schema.height.SubHeight
-import org.tessellation.schema.peer.PeerId
-import org.tessellation.schema.transaction.RewardTransaction
-import org.tessellation.security.Hashed
-import org.tessellation.security.hash.Hash
-import org.tessellation.security.hash.ProofsHash
-import org.tessellation.security.hex.Hex
-import org.tessellation.security.signature.Signed
-import org.tessellation.security.signature.signature.Signature
-import org.tessellation.security.signature.signature.SignatureProof
+import io.constellationnetwork.schema.ID.Id
+import io.constellationnetwork.schema._
+import io.constellationnetwork.schema.epoch.EpochProgress
+import io.constellationnetwork.schema.height.Height
+import io.constellationnetwork.schema.height.SubHeight
+import io.constellationnetwork.schema.peer.PeerId
+import io.constellationnetwork.schema.transaction.RewardTransaction
+import io.constellationnetwork.security.Hashed
+import io.constellationnetwork.security.hash.Hash
+import io.constellationnetwork.security.hash.ProofsHash
+import io.constellationnetwork.security.hex.Hex
+import io.constellationnetwork.security.signature.Signed
+import io.constellationnetwork.security.signature.signature.Signature
+import io.constellationnetwork.security.signature.signature.SignatureProof
 import eu.timepit.refined.types.numeric.NonNegLong
 import cats.effect.kernel.Sync
 import cats.effect.Async
-import org.tessellation.currency.schema.currency.CurrencyIncrementalSnapshot
-import org.tessellation.currency.schema.currency.CurrencySnapshotInfo
-import org.tessellation.currency.schema.feeTransaction.FeeTransaction
-import org.tessellation.currency.schema.feeTransaction.FeeTransactionReference
-import org.tessellation.kryo.KryoSerializer
-import org.tessellation.schema.address.Address
-import org.tessellation.schema.balance.Amount
-import org.tessellation.schema.balance.Balance
-import org.tessellation.schema.transaction.Transaction
-import org.tessellation.schema.transaction.TransactionAmount
-import org.tessellation.schema.transaction.TransactionFee
-import org.tessellation.schema.transaction.TransactionOrdinal
-import org.tessellation.schema.transaction.TransactionReference
-import org.tessellation.schema.transaction.TransactionSalt
-import org.tessellation.security.HasherSelector
-import org.tessellation.security.HashSelect
-import org.tessellation.security.HashLogic
-import org.tessellation.security.JsonHash
-import org.tessellation.security.signature.Signed.forAsyncHasher
-import org.tessellation.security.Hasher
-import org.tessellation.security.SecurityProvider
+import io.constellationnetwork.currency.schema.currency.CurrencyIncrementalSnapshot
+import io.constellationnetwork.currency.schema.currency.CurrencySnapshotInfo
+import io.constellationnetwork.currency.dataApplication.FeeTransaction
+import io.constellationnetwork.kryo.KryoSerializer
+import io.constellationnetwork.schema.address.Address
+import io.constellationnetwork.schema.balance.Amount
+import io.constellationnetwork.schema.balance.Balance
+import io.constellationnetwork.schema.transaction.Transaction
+import io.constellationnetwork.schema.transaction.TransactionAmount
+import io.constellationnetwork.schema.transaction.TransactionFee
+import io.constellationnetwork.schema.transaction.TransactionOrdinal
+import io.constellationnetwork.schema.transaction.TransactionReference
+import io.constellationnetwork.schema.transaction.TransactionSalt
+import io.constellationnetwork.security.HasherSelector
+import io.constellationnetwork.security.HashSelect
+import io.constellationnetwork.security.HashLogic
+import io.constellationnetwork.security.JsonHash
+import io.constellationnetwork.security.signature.Signed.forAsyncHasher
+import io.constellationnetwork.security.Hasher
+import io.constellationnetwork.security.SecurityProvider
 
 import java.security.KeyPair
 
@@ -120,7 +119,8 @@ object data {
   }
 
   def emptyCurrencySnapshotInfo: CurrencySnapshotInfo =
-    CurrencySnapshotInfo(SortedMap.empty, SortedMap.empty, None, None)
+    CurrencySnapshotInfo(SortedMap.empty, SortedMap.empty, None, None, None, None, None, None, None)
+
 
   def createBalances(addresses: Address*) =
     addresses.map(address => address -> Balance(1000L)).toMap.toSortedMap
@@ -204,8 +204,7 @@ object data {
         src,
         dst,
         Amount(1L),
-        FeeTransactionReference(TransactionOrdinal(0L), Hash.empty),
-        TransactionSalt(0L)
+        Hash.empty
       ),
       srcKey
     )
@@ -237,7 +236,13 @@ object data {
             tips = SnapshotTips(SortedSet.empty, SortedSet.empty),
             stateProof = sp,
             epochProgress = EpochProgress.MinValue,
-            feeTransactions = feeTransactions
+            dataApplication = None,
+            messages = None,
+            globalSnapshotSyncs= None,
+            feeTransactions = feeTransactions,
+            artifacts= None,
+            allowSpendBlocks = None,
+            tokenLockBlocks = None
           ),
           NonEmptySet.one(SignatureProof(Id(Hex("")), Signature(Hex(""))))
         ),

@@ -9,11 +9,11 @@ import org.constellation.snapshotstreaming.opensearch.schema.Snapshot
 import shapeless.syntax.std.tuple._
 
 import scala.collection.immutable.SortedSet
-import org.tessellation.schema.GlobalIncrementalSnapshot
-import org.tessellation.schema.GlobalSnapshotInfo
-import org.tessellation.schema.transaction
-import org.tessellation.security.Hashed
-import org.tessellation.security.Hasher
+import io.constellationnetwork.schema.GlobalIncrementalSnapshot
+import io.constellationnetwork.schema.GlobalSnapshotInfo
+import io.constellationnetwork.schema.transaction
+import io.constellationnetwork.security.Hashed
+import io.constellationnetwork.security.Hasher
 
 abstract class GlobalSnapshotMapper[F[_]: Async]
     extends SnapshotMapper[F, GlobalIncrementalSnapshot, GlobalSnapshotInfo] {

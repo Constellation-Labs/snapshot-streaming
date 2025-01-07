@@ -2,18 +2,19 @@ package org.constellation.snapshotstreaming
 
 import cats.effect.kernel.Async
 import cats.syntax.all._
-import org.tessellation.currency.schema.currency.CurrencyIncrementalSnapshot
-import org.tessellation.currency.schema.currency.CurrencySnapshot
-import org.tessellation.currency.schema.currency.CurrencySnapshotInfo
-import org.tessellation.node.shared.infrastructure.snapshot.GlobalSnapshotContextFunctions
-import org.tessellation.node.shared.infrastructure.snapshot.GlobalSnapshotStateChannelEventsProcessor
-import org.tessellation.schema.GlobalIncrementalSnapshot
-import org.tessellation.schema.GlobalSnapshotInfo
-import org.tessellation.security.signature.Signed
-import org.tessellation.security.Hashed
-import org.tessellation.security.HasherSelector
+
+import io.constellationnetwork.currency.schema.currency.CurrencyIncrementalSnapshot
+import io.constellationnetwork.currency.schema.currency.CurrencySnapshot
+import io.constellationnetwork.currency.schema.currency.CurrencySnapshotInfo
+import io.constellationnetwork.node.shared.infrastructure.snapshot.GlobalSnapshotContextFunctions
+import io.constellationnetwork.node.shared.infrastructure.snapshot.GlobalSnapshotStateChannelEventsProcessor
+import io.constellationnetwork.schema.GlobalIncrementalSnapshot
+import io.constellationnetwork.schema.GlobalSnapshotInfo
+import io.constellationnetwork.security.signature.Signed
+import io.constellationnetwork.security.Hashed
+import io.constellationnetwork.security.HasherSelector
 import org.constellation.snapshotstreaming.SnapshotProcessor.GlobalSnapshotWithState
-import org.tessellation.statechannel.StateChannelSnapshotBinary
+import io.constellationnetwork.statechannel.StateChannelSnapshotBinary
 
 trait GlobalSnapshotContextService[F[_]] {
 

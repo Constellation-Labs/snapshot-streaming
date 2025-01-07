@@ -4,17 +4,18 @@ import java.util.Date
 import cats.data.NonEmptyList
 import cats.effect.Async
 import cats.syntax.all._
-import org.tessellation.currency.schema.currency.CurrencyIncrementalSnapshot
-import org.tessellation.currency.schema.currency.CurrencySnapshot
-import org.tessellation.currency.schema.currency.CurrencySnapshotInfo
-import org.tessellation.schema.address.Address
-import org.tessellation.security.Hashed
-import org.tessellation.security.Hasher
 import org.constellation.snapshotstreaming.opensearch.schema.{AddressBalance, Block, CurrencyData, FeeTransaction, Snapshot, Transaction, CurrencySnapshot => OSCurrencySnapshot}
-import org.tessellation.json.JsonSerializer
-import org.tessellation.schema.balance.Balance
-import org.tessellation.security.signature.Signed
-import org.tessellation.statechannel.StateChannelSnapshotBinary
+import io.constellationnetwork.currency.schema.currency.CurrencyIncrementalSnapshot
+import io.constellationnetwork.currency.schema.currency.CurrencySnapshot
+import io.constellationnetwork.currency.schema.currency.CurrencySnapshotInfo
+import io.constellationnetwork.schema.address.Address
+import io.constellationnetwork.security.Hashed
+import io.constellationnetwork.security.Hasher
+import org.constellation.snapshotstreaming.opensearch.schema.{AddressBalance, Block, CurrencyData, FeeTransaction, Snapshot, Transaction, CurrencySnapshot => OSCurrencySnapshot}
+import io.constellationnetwork.json.JsonSerializer
+import io.constellationnetwork.schema.balance.Balance
+import io.constellationnetwork.security.signature.Signed
+import io.constellationnetwork.statechannel.StateChannelSnapshotBinary
 
 import scala.collection.immutable.SortedMap
 

@@ -36,8 +36,8 @@ lazy val commonSettings = Seq(
     "-Ywarn-unused",
     "-deprecation"
   ),
-  resolvers ++= List(
-    Resolver.sonatypeRepo("snapshots"),
+  resolvers ++= Resolver.sonatypeOssRepos("snapshots"),
+  resolvers ++=  List(
     Resolver.githubPackages("abankowski", "http-request-signer"),
     Resolver.mavenLocal
   )
