@@ -1,30 +1,28 @@
 package org.constellation.snapshotstreaming.storage
 
 import cats.effect.std.Random
-import cats.effect.IO
-import cats.effect.Resource
+import cats.effect.{IO, Resource}
 import cats.syntax.option._
 
 import scala.collection.immutable.SortedMap
+
 import io.constellationnetwork.ext.cats.effect.ResourceIO
+import io.constellationnetwork.json.JsonSerializer
 import io.constellationnetwork.kryo.KryoSerializer
+import io.constellationnetwork.node.shared.domain.snapshot.storage.LastSnapshotStorage
 import io.constellationnetwork.schema._
 import io.constellationnetwork.schema.address.Address
 import io.constellationnetwork.schema.balance.Balance
 import io.constellationnetwork.schema.height.Height
 import io.constellationnetwork.schema.transaction.TransactionReference
-import io.constellationnetwork.node.shared.domain.snapshot.storage.LastSnapshotStorage
 import io.constellationnetwork.security.hash.Hash
+import io.constellationnetwork.security.{Hasher, HasherSelector}
 import io.constellationnetwork.shared.sharedKryoRegistrar
+
 import eu.timepit.refined.auto._
-import fs2.io.file.Files
-import fs2.io.file.Path
-import org.constellation.snapshotstreaming.data.hashSelect
-import org.constellation.snapshotstreaming.data.incrementalGlobalSnapshot
+import fs2.io.file.{Files, Path}
+import org.constellation.snapshotstreaming.data.{hashSelect, incrementalGlobalSnapshot}
 import weaver.MutableIOSuite
-import io.constellationnetwork.security.Hasher
-import io.constellationnetwork.json.JsonSerializer
-import io.constellationnetwork.security.HasherSelector
 
 object FileBasedLastGlobalIncrementalSnapshotStorageSuite extends MutableIOSuite {
 
@@ -59,6 +57,8 @@ object FileBasedLastGlobalIncrementalSnapshotStorageSuite extends MutableIOSuite
     SortedMap.empty,
     None,
     None,
+    None,
+    None
   )
 
   private def mkInitialSnapshot()(implicit ks: KryoSerializer[IO], h: HasherSelector[IO]) =

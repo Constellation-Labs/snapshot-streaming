@@ -1,24 +1,28 @@
 package org.constellation.snapshotstreaming.opensearch.mapper
 
 import java.util.Date
+
 import cats.data.NonEmptyList
 import cats.effect.Async
 import cats.syntax.all._
-import io.constellationnetwork.currency.schema.currency.CurrencyIncrementalSnapshot
-import io.constellationnetwork.currency.schema.currency.CurrencySnapshot
-import io.constellationnetwork.currency.schema.currency.CurrencySnapshotInfo
-import org.constellation.snapshotstreaming.opensearch.schema.{CurrencySnapshot => OSCurrencySnapshot}
-import io.constellationnetwork.schema.address.Address
-import io.constellationnetwork.security.Hashed
-import io.constellationnetwork.security.Hasher
-import org.constellation.snapshotstreaming.opensearch.schema._
-import io.constellationnetwork.json.JsonSerializer
-import io.constellationnetwork.kryo.KryoSerializer
-import io.constellationnetwork.schema.balance.Balance
-import io.constellationnetwork.security.signature.Signed
-import io.constellationnetwork.statechannel.StateChannelSnapshotBinary
 
 import scala.collection.immutable.SortedMap
+
+import io.constellationnetwork.currency.schema.currency.{
+  CurrencyIncrementalSnapshot,
+  CurrencySnapshot,
+  CurrencySnapshotInfo
+}
+import io.constellationnetwork.json.JsonSerializer
+import io.constellationnetwork.kryo.KryoSerializer
+import io.constellationnetwork.schema.address.Address
+import io.constellationnetwork.schema.balance.Balance
+import io.constellationnetwork.security.signature.Signed
+import io.constellationnetwork.security.{Hashed, Hasher}
+import io.constellationnetwork.statechannel.StateChannelSnapshotBinary
+
+import org.constellation.snapshotstreaming.opensearch.schema._
+import org.constellation.snapshotstreaming.opensearch.schema.{CurrencySnapshot => OSCurrencySnapshot}
 
 trait CurrencySnapshotMapper[F[_]] {
 

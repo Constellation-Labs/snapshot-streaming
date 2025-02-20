@@ -1,20 +1,22 @@
 package org.constellation.snapshotstreaming
 
 import java.util.Date
-import cats.{Applicative, Parallel}
-import cats.data.NonEmptyList
-import cats.data.NonEmptyMap
-import cats.data.Validated
+
+import cats.data.{NonEmptyList, NonEmptyMap, Validated}
 import cats.effect._
 import cats.effect.std.Random
 import cats.effect.syntax.all._
 import cats.syntax.all._
-import io.constellationnetwork.currency.schema.currency.CurrencyIncrementalSnapshot
-import io.constellationnetwork.currency.schema.currency.CurrencySnapshot
-import io.constellationnetwork.currency.schema.currency.CurrencySnapshotInfo
+import cats.{Applicative, Parallel}
+
+import io.constellationnetwork.currency.schema.currency.{
+  CurrencyIncrementalSnapshot,
+  CurrencySnapshot,
+  CurrencySnapshotInfo
+}
 import io.constellationnetwork.ext.cats.syntax.next._
-import io.constellationnetwork.kryo.KryoSerializer
 import io.constellationnetwork.json.JsonSerializer
+import io.constellationnetwork.kryo.KryoSerializer
 import io.constellationnetwork.merkletree.StateProofValidator
 import io.constellationnetwork.node.shared.domain.snapshot.Validator
 import io.constellationnetwork.node.shared.domain.snapshot.services.GlobalL0Service
@@ -22,27 +24,24 @@ import io.constellationnetwork.node.shared.domain.snapshot.storage.LastSnapshotS
 import io.constellationnetwork.node.shared.http.p2p.clients.L0GlobalSnapshotClient
 import io.constellationnetwork.node.shared.infrastructure.cluster.storage.L0ClusterStorage
 import io.constellationnetwork.schema.SnapshotReference.{fromHashedSnapshot => getSnapshotReference}
+import io.constellationnetwork.schema._
 import io.constellationnetwork.schema.address.Address
-import io.constellationnetwork.schema.peer.L0Peer
-import io.constellationnetwork.schema.peer.PeerId
-import io.constellationnetwork.schema.GlobalIncrementalSnapshot
-import io.constellationnetwork.schema.GlobalSnapshotInfo
-import io.constellationnetwork.schema.GlobalSnapshotInfoV2
+import io.constellationnetwork.schema.peer.{L0Peer, PeerId}
 import io.constellationnetwork.security._
 import io.constellationnetwork.security.signature.Signed
+import io.constellationnetwork.statechannel.StateChannelSnapshotBinary
+
 import com.sksamuel.elastic4s.ElasticDsl.bulk
 import com.sksamuel.elastic4s.requests.update.UpdateRequest
 import fs2.Stream
-import org.constellation.snapshotstreaming.opensearch.OpensearchDAO
-import org.constellation.snapshotstreaming.opensearch.UpdateRequestBuilder
-import org.constellation.snapshotstreaming.opensearch.mapper.CurrencySnapshotMapper
-import org.constellation.snapshotstreaming.opensearch.mapper.GlobalSnapshotMapper
+import org.constellation.snapshotstreaming.opensearch.mapper.{CurrencySnapshotMapper, GlobalSnapshotMapper}
+import org.constellation.snapshotstreaming.opensearch.{OpensearchDAO, UpdateRequestBuilder}
 import org.constellation.snapshotstreaming.s3.S3DAO
-import org.constellation.snapshotstreaming.storage.FileBasedLastGlobalFullSnapshotStorage
-import org.constellation.snapshotstreaming.storage.FileBasedLastGlobalIncrementalSnapshotStorage
+import org.constellation.snapshotstreaming.storage.{
+  FileBasedLastGlobalFullSnapshotStorage,
+  FileBasedLastGlobalIncrementalSnapshotStorage
+}
 import org.http4s.ember.client.EmberClientBuilder
-import io.constellationnetwork.schema.GlobalSnapshot
-import io.constellationnetwork.statechannel.StateChannelSnapshotBinary
 import org.typelevel.log4cats.slf4j.Slf4jLogger
 
 trait SnapshotProcessor[F[_]] {
@@ -132,19 +131,19 @@ object SnapshotProcessor {
             for {
               _ <- logger.info("Starting to send parallel bulk updates to Opensearch")
               _ <- requests.parallelRequests.parTraverse { br =>
-                  logGroupedRequests(br, "parallel") >>
-                    opensearchDAO.sendToOpensearch(bulk(br))
-                }.timed.flatTap { case (elapsedTime, _) =>
-                  logger.info(s"Parallel bulk update operation took ${elapsedTime.toMillis} ms")
-                }
+                logGroupedRequests(br, "parallel") >>
+                  opensearchDAO.sendToOpensearch(bulk(br))
+              }.timed.flatTap { case (elapsedTime, _) =>
+                logger.info(s"Parallel bulk update operation took ${elapsedTime.toMillis} ms")
+              }
 
               _ <- logger.info("Starting to send sequential bulk updates to Opensearch")
               _ <- requests.sequentialRequests.traverse { br =>
-                  logGroupedRequests(br, "sequential") >>
-                    opensearchDAO.sendToOpensearch(bulk(br))
-                }.timed.flatTap { case (elapsedTime, _) =>
-                  logger.info(s"Sequential bulk update operation took ${elapsedTime.toMillis} ms")
-                }
+                logGroupedRequests(br, "sequential") >>
+                  opensearchDAO.sendToOpensearch(bulk(br))
+              }.timed.flatTap { case (elapsedTime, _) =>
+                logger.info(s"Sequential bulk update operation took ${elapsedTime.toMillis} ms")
+              }
             } yield ()
           }
           .flatMap(_ =>
@@ -172,7 +171,7 @@ object SnapshotProcessor {
             case Validated.Valid(()) =>
               lastIncrementalGlobalSnapshotStorage.get.flatMap {
                 case Some(last) if Validator.isNextSnapshot(last, snapshot.signed.value) =>
-                  s3DAO.uploadSnapshot(snapshot) >>
+                  s3DAO.uploadSnapshot(snapshot, hasher.getLogic(snapshot.ordinal)) >>
                     prepareAndExecuteBulkUpdate(state, hasher) >>
                     lastIncrementalGlobalSnapshotStorage.set(snapshot, snapshotInfo)
 
@@ -188,7 +187,7 @@ object SnapshotProcessor {
                     })
                     .flatMap {
                       case Some(last) if Validator.isNextSnapshot(last, snapshot.signed.value) =>
-                        s3DAO.uploadSnapshot(snapshot) >>
+                        s3DAO.uploadSnapshot(snapshot, hasher.getLogic(snapshot.ordinal)) >>
                           prepareAndExecuteBulkUpdate(state, hasher) >>
                           lastIncrementalGlobalSnapshotStorage
                             .setInitial(snapshot, snapshotInfo)

@@ -1,42 +1,29 @@
 package org.constellation.snapshotstreaming.opensearch.mapper
 
 import java.security.KeyPair
+
 import cats.data.NonEmptySet
-import cats.effect.IO
-import cats.effect.Resource
+import cats.effect.{IO, Resource}
 import cats.syntax.all._
 
-import scala.collection.immutable.SortedMap
-import scala.collection.immutable.SortedSet
+import scala.collection.immutable.{SortedMap, SortedSet}
+
+import io.constellationnetwork.currency.schema.currency.{CurrencyIncrementalSnapshot, CurrencySnapshotInfo}
 import io.constellationnetwork.ext.cats.effect.ResourceIO
+import io.constellationnetwork.json.JsonSerializer
 import io.constellationnetwork.kryo.KryoSerializer
-import io.constellationnetwork.schema.transaction._
 import io.constellationnetwork.node.shared.nodeSharedKryoRegistrar
+import io.constellationnetwork.schema.BlockAsActiveTip
+import io.constellationnetwork.schema.balance.Balance
+import io.constellationnetwork.schema.transaction._
+import io.constellationnetwork.security._
 import io.constellationnetwork.security.hash.Hash
 import io.constellationnetwork.security.key.ops.PublicKeyOps
-import io.constellationnetwork.security.KeyPairGenerator
-import io.constellationnetwork.security.SecurityProvider
 import io.constellationnetwork.shared.sharedKryoRegistrar
-import io.constellationnetwork.syntax.sortedCollection._
+
 import eu.timepit.refined.auto._
-import org.constellation.snapshotstreaming.data.applyTransactions
-import org.constellation.snapshotstreaming.data.createBalances
-import org.constellation.snapshotstreaming.data.createBlocksWithTransactions
-import org.constellation.snapshotstreaming.data.createFeeTxn
-import org.constellation.snapshotstreaming.data.createRewards
-import org.constellation.snapshotstreaming.data.createTxn
-import org.constellation.snapshotstreaming.data.emptyCurrencySnapshotInfo
-import org.constellation.snapshotstreaming.data.hashSelect
-import org.constellation.snapshotstreaming.data.incrementalCurrencySnapshot
-import io.constellationnetwork.currency.schema.currency.CurrencyIncrementalSnapshot
-import io.constellationnetwork.currency.schema.currency.CurrencySnapshotInfo
+import org.constellation.snapshotstreaming.data._
 import weaver.MutableIOSuite
-import io.constellationnetwork.security.Hasher
-import io.constellationnetwork.json.JsonSerializer
-import io.constellationnetwork.schema.balance.Balance
-import io.constellationnetwork.schema.BlockAsActiveTip
-import io.constellationnetwork.security.Hashed
-import io.constellationnetwork.security.HasherSelector
 
 object CurrencySnapshotMapperSuite extends MutableIOSuite {
 
@@ -96,7 +83,7 @@ object CurrencySnapshotMapperSuite extends MutableIOSuite {
         initialBalances,
         blocks.flatMap(_.block.transactions.toList).toList,
         List.empty,
-        List.empty,
+        List.empty
       )
 
       updatedInfo = CurrencySnapshotInfo(SortedMap.empty, updatedBalances, None, None, None, None, None, None, None)
@@ -137,13 +124,13 @@ object CurrencySnapshotMapperSuite extends MutableIOSuite {
       txn2 <- createTxn(address2, key2, address1, TransactionAmount(1L))
       blocks <- createBlocksWithTransactions(
         key1,
-        NonEmptySet.fromSetUnsafe(SortedSet(txn1, txn2)),
+        NonEmptySet.fromSetUnsafe(SortedSet(txn1, txn2))
       )
       updatedBalances = applyTransactions(
         initialBalances,
         blocks.flatMap(_.block.transactions.toList).toList,
         List.empty,
-        List.empty,
+        List.empty
       )
       updatedInfo = CurrencySnapshotInfo(SortedMap.empty, updatedBalances, None, None, None, None, None, None, None)
 
@@ -226,7 +213,7 @@ object CurrencySnapshotMapperSuite extends MutableIOSuite {
         initialBalances,
         blocks.flatMap(_.block.transactions.toList).toList,
         List.empty,
-        List.empty,
+        List.empty
       )
       updatedInfo = CurrencySnapshotInfo(SortedMap.empty, updatedBalances, None, None, None, None, None, None, None)
       snapshot <- incrementalCurrencySnapshot[IO](
@@ -249,39 +236,40 @@ object CurrencySnapshotMapperSuite extends MutableIOSuite {
     )
   }
 
-    test("leave balances for addresses from rewards") { res =>
-      implicit val (h, ks, js, sp, key1, key2, key3, key4) = res
-      val address1 = key1.getPublic.toAddress
-      val address2 = key2.getPublic.toAddress
-      val address3 = key3.getPublic.toAddress
-      val address4 = key4.getPublic.toAddress
+  test("leave balances for addresses from rewards") { res =>
+    implicit val (h, ks, js, sp, key1, key2, key3, key4) = res
+    val address1 = key1.getPublic.toAddress
+    val address2 = key2.getPublic.toAddress
+    val address3 = key3.getPublic.toAddress
+    val address4 = key4.getPublic.toAddress
 
-      val initialBalances = createBalances(address1, address2, address3, address4)
-      val rewards = createRewards(address1, address2)
+    val initialBalances = createBalances(address1, address2, address3, address4)
+    val rewards = createRewards(address1, address2)
 
-      val updatedBalances = applyTransactions(
-        initialBalances,
-        List.empty,
-        rewards.toList,
-        List.empty,
+    val updatedBalances = applyTransactions(
+      initialBalances,
+      List.empty,
+      rewards.toList,
+      List.empty
+    )
+    val updatedInfo = CurrencySnapshotInfo(SortedMap.empty, updatedBalances, None, None, None, None, None, None, None)
+
+    for {
+      snapshot <- incrementalCurrencySnapshot[IO](
+        100L,
+        10L,
+        20L,
+        Hash("abc"),
+        Hash("def"),
+        updatedInfo,
+        rewards = rewards
       )
-      val updatedInfo = CurrencySnapshotInfo(SortedMap.empty, updatedBalances, None, None, None, None, None, None, None)
 
-      for {
-        snapshot <- incrementalCurrencySnapshot[IO](
-          100L,
-          10L,
-          20L,
-          Hash("abc"),
-          Hash("def"),
-          updatedInfo,
-          rewards = rewards
-        )
+      result = CurrencyIncrementalSnapshotMapper.make().balanceDiff(snapshot, initialBalances.some, updatedInfo)
+    } yield expect.same(
+      result,
+      updatedBalances - address3 - address4
+    )
+  }
 
-        result = CurrencyIncrementalSnapshotMapper.make().balanceDiff(snapshot, initialBalances.some, updatedInfo)
-      } yield expect.same(
-        result,
-        updatedBalances - address3 - address4
-      )
-    }
 }

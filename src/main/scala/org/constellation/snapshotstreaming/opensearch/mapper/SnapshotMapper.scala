@@ -1,23 +1,25 @@
 package org.constellation.snapshotstreaming.opensearch.mapper
 
 import java.util.Date
+
 import cats.effect.Async
 import cats.syntax.all._
 
-import scala.collection.immutable.SortedMap
-import scala.collection.immutable.SortedSet
+import scala.collection.immutable.{SortedMap, SortedSet}
+
 import io.constellationnetwork.schema.address.Address
 import io.constellationnetwork.schema.balance.Balance
-import io.constellationnetwork.schema.snapshot.SnapshotInfo
-import io.constellationnetwork.schema.snapshot.{Snapshot => OriginalSnapshot}
-import io.constellationnetwork.schema.transaction.{TransactionReference => OriginalTransactionReference}
-import io.constellationnetwork.schema.transaction.{Transaction => OriginalTransaction}
-import io.constellationnetwork.schema.transaction.{RewardTransaction => OriginalRewardTransaction}
+import io.constellationnetwork.schema.snapshot.{Snapshot => OriginalSnapshot, SnapshotInfo}
+import io.constellationnetwork.schema.transaction.{
+  RewardTransaction => OriginalRewardTransaction,
+  Transaction => OriginalTransaction,
+  TransactionReference => OriginalTransactionReference
+}
 import io.constellationnetwork.schema.{Block => OriginalBlock}
 import io.constellationnetwork.security.signature.Signed
-import io.constellationnetwork.security.Hashed
-import io.constellationnetwork.security.Hasher
+import io.constellationnetwork.security.{Hashed, Hasher}
 import io.constellationnetwork.syntax.sortedCollection._
+
 import eu.timepit.refined.auto._
 import org.constellation.snapshotstreaming.opensearch.schema._
 
@@ -125,7 +127,7 @@ abstract class SnapshotMapper[F[_]: Async, S <: OriginalSnapshot, SI <: Snapshot
   def balanceDiff(
     snapshot: S,
     prevBalances: Option[SortedMap[Address, Balance]],
-    info: SnapshotInfo[_],
+    info: SnapshotInfo[_]
   ): SortedMap[Address, Balance] =
     prevBalances match {
       case Some(prev) =>

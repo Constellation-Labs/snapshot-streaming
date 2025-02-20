@@ -1,21 +1,23 @@
 package org.constellation.snapshotstreaming.opensearch
 
 import java.util.Date
+
 import cats.effect.Async
 import cats.syntax.all._
+
 import io.constellationnetwork.security.Hasher
+
 import com.sksamuel.elastic4s.ElasticApi.updateById
 import com.sksamuel.elastic4s.circe._
 import com.sksamuel.elastic4s.requests.update.UpdateRequest
-import org.constellation.snapshotstreaming.SnapshotProcessor.GlobalSnapshotWithState
-import org.constellation.snapshotstreaming.opensearch.mapper.CurrencySnapshotMapper
-import org.constellation.snapshotstreaming.opensearch.mapper.GlobalSnapshotMapper
-import org.constellation.snapshotstreaming.opensearch.schema._
 import org.constellation.snapshotstreaming.Configuration
+import org.constellation.snapshotstreaming.SnapshotProcessor.GlobalSnapshotWithState
+import org.constellation.snapshotstreaming.opensearch.mapper.{CurrencySnapshotMapper, GlobalSnapshotMapper}
+import org.constellation.snapshotstreaming.opensearch.schema._
 
 case class UpdateRequests(
   sequentialRequests: Seq[Seq[UpdateRequest]],
-  parallelRequests  : List[List[UpdateRequest]]
+  parallelRequests: List[List[UpdateRequest]]
 )
 
 trait UpdateRequestBuilder[F[_]] {
@@ -81,7 +83,7 @@ object UpdateRequestBuilder {
           ).grouped(config.bulkSize).toList
 
           sequentialRequests = updateSequentialRequests(
-            snapshot,
+            snapshot
           ).grouped(config.bulkSize).toSeq
 
         } yield UpdateRequests(
@@ -90,21 +92,21 @@ object UpdateRequestBuilder {
         )
 
       def updateSequentialRequests(
-        snapshot: Snapshot,
+        snapshot: Snapshot
       ): Seq[UpdateRequest] =
         Seq(updateById(config.snapshotsIndex, snapshot.hash).docAsUpsert(snapshot))
 
       def updateParallelRequests(
-        blocks                      : Seq[Block],
-        transactions                : Seq[Transaction],
-        balances                    : Seq[AddressBalance],
-        currencySnapshots           : Seq[CurrencyData[Snapshot]],
+        blocks: Seq[Block],
+        transactions: Seq[Transaction],
+        balances: Seq[AddressBalance],
+        currencySnapshots: Seq[CurrencyData[Snapshot]],
         currencyIncrementalSnapshots: Seq[CurrencyData[CurrencySnapshot]],
-        currencyBlocks              : Seq[CurrencyData[Block]],
-        currencyTransactions        : Seq[CurrencyData[Transaction]],
-        currencyFeeTransactions     : Seq[CurrencyData[FeeTransaction]],
-        currencyBalances            : Seq[CurrencyData[AddressBalance]]
-      ): List[UpdateRequest] = {
+        currencyBlocks: Seq[CurrencyData[Block]],
+        currencyTransactions: Seq[CurrencyData[Transaction]],
+        currencyFeeTransactions: Seq[CurrencyData[FeeTransaction]],
+        currencyBalances: Seq[CurrencyData[AddressBalance]]
+      ): List[UpdateRequest] =
         blocks.toList.map(block => updateById(config.blocksIndex, block.hash).docAsUpsert(block)) ++
           transactions.map(transaction =>
             updateById(config.transactionsIndex, transaction.hash).docAsUpsert(transaction)
@@ -134,7 +136,7 @@ object UpdateRequestBuilder {
             val id = s"$identifier${data.docId}"
             updateById(config.currencyBalancesIndex, id).docAsUpsert(cd)
           }
-      }
+
     }
 
 }

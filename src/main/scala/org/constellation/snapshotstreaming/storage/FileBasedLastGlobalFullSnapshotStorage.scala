@@ -7,20 +7,18 @@ import cats.syntax.either._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
 import cats.syntax.option._
+
+import io.constellationnetwork.schema.GlobalSnapshot
+import io.constellationnetwork.schema.snapshot.Snapshot
 import io.constellationnetwork.security.Hashed
 import io.constellationnetwork.security.signature.Signed
-import fs2.io.file.Path
-import fs2.io.file._
-import fs2.Stream
-import fs2.text
+
+import fs2.io.file.{Path, _}
+import fs2.{Stream, text}
+import io.circe.generic.semiauto.deriveCodec
 import io.circe.parser.decode
 import io.circe.syntax._
-import io.circe.Decoder
-import io.circe.Encoder
-import io.circe.Codec
-import io.circe.generic.semiauto.deriveCodec
-import io.constellationnetwork.schema.snapshot.Snapshot
-import io.constellationnetwork.schema.GlobalSnapshot
+import io.circe.{Codec, Decoder, Encoder}
 
 trait FileBasedLastGlobalFullSnapshotStorage[F[_]] {
   def set(snapshot: Hashed[GlobalSnapshot]): F[Unit]

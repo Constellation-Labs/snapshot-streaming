@@ -1,29 +1,30 @@
 package org.constellation.snapshotstreaming.storage
 
-import cats.effect.std.Mutex
 import cats.effect.Async
+import cats.effect.std.Mutex
 import cats.syntax.all._
-import cats.Applicative
-import cats.MonadThrow
-import io.constellationnetwork.schema._
-import io.constellationnetwork.security._
-import fs2.io.file._
-import fs2.Stream
-import fs2.text
-import io.circe.syntax._
-import io.circe.Codec
-import io.circe.generic.semiauto.deriveCodec
-import io.circe.jawn
+import cats.{Applicative, MonadThrow}
+
 import io.constellationnetwork.merkletree.StateProofValidator
-import io.constellationnetwork.node.shared.domain.snapshot.storage.LastSnapshotStorage
 import io.constellationnetwork.node.shared.domain.snapshot.Validator.isNextSnapshot
+import io.constellationnetwork.node.shared.domain.snapshot.storage.LastSnapshotStorage
+import io.constellationnetwork.schema._
 import io.constellationnetwork.schema.height.Height
+import io.constellationnetwork.security._
+
+import fs2.io.file._
+import fs2.{Stream, text}
+import io.circe.generic.semiauto.deriveCodec
+import io.circe.syntax._
+import io.circe.{Codec, jawn}
 
 object FileBasedLastGlobalIncrementalSnapshotStorage {
 
   private case class SnapshotWithState(snapshot: Hashed[GlobalIncrementalSnapshot], state: GlobalSnapshotInfo)
 
-  def make[F[_]: Async: HasherSelector](path: Path): F[LastSnapshotStorage[F, GlobalIncrementalSnapshot, GlobalSnapshotInfo]] =
+  def make[F[_]: Async: HasherSelector](
+    path: Path
+  ): F[LastSnapshotStorage[F, GlobalIncrementalSnapshot, GlobalSnapshotInfo]] =
     Mutex[F].map(make(_, path))
 
   def make[F[_]: Async: HasherSelector](
@@ -31,7 +32,10 @@ object FileBasedLastGlobalIncrementalSnapshotStorage {
     path: Path
   ): LastSnapshotStorage[F, GlobalIncrementalSnapshot, GlobalSnapshotInfo] =
     new LastSnapshotStorage[F, GlobalIncrementalSnapshot, GlobalSnapshotInfo] {
-      private implicit val codec: Codec[Hashed[GlobalIncrementalSnapshot]] = deriveCodec[Hashed[GlobalIncrementalSnapshot]]
+
+      private implicit val codec: Codec[Hashed[GlobalIncrementalSnapshot]] =
+        deriveCodec[Hashed[GlobalIncrementalSnapshot]]
+
       private implicit val snapshotWithInfoCodec: Codec[SnapshotWithState] = deriveCodec[SnapshotWithState]
 
       private def validateStateProof(snapshot: Hashed[GlobalIncrementalSnapshot], state: GlobalSnapshotInfo): F[Unit] =

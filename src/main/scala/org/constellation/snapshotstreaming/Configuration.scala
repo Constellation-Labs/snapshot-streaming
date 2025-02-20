@@ -3,25 +3,23 @@ package org.constellation.snapshotstreaming
 import cats.data.NonEmptyMap
 
 import scala.collection.immutable.SortedMap
-import scala.concurrent.duration.Duration
-import scala.concurrent.duration.FiniteDuration
+import scala.concurrent.duration.{Duration, FiniteDuration}
 import scala.jdk.CollectionConverters._
 import scala.util.Try
+
 import io.constellationnetwork.env.AppEnvironment
-import io.constellationnetwork.schema.SnapshotOrdinal
-import io.constellationnetwork.schema.balance.Amount
-import io.constellationnetwork.schema.peer.L0Peer
-import io.constellationnetwork.schema.peer.PeerId
-import com.typesafe.config.Config
-import com.typesafe.config.ConfigFactory
-import eu.timepit.refined.types.numeric.NonNegLong
-import eu.timepit.refined.types.numeric.PosLong
-import fs2.io.file.Path
-import io.circe.parser.decode
-import org.http4s.Uri
 import io.constellationnetwork.node.shared.config.types
 import io.constellationnetwork.node.shared.config.types.SharedConfigReader
 import io.constellationnetwork.node.shared.domain.statechannel.FeeCalculatorConfig
+import io.constellationnetwork.schema.SnapshotOrdinal
+import io.constellationnetwork.schema.balance.Amount
+import io.constellationnetwork.schema.peer.{L0Peer, PeerId}
+
+import com.typesafe.config.{Config, ConfigFactory}
+import eu.timepit.refined.types.numeric.{NonNegLong, PosLong}
+import fs2.io.file.Path
+import io.circe.parser.decode
+import org.http4s.Uri
 
 class Configuration(sharedConfigReader: SharedConfigReader) {
   private val config: Config = ConfigFactory.load().resolve()
@@ -43,7 +41,8 @@ class Configuration(sharedConfigReader: SharedConfigReader) {
 
   val snapshotSize: types.SnapshotSizeConfig = sharedConfigReader.snapshot.size
 
-  val feeConfigs: SortedMap[SnapshotOrdinal, FeeCalculatorConfig] = sharedConfigReader.feeConfigs.get(environment)
+  val feeConfigs: SortedMap[SnapshotOrdinal, FeeCalculatorConfig] = sharedConfigReader.feeConfigs
+    .get(environment)
     .map(configs => SortedMap.from(configs))
     .getOrElse(SortedMap.empty[SnapshotOrdinal, FeeCalculatorConfig])
 
