@@ -1,23 +1,24 @@
 package org.constellation.snapshotstreaming.opensearch.mapper
 
-import cats.effect.Async
-import cats.syntax.all._
-import org.constellation.snapshotstreaming.opensearch.schema.Snapshot
-
-import scala.collection.immutable.SortedSet
-import io.constellationnetwork.currency.schema.currency.{CurrencySnapshot => OriginalCurrencySnapshot}
-import io.constellationnetwork.schema.transaction
-import io.constellationnetwork.security.Hashed
-import io.constellationnetwork.security.Hasher
-import io.constellationnetwork.syntax.sortedCollection._
-import eu.timepit.refined.auto._
-import io.estatico.newtype.ops._
-import org.constellation.snapshotstreaming.opensearch.schema._
-import io.constellationnetwork.currency.schema.currency.CurrencySnapshotInfo
-
 import java.util.Date
 
-abstract class CurrencyFullSnapshotMapper[F[_]: Async] extends SnapshotMapper[F, OriginalCurrencySnapshot, CurrencySnapshotInfo] {
+import cats.effect.Async
+import cats.syntax.all._
+
+import scala.collection.immutable.SortedSet
+
+import io.constellationnetwork.currency.schema.currency.{
+  CurrencySnapshot => OriginalCurrencySnapshot,
+  CurrencySnapshotInfo
+}
+import io.constellationnetwork.schema.transaction
+import io.constellationnetwork.security.{Hashed, Hasher}
+
+import eu.timepit.refined.auto._
+import org.constellation.snapshotstreaming.opensearch.schema.{Snapshot, _}
+
+abstract class CurrencyFullSnapshotMapper[F[_]: Async]
+    extends SnapshotMapper[F, OriginalCurrencySnapshot, CurrencySnapshotInfo] {
   def mapSnapshot(snapshot: Hashed[OriginalCurrencySnapshot], timestamp: Date, hasher: Hasher[F]): F[Snapshot]
 }
 
@@ -54,6 +55,7 @@ object CurrencyFullSnapshotMapper {
           ),
           timestamp = timestamp
         )
+
     }
 
 }

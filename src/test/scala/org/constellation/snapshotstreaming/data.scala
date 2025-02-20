@@ -1,53 +1,38 @@
 package org.constellation.snapshotstreaming
 
-import cats.data.NonEmptyList
-import cats.data.NonEmptySet
-import cats.syntax.all._
-import eu.timepit.refined.auto._
-import io.constellationnetwork.syntax.sortedCollection._
+import java.security.KeyPair
 
-import scala.collection.immutable.SortedMap
-import scala.collection.immutable.SortedSet
+import cats.data.{NonEmptyList, NonEmptySet}
+import cats.effect.Async
+import cats.effect.kernel.Sync
+import cats.syntax.all._
+
+import scala.collection.immutable.{SortedMap, SortedSet}
+
+import io.constellationnetwork.currency.dataApplication.FeeTransaction
+import io.constellationnetwork.currency.schema.currency.{CurrencyIncrementalSnapshot, CurrencySnapshotInfo}
+import io.constellationnetwork.kryo.KryoSerializer
 import io.constellationnetwork.schema.ID.Id
 import io.constellationnetwork.schema._
+import io.constellationnetwork.schema.address.Address
+import io.constellationnetwork.schema.artifact.SpendAction
+import io.constellationnetwork.schema.balance.{Amount, Balance}
 import io.constellationnetwork.schema.epoch.EpochProgress
-import io.constellationnetwork.schema.height.Height
-import io.constellationnetwork.schema.height.SubHeight
+import io.constellationnetwork.schema.height.{Height, SubHeight}
+import io.constellationnetwork.schema.node.UpdateNodeParameters
 import io.constellationnetwork.schema.peer.PeerId
-import io.constellationnetwork.schema.transaction.RewardTransaction
-import io.constellationnetwork.security.Hashed
-import io.constellationnetwork.security.hash.Hash
-import io.constellationnetwork.security.hash.ProofsHash
+import io.constellationnetwork.schema.swap.AllowSpendBlock
+import io.constellationnetwork.schema.transaction._
+import io.constellationnetwork.security._
+import io.constellationnetwork.security.hash.{Hash, ProofsHash}
 import io.constellationnetwork.security.hex.Hex
 import io.constellationnetwork.security.signature.Signed
-import io.constellationnetwork.security.signature.signature.Signature
-import io.constellationnetwork.security.signature.signature.SignatureProof
-import eu.timepit.refined.types.numeric.NonNegLong
-import cats.effect.kernel.Sync
-import cats.effect.Async
-import io.constellationnetwork.currency.schema.currency.CurrencyIncrementalSnapshot
-import io.constellationnetwork.currency.schema.currency.CurrencySnapshotInfo
-import io.constellationnetwork.currency.schema.feeTransaction.FeeTransaction
-import io.constellationnetwork.currency.schema.feeTransaction.FeeTransactionReference
-import io.constellationnetwork.kryo.KryoSerializer
-import io.constellationnetwork.schema.address.Address
-import io.constellationnetwork.schema.balance.Amount
-import io.constellationnetwork.schema.balance.Balance
-import io.constellationnetwork.schema.transaction.Transaction
-import io.constellationnetwork.schema.transaction.TransactionAmount
-import io.constellationnetwork.schema.transaction.TransactionFee
-import io.constellationnetwork.schema.transaction.TransactionOrdinal
-import io.constellationnetwork.schema.transaction.TransactionReference
-import io.constellationnetwork.schema.transaction.TransactionSalt
-import io.constellationnetwork.security.HasherSelector
-import io.constellationnetwork.security.HashSelect
-import io.constellationnetwork.security.HashLogic
-import io.constellationnetwork.security.JsonHash
 import io.constellationnetwork.security.signature.Signed.forAsyncHasher
-import io.constellationnetwork.security.Hasher
-import io.constellationnetwork.security.SecurityProvider
+import io.constellationnetwork.security.signature.signature.{Signature, SignatureProof}
+import io.constellationnetwork.syntax.sortedCollection._
 
-import java.security.KeyPair
+import eu.timepit.refined.auto._
+import eu.timepit.refined.types.numeric.NonNegLong
 
 object data {
 
@@ -109,7 +94,10 @@ object data {
             epochProgress = EpochProgress.MinValue,
             nextFacilitators = NonEmptyList.of(PeerId(Hex(""))),
             tips = SnapshotTips(SortedSet.empty, SortedSet.empty),
-            stateProof = sp
+            stateProof = sp,
+            SortedSet.empty[Signed[AllowSpendBlock]].some,
+            SortedMap.empty[Address, List[SpendAction]].some,
+            SortedMap.empty[Id, Signed[UpdateNodeParameters]].some
           ),
           NonEmptySet.one(SignatureProof(Id(Hex("")), Signature(Hex(""))))
         ),
@@ -204,8 +192,7 @@ object data {
         src,
         dst,
         Amount(1L),
-        FeeTransactionReference(TransactionOrdinal(0L), Hash.empty),
-        TransactionSalt(0L)
+        Hash.empty
       ),
       srcKey
     )

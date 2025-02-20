@@ -1,23 +1,19 @@
 package org.constellation.snapshotstreaming.opensearch.mapper
 
 import java.util.Date
+
 import cats.effect.Async
 import cats.syntax.all._
-import io.constellationnetwork.syntax.sortedCollection._
-import eu.timepit.refined.auto._
-import org.constellation.snapshotstreaming.opensearch.schema._
-import eu.timepit.refined.auto._
-import org.constellation.snapshotstreaming.opensearch.schema.Snapshot
-import shapeless.syntax.std.tuple._
 
 import scala.collection.immutable.SortedSet
+
 import io.constellationnetwork.kryo.KryoSerializer
-import io.constellationnetwork.schema.GlobalIncrementalSnapshot
-import io.constellationnetwork.schema.GlobalSnapshotInfo
-import io.constellationnetwork.schema.transaction
-import io.constellationnetwork.security.Hashed
-import io.constellationnetwork.security.Hasher
-import io.constellationnetwork.security.HasherSelector
+import io.constellationnetwork.schema.{GlobalIncrementalSnapshot, GlobalSnapshotInfo, transaction}
+import io.constellationnetwork.security.{Hashed, Hasher, HasherSelector}
+
+import eu.timepit.refined.auto._
+import org.constellation.snapshotstreaming.opensearch.schema.{Snapshot, _}
+import shapeless.syntax.std.tuple._
 
 abstract class GlobalSnapshotMapper[F[_]: Async: KryoSerializer: HasherSelector]
     extends SnapshotMapper[F, GlobalIncrementalSnapshot, GlobalSnapshotInfo] {
@@ -79,6 +75,7 @@ object GlobalSnapshotMapper {
             timestamp = timestamp
           )
         }
+
     }
 
 }

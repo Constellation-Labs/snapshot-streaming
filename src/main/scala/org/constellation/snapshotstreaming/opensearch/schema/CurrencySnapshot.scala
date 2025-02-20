@@ -1,8 +1,10 @@
 package org.constellation.snapshotstreaming.opensearch.schema
 
 import java.util.Date
+
 import io.circe.Encoder
 import io.circe.generic.semiauto._
+
 import schema._
 
 final case class CurrencySnapshot(
