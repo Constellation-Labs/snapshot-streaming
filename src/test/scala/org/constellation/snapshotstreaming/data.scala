@@ -230,7 +230,8 @@ object data {
             messages = None,
             artifacts = None,
             allowSpendBlocks = None,
-            tokenLockBlocks = None
+            tokenLockBlocks = None,
+            globalSyncView = None
           ),
           NonEmptySet.one(SignatureProof(Id(Hex("")), Signature(Hex(""))))
         ),

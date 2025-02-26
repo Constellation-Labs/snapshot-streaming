@@ -3,16 +3,9 @@ package org.constellation.snapshotstreaming
 import cats.effect.kernel.Async
 import cats.syntax.all._
 
-import io.constellationnetwork.currency.schema.currency.{
-  CurrencyIncrementalSnapshot,
-  CurrencySnapshot,
-  CurrencySnapshotInfo
-}
+import io.constellationnetwork.currency.schema.currency.{CurrencyIncrementalSnapshot, CurrencySnapshot, CurrencySnapshotInfo}
 import io.constellationnetwork.kryo.KryoSerializer
-import io.constellationnetwork.node.shared.infrastructure.snapshot.{
-  GlobalSnapshotContextFunctions,
-  GlobalSnapshotStateChannelEventsProcessor
-}
+import io.constellationnetwork.node.shared.infrastructure.snapshot.{GlobalSnapshotContextFunctions, GlobalSnapshotStateChannelEventsProcessor}
 import io.constellationnetwork.schema.{GlobalIncrementalSnapshot, GlobalSnapshotInfo}
 import io.constellationnetwork.security.signature.Signed
 import io.constellationnetwork.security.{Hashed, HasherSelector}
@@ -23,36 +16,37 @@ import org.constellation.snapshotstreaming.SnapshotProcessor.GlobalSnapshotWithS
 trait GlobalSnapshotContextService[F[_]] {
 
   def createContext(
-    context: GlobalSnapshotInfo,
-    lastArtifact: Signed[GlobalIncrementalSnapshot],
-    artifact: Hashed[GlobalIncrementalSnapshot]
+    context                  : GlobalSnapshotInfo,
+    lastArtifact             : Signed[GlobalIncrementalSnapshot],
+    artifact                 : Hashed[GlobalIncrementalSnapshot],
+    lastNIncrementalSnapshots: Option[List[Hashed[GlobalIncrementalSnapshot]]]
   ): F[GlobalSnapshotWithState]
 
 }
 
 object GlobalSnapshotContextService {
 
-  def make[F[_]: Async: KryoSerializer: HasherSelector](
+  def make[F[_] : Async : KryoSerializer : HasherSelector](
+    configuration                            : Configuration,
     globalSnapshotStateChannelEventsProcessor: GlobalSnapshotStateChannelEventsProcessor[F],
-    globalSnapshotContextFns: GlobalSnapshotContextFunctions[F]
+    globalSnapshotContextFns                 : GlobalSnapshotContextFunctions[F]
   ): GlobalSnapshotContextService[F] =
     new GlobalSnapshotContextService[F] {
 
       def createContext(
-        context: GlobalSnapshotInfo,
-        lastArtifact: Signed[GlobalIncrementalSnapshot],
-        artifact: Hashed[GlobalIncrementalSnapshot]
+        context                  : GlobalSnapshotInfo,
+        lastArtifact             : Signed[GlobalIncrementalSnapshot],
+        artifact                 : Hashed[GlobalIncrementalSnapshot],
+        lastNIncrementalSnapshots: Option[List[Hashed[GlobalIncrementalSnapshot]]]
       ): F[GlobalSnapshotWithState] =
         HasherSelector[F]
           .forOrdinal(artifact.ordinal) { implicit hasher =>
-            lastArtifact.toHashed.flatMap { lastArtifactHashed =>
-              globalSnapshotContextFns.createContext(
-                context,
-                lastArtifact,
-                artifact.signed,
-                List(lastArtifactHashed).some
-              )
-            }
+            globalSnapshotContextFns.createContext(
+              context,
+              lastArtifact,
+              artifact.signed,
+              lastNIncrementalSnapshots
+            )
           }
           .flatMap { newContext =>
             HasherSelector[F].forOrdinal(artifact.ordinal) { implicit hasher =>
@@ -61,38 +55,36 @@ object GlobalSnapshotContextService {
                 case (address, snapshots) => address -> snapshots.reverse
               }
 
-              lastArtifact.toHashed.flatMap { lastArtifactHashed =>
-                globalSnapshotStateChannelEventsProcessor
-                  .processCurrencySnapshots(
-                    artifact.ordinal,
-                    context,
-                    reversedStateChannelSnapshots,
-                    List(lastArtifactHashed).some
-                  )
-                  .flatMap {
-                    _.mapFilter { case (snapshots, _) =>
-                      snapshots.collect { case (binary, Some(currencySnapshotWithState)) =>
-                        (binary, currencySnapshotWithState)
-                      }.toNel
-                    }.traverse(_.traverse { case (binary, currencySnapshotWithState) =>
-                      currencySnapshotWithState match {
-                        case Left(full) =>
-                          full.toHashed.map(
-                            _.asLeft[
-                              (
-                                Hashed[CurrencyIncrementalSnapshot],
+              globalSnapshotStateChannelEventsProcessor
+                .processCurrencySnapshots(
+                  artifact.ordinal,
+                  context,
+                  reversedStateChannelSnapshots,
+                  lastNIncrementalSnapshots
+                )
+                .flatMap {
+                  _.mapFilter { case (snapshots, _) =>
+                    snapshots.collect { case (binary, Some(currencySnapshotWithState)) =>
+                      (binary, currencySnapshotWithState)
+                    }.toNel
+                  }.traverse(_.traverse { case (binary, currencySnapshotWithState) =>
+                    currencySnapshotWithState match {
+                      case Left(full) =>
+                        full.toHashed.map(
+                          _.asLeft[
+                            (
+                              Hashed[CurrencyIncrementalSnapshot],
                                 CurrencySnapshotInfo,
                                 Signed[StateChannelSnapshotBinary]
                               )
-                            ]
-                          )
-                        case Right((inc, info)) =>
-                          inc.toHashed.map(hashed => (hashed, info, binary).asRight[Hashed[CurrencySnapshot]])
-                      }
-                    })
-                  }
-                  .map(GlobalSnapshotWithState(artifact, context.some, newContext, _))
-              }
+                          ]
+                        )
+                      case Right((inc, info)) =>
+                        inc.toHashed.map(hashed => (hashed, info, binary).asRight[Hashed[CurrencySnapshot]])
+                    }
+                  })
+                }
+                .map(GlobalSnapshotWithState(artifact, context.some, newContext, _))
             }
           }
 

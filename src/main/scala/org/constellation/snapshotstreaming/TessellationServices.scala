@@ -6,11 +6,7 @@ import cats.syntax.functor._
 
 import io.constellationnetwork.json.{JsonBrotliBinarySerializer, JsonSerializer}
 import io.constellationnetwork.kryo.KryoSerializer
-import io.constellationnetwork.node.shared.config.types.{
-  AddressesConfig,
-  DelegatedStakingConfig,
-  LastGlobalSnapshotsSyncConfig
-}
+import io.constellationnetwork.node.shared.config.types.{AddressesConfig, DelegatedStakingConfig, LastGlobalSnapshotsSyncConfig}
 import io.constellationnetwork.node.shared.domain.node.UpdateNodeParametersAcceptanceManager
 import io.constellationnetwork.node.shared.domain.statechannel.FeeCalculator
 import io.constellationnetwork.node.shared.domain.swap.block.AllowSpendBlockAcceptanceManager
@@ -29,7 +25,7 @@ import eu.timepit.refined.types.numeric.{NonNegLong, PosInt}
 
 object TessellationServices {
 
-  def make[F[_]: Async: JsonSerializer: KryoSerializer: SecurityProvider](
+  def make[F[_] : Async : JsonSerializer : KryoSerializer : SecurityProvider](
     configuration: Configuration
   )(implicit hasherSelector: HasherSelector[F]): F[TessellationServices[F]] =
     for {
@@ -99,12 +95,12 @@ object TessellationServices {
           configuration.collateral
         )
         val globalSnapshotContextFns = GlobalSnapshotContextFunctions.make[F](globalSnapshotAcceptanceManager)
-        GlobalSnapshotContextService.make(globalSnapshotStateChannelEventsProcessor, globalSnapshotContextFns)
+        GlobalSnapshotContextService.make(configuration, globalSnapshotStateChannelEventsProcessor, globalSnapshotContextFns)
       }
     } yield new TessellationServices[F](globalSnapshotContextService) {}
 
 }
 
-sealed abstract class TessellationServices[F[_]] private (
+sealed abstract class TessellationServices[F[_]] private(
   val globalSnapshotContextService: GlobalSnapshotContextService[F]
 )

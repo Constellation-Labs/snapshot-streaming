@@ -31,6 +31,12 @@ class Configuration(sharedConfigReader: SharedConfigReader) {
 
   val lastFullSnapshotPath: Path = Path(config.getString("snapshotStreaming.lastSnapshotPath"))
   val lastIncrementalSnapshotPath: Path = Path(config.getString("snapshotStreaming.lastIncrementalSnapshotPath"))
+  val lastNIncrementalSnapshot: Long = config.getLong("snapshotStreaming.lastNIncrementalSnapshots")
+
+  val lastNIncrementalSnapshotDirectoryPath: Path = Path(
+    config.getString("snapshotStreaming.lastNIncrementalSnapshotDirectory")
+  )
+
   val collateral: Amount = Amount(NonNegLong.unsafeFrom(config.getLong("snapshotStreaming.collateral")))
 
   val environment: AppEnvironment =
