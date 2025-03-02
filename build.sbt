@@ -65,6 +65,10 @@ lazy val core = (project in file("."))
       Libraries.fs2Core,
       Libraries.fs2Io,
       Libraries.guava,
+      Libraries.skunk,
+      Libraries.skunkCirce,
+      Libraries.pureconfigCore,
+      Libraries.pureconfigEnumeratum,
       Libraries.http4sCirce,
       Libraries.http4sClient,
       Libraries.http4sDsl,
@@ -75,3 +79,5 @@ lazy val core = (project in file("."))
       Libraries.tessellationShared
     )
   )
+
+Compile / run / fork := true

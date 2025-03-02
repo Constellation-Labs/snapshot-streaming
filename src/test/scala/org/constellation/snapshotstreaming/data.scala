@@ -54,34 +54,6 @@ object data {
     def select(ordinal: SnapshotOrdinal): HashLogic = JsonHash
   }
 
-  def globalSnapshot(
-    ordinal: NonNegLong,
-    height: NonNegLong,
-    subHeight: NonNegLong,
-    lastSnapshot: Hash,
-    hash: Hash
-  ): Hashed[GlobalSnapshot] =
-    Hashed(
-      Signed(
-        GlobalSnapshot(
-          ordinal = SnapshotOrdinal(ordinal),
-          height = Height(height),
-          subHeight = SubHeight(subHeight),
-          lastSnapshotHash = lastSnapshot,
-          blocks = SortedSet.empty,
-          stateChannelSnapshots = SortedMap.empty,
-          rewards = SortedSet.empty,
-          epochProgress = EpochProgress.MinValue,
-          nextFacilitators = NonEmptyList.of(PeerId(Hex(""))),
-          info = GlobalSnapshotInfoV1(SortedMap.empty, SortedMap.empty, SortedMap.empty),
-          tips = SnapshotTips(SortedSet.empty, SortedSet.empty)
-        ),
-        NonEmptySet.one(SignatureProof(Id(Hex("")), Signature(Hex(""))))
-      ),
-      hash,
-      ProofsHash(Hash.empty.value)
-    )
-
   def incrementalGlobalSnapshot[F[_]: Sync: HasherSelector](
     ordinal: NonNegLong,
     height: NonNegLong,

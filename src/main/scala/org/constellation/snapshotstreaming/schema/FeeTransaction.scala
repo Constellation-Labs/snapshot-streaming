@@ -1,9 +1,9 @@
-package org.constellation.snapshotstreaming.opensearch.schema
+package org.constellation.snapshotstreaming.schema
 
-import java.util.Date
 import io.circe.Encoder
 import io.circe.generic.semiauto._
-import schema._
+
+import java.time.LocalDateTime
 
 final case class FeeTransaction(
   hash: String,
@@ -13,7 +13,7 @@ final case class FeeTransaction(
   dataUpdateRef: String,
   snapshotHash: String,
   snapshotOrdinal: Long,
-  timestamp: Date
+  timestamp: LocalDateTime,
 )
 
 object FeeTransaction {

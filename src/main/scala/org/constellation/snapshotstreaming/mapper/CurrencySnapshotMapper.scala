@@ -1,47 +1,27 @@
-package org.constellation.snapshotstreaming.opensearch.mapper
+package org.constellation.snapshotstreaming.mapper
 
-import java.util.Date
-import cats.data.NonEmptyList
 import cats.effect.Async
 import cats.syntax.all._
-import org.constellation.snapshotstreaming.opensearch.schema.{AddressBalance, Block, CurrencyData, FeeTransaction, Snapshot, Transaction, CurrencySnapshot => OSCurrencySnapshot}
-import io.constellationnetwork.currency.schema.currency.CurrencyIncrementalSnapshot
-import io.constellationnetwork.currency.schema.currency.CurrencySnapshot
-import io.constellationnetwork.currency.schema.currency.CurrencySnapshotInfo
-import io.constellationnetwork.schema.address.Address
-import io.constellationnetwork.security.Hashed
-import io.constellationnetwork.security.Hasher
-import org.constellation.snapshotstreaming.opensearch.schema.{AddressBalance, Block, CurrencyData, FeeTransaction, Snapshot, Transaction, CurrencySnapshot => OSCurrencySnapshot}
 import io.constellationnetwork.json.JsonSerializer
+import io.constellationnetwork.schema.address.Address
 import io.constellationnetwork.schema.balance.Balance
-import io.constellationnetwork.security.signature.Signed
-import io.constellationnetwork.statechannel.StateChannelSnapshotBinary
+import io.constellationnetwork.security.Hasher
+import org.constellation.snapshotstreaming.SnapshotProcessor.GlobalSnapshotWithState
+import org.constellation.snapshotstreaming.schema.schema.MetagraphData
+import org.constellation.snapshotstreaming.schema.{AddressBalance, Block, CurrencyData, FeeTransaction, Transaction, CurrencySnapshot => OSCurrencySnapshot}
 
+import java.time.LocalDateTime
 import scala.collection.immutable.SortedMap
 
 trait CurrencySnapshotMapper[F[_]] {
 
   def mapCurrencySnapshots(
-    snapshots: Map[Address, NonEmptyList[
-      Either[Hashed[
-        CurrencySnapshot
-      ], (Hashed[CurrencyIncrementalSnapshot], CurrencySnapshotInfo, Signed[StateChannelSnapshotBinary])]
-    ]],
-    maybeLastSnapshots: Option[SortedMap[Address, Either[Signed[
-      CurrencySnapshot
-    ], (Signed[CurrencyIncrementalSnapshot], CurrencySnapshotInfo)]]],
-    timestamp: Date,
+    globalSnapshotWithState: GlobalSnapshotWithState,
+    timestamp: LocalDateTime,
     txHasher: Hasher[F],
     hasher: Hasher[F]
   ): F[
-    (
-      Seq[CurrencyData[Snapshot]],
-      Seq[CurrencyData[OSCurrencySnapshot]],
-      Seq[CurrencyData[Block]],
-      Seq[CurrencyData[Transaction]],
-      Seq[CurrencyData[FeeTransaction]],
-      Seq[CurrencyData[AddressBalance]]
-    )
+    MetagraphData
   ]
 
 }
@@ -59,7 +39,6 @@ object CurrencySnapshotMapper {
     new CurrencySnapshotMapper[F] {
 
       type Acc = (
-        Seq[CurrencyData[Snapshot]],
         Seq[CurrencyData[OSCurrencySnapshot]],
         Seq[CurrencyData[Block]],
         Seq[CurrencyData[Transaction]],
@@ -68,27 +47,19 @@ object CurrencySnapshotMapper {
         Map[Address, SortedMap[Address, Balance]]
       )
 
-      type CurrencySnapshotMapperResult = (
-        Seq[CurrencyData[Snapshot]],
-        Seq[CurrencyData[OSCurrencySnapshot]],
-        Seq[CurrencyData[Block]],
-        Seq[CurrencyData[Transaction]],
-        Seq[CurrencyData[FeeTransaction]],
-        Seq[CurrencyData[AddressBalance]]
-      )
+      type CurrencySnapshotMapperResult = MetagraphData
 
       def mapCurrencySnapshots(
-        snapshots: Map[Address, NonEmptyList[Either[Hashed[
-          CurrencySnapshot
-        ], (Hashed[CurrencyIncrementalSnapshot], CurrencySnapshotInfo, Signed[StateChannelSnapshotBinary])]]],
-        maybeLastSnapshots: Option[SortedMap[Address, Either[Signed[
-          CurrencySnapshot
-        ], (Signed[CurrencyIncrementalSnapshot], CurrencySnapshotInfo)]]],
-        timestamp: Date,
+        globalSnapshotWithState: GlobalSnapshotWithState,
+        timestamp: LocalDateTime,
         txHasher: Hasher[F],
         hasher: Hasher[F]
       ): F[CurrencySnapshotMapperResult] = {
 
+        val GlobalSnapshotWithState(_, maybePrevLastSnapshots, _, currencySnapshots, _) =
+          globalSnapshotWithState
+
+        val maybeLastSnapshots = maybePrevLastSnapshots.map(_.lastCurrencySnapshots)
         val initialAccBalances = maybeLastSnapshots.map {
           _.map {
             case (identifier, Left(full))        => identifier -> full.info.balances
@@ -97,7 +68,6 @@ object CurrencySnapshotMapper {
         }.getOrElse(SortedMap.empty[Address, SortedMap[Address, Balance]])
 
         val initialAcc: Acc = (
-          Seq.empty[CurrencyData[Snapshot]],
           Seq.empty[CurrencyData[OSCurrencySnapshot]],
           Seq.empty[CurrencyData[Block]],
           Seq.empty[CurrencyData[Transaction]],
@@ -106,10 +76,10 @@ object CurrencySnapshotMapper {
           initialAccBalances
         )
 
-        snapshots.toList.flatMap { case (i, s) => s.toList.map((i, _)) }
+        currencySnapshots.toList.flatMap { case (i, s) => s.toList.map((i, _)) }
           .foldLeftM[F, Acc](initialAcc) {
             case (
-                  (aggSnap, aggCurrencyIncrementalSnap, aggBlocks, aggTxs, aggFeeTxs, aggBalances, aggLastBalances),
+                  (aggSnap, aggBlocks, aggTxs, aggFeeTxs, aggBalances, aggLastBalances),
                   (identifier, fullOrIncremental)
                 ) =>
               val identifierStr = identifier.value.value
@@ -131,7 +101,6 @@ object CurrencySnapshotMapper {
                       .map(CurrencyData(identifierStr, _))
                   } yield (
                     aggSnap :+ snapshot,
-                    aggCurrencyIncrementalSnap,
                     aggBlocks ++ blocks,
                     aggTxs ++ transactions,
                     aggFeeTxs,
@@ -163,8 +132,7 @@ object CurrencySnapshotMapper {
                       .mapBalances(incremental, filteredBalances, timestamp)
                       .map(CurrencyData(identifierStr, _))
                   } yield (
-                    aggSnap,
-                    aggCurrencyIncrementalSnap :+ snapshot,
+                    aggSnap :+ snapshot,
                     aggBlocks ++ blocks,
                     aggTxs ++ transactions,
                     aggFeeTxs ++ feeTransactions,
@@ -173,8 +141,8 @@ object CurrencySnapshotMapper {
                   )
               }
           }
-          .map { case (aggSnap, aggCurrencyIncrementalSnap, aggBlocks, aggTxs, aggFeeTxs, aggBalances, _) =>
-            (aggSnap, aggCurrencyIncrementalSnap, aggBlocks, aggTxs, aggFeeTxs, aggBalances)
+          .map { case (aggSnap, aggBlocks, aggTxs, aggFeeTxs, aggBalances, _) =>
+            MetagraphData(aggSnap, aggBlocks, aggTxs, aggFeeTxs, aggBalances)
           }
       }
 

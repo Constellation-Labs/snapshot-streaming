@@ -2,46 +2,48 @@ package org.constellation.snapshotstreaming.s3
 
 import cats.Applicative
 import cats.effect.{Async, Resource}
-import cats.syntax.contravariantSemigroupal._
-import cats.syntax.flatMap._
-import cats.syntax.functor._
-import cats.syntax.show._
 import io.constellationnetwork.ext.kryo._
 import io.constellationnetwork.kryo.KryoSerializer
 import io.constellationnetwork.schema.GlobalIncrementalSnapshot
 import io.constellationnetwork.security.Hashed
+import cats.syntax.all._
 import com.amazonaws.client.builder.AwsClientBuilder.EndpointConfiguration
 import com.amazonaws.services.s3.model.ObjectMetadata
 import com.amazonaws.services.s3.{AmazonS3, AmazonS3ClientBuilder}
-import org.constellation.snapshotstreaming.Configuration
+import org.constellation.snapshotstreaming.S3Config
 import org.typelevel.log4cats.slf4j.Slf4jLogger
+import io.constellationnetwork.security.signature.Signed
+import io.constellationnetwork.security.hash.Hash
+import fs2.{Stream, io}
 
 import java.io.ByteArrayInputStream
 
 trait S3DAO[F[_]] {
   def uploadSnapshot(snapshot: Hashed[GlobalIncrementalSnapshot]): F[Unit]
+  def downloadSnapshot(hash: Hash): F[Signed[GlobalIncrementalSnapshot]]
+  def metadata(hash: Hash): F[ObjectMetadata]
 }
 
 object S3DAO {
 
-  def make[F[_]: Async: KryoSerializer](config: Configuration): Resource[F, S3DAO[F]] =
+  def make[F[_]: Async : KryoSerializer](config: S3Config): Resource[F, S3DAO[F]] =
     Resource.make {
       Applicative[F].pure {
         val emptyBuilder = AmazonS3ClientBuilder
           .standard()
 
-        (config.s3ApiEndpoint, config.s3ApiRegion).mapN { case (endpoint, region) =>
+        (config.api.endpoint, config.api.region).mapN { case (endpoint, region) =>
           emptyBuilder.withEndpointConfiguration(new EndpointConfiguration(endpoint, region))
         }
           .getOrElse(emptyBuilder.withRegion(config.bucketRegion))
-          .withPathStyleAccessEnabled(config.s3ApiPathStyleEnabled.getOrElse(false).booleanValue())
+          .withPathStyleAccessEnabled(config.api.pathStyleEnabled.getOrElse(false).booleanValue())
       }.flatMap { builder =>
         Async[F].delay(builder.build())
       }
     }(c => Async[F].delay(c.shutdown()))
       .map(make(config, _))
 
-  def make[F[_]: Async: KryoSerializer](config: Configuration, s3Client: AmazonS3): S3DAO[F] = new S3DAO[F] {
+  def make[F[_]: Async: KryoSerializer](config: S3Config, s3Client: AmazonS3): S3DAO[F] = new S3DAO[F] {
 
     private val logger = Slf4jLogger.getLogger[F]
 
@@ -55,6 +57,23 @@ object S3DAO {
           s"Snapshot ${snapshot.ordinal.value.value} (hash: ${snapshot.hash.show.take(8)}) uploaded to s3."
         )
       } yield ()
+
+    def downloadSnapshot(hash: Hash): F[Signed[GlobalIncrementalSnapshot]] = {
+      val keyName = s"${config.bucketDir}/${hash}"
+      val resource = for {
+        s3Object <- Resource.eval(Async[F].delay(s3Client.getObject(config.bucketName, keyName)))
+        dataStreamR <- Resource.fromAutoCloseable(Async[F].delay(s3Object.getObjectContent))
+      } yield dataStreamR
+      Stream
+        .resource(resource)
+        .flatMap(inputStream => io.readInputStream(Async[F].delay(inputStream.getDelegateStream), chunkSize = 4096))
+        .compile
+        .to(Array)
+        .flatMap(_.fromBinaryF[Signed[GlobalIncrementalSnapshot]])
+    }
+
+    def metadata(hash: Hash) =
+      Async[F].delay(s3Client.getObjectMetadata(config.bucketName, s"${config.bucketDir}/${hash}"))
 
   }
 

@@ -20,7 +20,7 @@ import pureconfig.generic.auto._
 import pureconfig.module.catseffect.syntax._
 import pureconfig.module.enumeratum._
 
-object App extends IOApp {
+object AppS3 extends IOApp {
   private val logger = Slf4jLogger.getLogger[IO]
 
   def run(args: List[String]): IO[ExitCode] =
@@ -38,14 +38,14 @@ object App extends IOApp {
                 val txHasher = Hasher.forKryo[IO]
 
                 SecurityProvider.forAsync[IO].use { implicit sp =>
-                  SnapshotProcessor
+                  SnapshotProcessorS3
                     .make[IO](
                       appConfig.snapshotStreaming,
                       sharedCfg,
                       txHasher
                     )
-                    .use { snapshotProcessor =>
-                      snapshotProcessor.runtime.compile.drain.recoverWith { case e => logger.error(s"$e") }
+                    .use { snapshotProcessorS3 =>
+                      snapshotProcessorS3.runtime.compile.drain.recoverWith { case e => logger.error(s"$e") }
                         .flatTap(_ => logger.info("Done!"))
                         .as(ExitCode.Success)
                     }

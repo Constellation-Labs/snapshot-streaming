@@ -1,24 +1,20 @@
-package org.constellation.snapshotstreaming.opensearch.mapper
+package org.constellation.snapshotstreaming.mapper
 
 import cats.effect.Async
 import cats.syntax.all._
 import eu.timepit.refined.auto._
-import org.constellation.snapshotstreaming.opensearch.schema.{CurrencySnapshot, FeeTransaction, FeeTransactionReference, RewardTransaction}
-
-import scala.collection.immutable.SortedSet
-import io.constellationnetwork.currency.schema.currency.CurrencyIncrementalSnapshot
-import io.constellationnetwork.currency.schema.currency.CurrencySnapshotInfo
 import io.constellationnetwork.currency.dataApplication.{FeeTransaction => OriginalFeeTransaction}
-import io.constellationnetwork.json.JsonSerializer
-import io.constellationnetwork.json.SizeCalculator
+import io.constellationnetwork.currency.schema.currency.{CurrencyIncrementalSnapshot, CurrencySnapshotInfo}
+import io.constellationnetwork.json.{JsonSerializer, SizeCalculator}
 import io.constellationnetwork.schema.currencyMessage.MessageType
 import io.constellationnetwork.schema.transaction.{RewardTransaction => OriginalRewardTransaction}
 import io.constellationnetwork.security.signature.Signed
-import io.constellationnetwork.security.Hashed
-import io.constellationnetwork.security.Hasher
+import io.constellationnetwork.security.{Hashed, Hasher}
 import io.constellationnetwork.statechannel.StateChannelSnapshotBinary
+import org.constellation.snapshotstreaming.schema.{CurrencySnapshot, FeeTransaction, RewardTransaction}
 
-import java.util.Date
+import java.time.LocalDateTime
+import scala.collection.immutable.SortedSet
 
 abstract class CurrencyIncrementalSnapshotMapper[F[_]: Async]
     extends SnapshotMapper[F, CurrencyIncrementalSnapshot, CurrencySnapshotInfo] {
@@ -27,13 +23,13 @@ abstract class CurrencyIncrementalSnapshotMapper[F[_]: Async]
     snapshot: Hashed[CurrencyIncrementalSnapshot],
     binary: Signed[StateChannelSnapshotBinary],
     info: CurrencySnapshotInfo,
-    timestamp: Date,
+    timestamp: LocalDateTime,
     hasher: Hasher[F]
   ): F[CurrencySnapshot]
 
   def mapFeeTransactions(
     snapshot: Hashed[CurrencyIncrementalSnapshot],
-    timestamp: Date,
+    timestamp: LocalDateTime,
     hasher: Hasher[F]
   ): F[List[FeeTransaction]]
 
@@ -57,7 +53,7 @@ object CurrencyIncrementalSnapshotMapper {
 
       def mapFeeTransactions(
         snapshot: Hashed[CurrencyIncrementalSnapshot],
-        timestamp: Date,
+        timestamp: LocalDateTime,
         hasher: Hasher[F]
       ): F[List[FeeTransaction]] = {
         implicit val hs: Hasher[F] = hasher
@@ -70,10 +66,16 @@ object CurrencyIncrementalSnapshotMapper {
         snapshot: Hashed[CurrencyIncrementalSnapshot],
         binary: Signed[StateChannelSnapshotBinary],
         info: CurrencySnapshotInfo,
-        timestamp: Date,
+        timestamp: LocalDateTime,
         hasher: Hasher[F]
       ): F[CurrencySnapshot] = for {
         blocksHashes <- snapshot.blocks.unsorted.map(_.block).map(hashBlock(_, hasher)).toList.sequence
+        rewards = fetchRewards(snapshot).unsorted.map(reward =>
+          RewardTransaction(
+            reward.destination.value,
+            reward.amount.value
+          )
+        )
         sizeInKb <- SizeCalculator.kilobytes(binary)
       } yield CurrencySnapshot(
         hash = snapshot.hash.value,
@@ -82,23 +84,21 @@ object CurrencyIncrementalSnapshotMapper {
         subHeight = snapshot.subHeight.value,
         lastSnapshotHash = snapshot.lastSnapshotHash.value,
         blocks = blocksHashes.toSet,
-        rewards = fetchRewards(snapshot).unsorted.map(reward =>
-          RewardTransaction(
-            reward.destination.value,
-            reward.amount.value
-          )
-        ),
+        rewards = rewards,
+        epochProgress = snapshot.epochProgress.value,
         timestamp = timestamp,
-        fee = binary.fee.value,
+        version = snapshot.version.version,
+        fee = Some(binary.fee.value),
         stakingAddress = getMessageAddress(MessageType.Staking, info),
         ownerAddress = getMessageAddress(MessageType.Owner, info),
         sizeInKB = sizeInKb.toLong
       )
 
-      private def mapFeeTransaction(snapshotHash: String, snapshotOrdinal: Long, timestamp: Date)(
+      private def mapFeeTransaction(snapshotHash: String, snapshotOrdinal: Long, timestamp: LocalDateTime)(
         feeTransaction: Signed[OriginalFeeTransaction]
       )(implicit hasher: Hasher[F]): F[FeeTransaction] =
         feeTransaction.toHashed.map { feeTx =>
+
           FeeTransaction(
             feeTx.hash.value,
             feeTx.amount.value,

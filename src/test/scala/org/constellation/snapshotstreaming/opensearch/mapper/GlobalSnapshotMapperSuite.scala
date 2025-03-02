@@ -27,6 +27,7 @@ import org.constellation.snapshotstreaming.data.createRewards
 import org.constellation.snapshotstreaming.data.createTxn
 import org.constellation.snapshotstreaming.data.hashSelect
 import org.constellation.snapshotstreaming.data.incrementalGlobalSnapshot
+import org.constellation.snapshotstreaming.mapper.GlobalSnapshotMapper
 import weaver.MutableIOSuite
 import io.constellationnetwork.security.Hasher
 import io.constellationnetwork.json.JsonSerializer
@@ -81,7 +82,7 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
         initialBalances,
         blocks.flatMap(_.block.transactions.toList).toList,
         List.empty,
-        List.empty,
+        List.empty
       )
 
       updatedInfo = GlobalSnapshotInfo(SortedMap.empty, SortedMap.empty, updatedBalances, SortedMap.empty, SortedMap.empty, None, None)
@@ -93,7 +94,7 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
         Hash("abc"),
         Hash("def"),
         updatedInfo,
-        blocks,
+        blocks
       )
 
       result = GlobalSnapshotMapper
@@ -110,7 +111,6 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
     )
   }
 
-
   test("removes addresses that have transactions but the result balance hasn't changed") { res =>
     implicit val (h, ks, sp, key1, key2, _, _) = res
     val address1 = key1.getPublic.toAddress
@@ -122,13 +122,13 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
       txn2 <- createTxn(address2, key2, address1, TransactionAmount(1L))
       blocks <- createBlocksWithTransactions(
         key1,
-        NonEmptySet.fromSetUnsafe(SortedSet(txn1, txn2)),
+        NonEmptySet.fromSetUnsafe(SortedSet(txn1, txn2))
       )
       updatedBalances = applyTransactions(
         initialBalances,
         blocks.flatMap(_.block.transactions.toList).toList,
         List.empty,
-        List.empty,
+        List.empty
       )
       updatedInfo = GlobalSnapshotInfo(SortedMap.empty, SortedMap.empty, updatedBalances, SortedMap.empty, SortedMap.empty, None, None)
 
@@ -139,7 +139,7 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
         Hash("abc"),
         Hash("def"),
         updatedInfo,
-        blocks,
+        blocks
       )
 
       result = GlobalSnapshotMapper
@@ -172,7 +172,7 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
         initialBalances,
         blocks.flatMap(_.block.transactions.toList).toList,
         List.empty,
-        List.empty,
+        List.empty
       )
       updatedInfo = GlobalSnapshotInfo(SortedMap.empty, SortedMap.empty, updatedBalances, SortedMap.empty, SortedMap.empty, None, None)
       snapshot <- incrementalGlobalSnapshot[IO](
@@ -182,7 +182,7 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
         Hash("abc"),
         Hash("def"),
         updatedInfo,
-        blocks,
+        blocks
       )
 
       result = GlobalSnapshotMapper
@@ -208,7 +208,7 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
       initialBalances,
       List.empty,
       rewards.toList,
-      List.empty,
+      List.empty
     )
     val updatedInfo = GlobalSnapshotInfo(SortedMap.empty, SortedMap.empty, updatedBalances, SortedMap.empty, SortedMap.empty, None, None)
 
@@ -229,4 +229,5 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
       updatedBalances - address3 - address4
     )
   }
+
 }
