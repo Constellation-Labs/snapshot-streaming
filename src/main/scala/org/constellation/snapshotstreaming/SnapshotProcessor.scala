@@ -228,7 +228,8 @@ object SnapshotProcessor {
                         .createContext(
                           processedSnapshots.lastState,
                           processedSnapshots.lastSnapshot,
-                          snapshot
+                          snapshot,
+                          l0Service.pullGlobalSnapshot
                         )
                         .map { globalSnapshotsWithState =>
                           ProcessedSnapshots(

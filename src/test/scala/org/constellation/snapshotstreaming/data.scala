@@ -22,6 +22,7 @@ import io.constellationnetwork.schema.height.{Height, SubHeight}
 import io.constellationnetwork.schema.node.UpdateNodeParameters
 import io.constellationnetwork.schema.peer.PeerId
 import io.constellationnetwork.schema.swap.AllowSpendBlock
+import io.constellationnetwork.schema.tokenLock.TokenLockBlock
 import io.constellationnetwork.schema.transaction._
 import io.constellationnetwork.security._
 import io.constellationnetwork.security.hash.{Hash, ProofsHash}
@@ -96,6 +97,7 @@ object data {
             tips = SnapshotTips(SortedSet.empty, SortedSet.empty),
             stateProof = sp,
             SortedSet.empty[Signed[AllowSpendBlock]].some,
+            SortedSet.empty[Signed[TokenLockBlock]].some,
             SortedMap.empty[Address, List[SpendAction]].some,
             SortedMap.empty[Id, Signed[UpdateNodeParameters]].some
           ),
@@ -230,7 +232,8 @@ object data {
             messages = None,
             artifacts = None,
             allowSpendBlocks = None,
-            tokenLockBlocks = None
+            tokenLockBlocks = None,
+            globalSyncView = None
           ),
           NonEmptySet.one(SignatureProof(Id(Hex("")), Signature(Hex(""))))
         ),

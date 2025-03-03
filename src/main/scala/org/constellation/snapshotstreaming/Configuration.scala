@@ -46,6 +46,12 @@ class Configuration(sharedConfigReader: SharedConfigReader) {
     .map(configs => SortedMap.from(configs))
     .getOrElse(SortedMap.empty[SnapshotOrdinal, FeeCalculatorConfig])
 
+  val globalSyncViewAddedConfig: SnapshotOrdinal =
+    sharedConfigReader.fieldsAddedOrdinals.globalSyncView.getOrElse(environment, SnapshotOrdinal.MinValue)
+
+  val globalTokenLocksAddedConfig: SnapshotOrdinal =
+    sharedConfigReader.fieldsAddedOrdinals.globalTokenLocks.getOrElse(environment, SnapshotOrdinal.MinValue)
+
   val l0Peers: NonEmptyMap[PeerId, L0Peer] = NonEmptyMap.fromMapUnsafe(
     SortedMap.from(
       node.getStringList("l0Peers").asScala.toList.map(decode[L0Peer](_).toOption.get).map(p => p.id -> p)
