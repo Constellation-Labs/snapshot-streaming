@@ -11,7 +11,6 @@ import org.constellation.snapshotstreaming.schema.{RewardTransaction, Snapshot}
 
 import java.time.LocalDateTime
 import scala.collection.immutable.SortedSet
-//import io.constellationnetwork.kryo.KryoSerializer
 
 abstract class GlobalSnapshotMapper[F[_]: Async]
     extends SnapshotMapper[F, GlobalIncrementalSnapshot, GlobalSnapshotInfo] {

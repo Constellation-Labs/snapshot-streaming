@@ -60,6 +60,10 @@ object FileBasedLastGlobalIncrementalSnapshotStorageSuite extends MutableIOSuite
     SortedMap.empty,
     SortedMap.empty,
     None,
+    None,
+    None,
+    None,
+    None,
     None
   )
 

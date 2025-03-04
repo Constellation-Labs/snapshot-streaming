@@ -5,6 +5,7 @@ import cats.effect.{Async, Resource}
 import io.constellationnetwork.ext.kryo._
 import io.constellationnetwork.kryo.KryoSerializer
 import io.constellationnetwork.schema.GlobalIncrementalSnapshot
+import io.constellationnetwork.schema.GlobalIncrementalSnapshotV1
 import io.constellationnetwork.security.Hashed
 import cats.syntax.all._
 import com.amazonaws.client.builder.AwsClientBuilder.EndpointConfiguration
@@ -69,7 +70,10 @@ object S3DAO {
         .flatMap(inputStream => io.readInputStream(Async[F].delay(inputStream.getDelegateStream), chunkSize = 4096))
         .compile
         .to(Array)
-        .flatMap(_.fromBinaryF[Signed[GlobalIncrementalSnapshot]])
+        .flatMap( d => d.fromBinaryF[Signed[GlobalIncrementalSnapshotV1]]).map {
+          case Signed(snapV1, proofs) => Signed(snapV1.toGlobalIncrementalSnapshot, proofs)
+        }
+
     }
 
     def metadata(hash: Hash) =

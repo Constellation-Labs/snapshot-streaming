@@ -80,7 +80,11 @@ object data {
             epochProgress = EpochProgress.MinValue,
             nextFacilitators = NonEmptyList.of(PeerId(Hex(""))),
             tips = SnapshotTips(SortedSet.empty, SortedSet.empty),
-            stateProof = sp
+            stateProof = sp,
+            allowSpendBlocks = None,  //TODO populate
+            tokenLockBlocks = None,
+            spendActions = None,
+            updateNodeParameters = None
           ),
           NonEmptySet.one(SignatureProof(Id(Hex("")), Signature(Hex(""))))
         ),
@@ -89,6 +93,7 @@ object data {
       )
     }
   }
+
 
   def emptyCurrencySnapshotInfo: CurrencySnapshotInfo =
     CurrencySnapshotInfo(SortedMap.empty, SortedMap.empty, None, None, None, None, None, None, None)
@@ -213,8 +218,9 @@ object data {
             globalSnapshotSyncs= None,
             feeTransactions = feeTransactions,
             artifacts= None,
-            allowSpendBlocks = None,
-            tokenLockBlocks = None
+            allowSpendBlocks = None,  //TODO populate
+            tokenLockBlocks = None,
+            globalSyncView = None
           ),
           NonEmptySet.one(SignatureProof(Id(Hex("")), Signature(Hex(""))))
         ),

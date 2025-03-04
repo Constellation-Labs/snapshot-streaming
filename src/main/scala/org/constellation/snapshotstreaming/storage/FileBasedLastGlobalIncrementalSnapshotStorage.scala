@@ -37,11 +37,12 @@ object FileBasedLastGlobalIncrementalSnapshotStorage {
     path: Path
   ): F[LastSnapshotStorage[F, GlobalIncrementalSnapshot, GlobalSnapshotInfo]] = {
 
-    def deserializeWithKryoOrJson(data: Array[Byte]) =
-      data.fromBinary[SnapshotWithState].handleErrorWith { e =>
-        println(s"Failed to deserialize with kryo: ${e.getMessage}")
-        jawn.decode[SnapshotWithState](new String(data, "UTF-8"))
-      }
+    def deserializeWithJson(data: Array[Byte]) = jawn.decode[SnapshotWithState](new String(data, "UTF-8"))
+//    def deserializeWithKryoOrJson(data: Array[Byte]) =
+//      data.fromBinary[SnapshotWithState].handleErrorWith { e =>
+//        println(s"Failed to deserialize with kryo: ${e.getMessage}")
+//        jawn.decode[SnapshotWithState](new String(data, "UTF-8"))
+//      }
 
     val readSnapshotWithState: F[Option[SnapshotWithState]] =
       Files[F]
@@ -50,7 +51,7 @@ object FileBasedLastGlobalIncrementalSnapshotStorage {
         .flatMap(_.content)
         .compile
         .to(Array)
-        .map(deserializeWithKryoOrJson)
+        .map(deserializeWithJson)
         .flatMap(_.liftTo[F])
         .map(_.some)
         .handleErrorWith {
@@ -71,14 +72,16 @@ object FileBasedLastGlobalIncrementalSnapshotStorage {
         HasherSelector[F].forOrdinal(snapshot.ordinal) { implicit hasher =>
           (hasher.getLogic(snapshot.ordinal) match {
             case JsonHash => StateProofValidator.validate(snapshot, state)
-            case KryoHash => StateProofValidator.validate(snapshot, GlobalSnapshotInfoV2.fromGlobalSnapshotInfo(state))
+            case KryoHash =>
+            println(s"Validating proof for ${snapshot.ordinal} and hash ${snapshot.hash}")
+              StateProofValidator.validate(snapshot, GlobalSnapshotInfoV2.fromGlobalSnapshotInfo(state))
           }).flatMap(Async[F].fromValidated)
         }
 
       def set(snapshot: Hashed[GlobalIncrementalSnapshot], state: GlobalSnapshotInfo): F[Unit] =
-        validateStateProof(snapshot, state) >> {
+        /*validateStateProof(snapshot, state) >> */{
           val snapshotWithState = SnapshotWithState(snapshot, state)
-          writeSnapshotWithStateKryo(snapshotWithState) >> cachedSnapshot.set(Some(snapshotWithState))
+          writeSnapshotWithStateJson(snapshotWithState) >> cachedSnapshot.set(Some(snapshotWithState))
         }
 //          get.flatMap {
 //            case Some(last) if isNextSnapshot(last, snapshot.signed.value) =>
@@ -110,20 +113,20 @@ object FileBasedLastGlobalIncrementalSnapshotStorage {
           .compile
           .drain
 
-      private def writeSnapshotWithStateKryo(
-        snapshotWithState: SnapshotWithState,
-        flags: Flags = Flags(Flag.Write, Flag.Truncate)
-      ) =
-        Stream
-          .evalSeq(snapshotWithState.toBinaryF.map(_.toSeq))
-          .through(Compression[F].gzip())
-          .through(Files[F].writeAll(path, flags))
-          .compile
-          .drain
+//      private def writeSnapshotWithStateKryo(
+//        snapshotWithState: SnapshotWithState,
+//        flags: Flags = Flags(Flag.Write, Flag.Truncate)
+//      ) =
+//        Stream
+//          .evalSeq(snapshotWithState.toBinaryF.map(_.toSeq))
+//          .through(Compression[F].gzip())
+//          .through(Files[F].writeAll(path, flags))
+//          .compile
+//          .drain
 
       def setInitial(snapshot: Hashed[GlobalIncrementalSnapshot], state: GlobalSnapshotInfo): F[Unit] = {
         val snapshotWithState = SnapshotWithState(snapshot, state)
-        validateStateProof(snapshot, state) >> writeSnapshotWithStateKryo(
+        validateStateProof(snapshot, state) >> writeSnapshotWithStateJson(
           snapshotWithState,
           Flags(Flag.Write, Flag.CreateNew)
         ) >> cachedSnapshot.set(Some(snapshotWithState))

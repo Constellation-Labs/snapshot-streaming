@@ -40,13 +40,12 @@ trait SnapshotProcessorS3[F[_]] {
 
 object SnapshotProcessorS3 {
 
-  def make[F[
-    _
-  ] : Async : Parallel : KryoSerializer : JsonSerializer : SecurityProvider : Random : HasherSelector : Network : Files : Tracer : Console](
-                                                                                                                                             configuration: SnapshotStreamingConfig,
-                                                                                                                                             sharedConfig: SharedConfigReader,
-                                                                                                                                             txHasher: Hasher[F]
-                                                                                                                                           ): Resource[F, SnapshotProcessor[F]] =
+  def make[F[_] : Async : Parallel : KryoSerializer : JsonSerializer : SecurityProvider : Random
+  : HasherSelector : Network : Files : Tracer : Console](
+     configuration: SnapshotStreamingConfig,
+     sharedConfig: SharedConfigReader,
+     txHasher: Hasher[F]
+   ): Resource[F, SnapshotProcessor[F]] =
     for {
       s3DAO <- configuration.s3.traverse(S3DAO.make[F])
       opensearchDAO <- configuration.opensearch.traverse(OpensearchDAO.make[F])
@@ -77,16 +76,6 @@ object SnapshotProcessorS3 {
                                                                                                 ) =
     FileBasedLastGlobalIncrementalSnapshotStorage.make[F](configuration.lastIncrementalSnapshotPath)
 
-  private def L0ClusterStorageRef[F[_] : Async : Random](nodeCfg: NodeConfig) =
-    Ref.of(nodeCfg.l0PeersMap).map(L0ClusterStorage.make(_))
-
-  private def makeClient[F[_] : Async : Network](httpClientConfig: HttpClientConfig) =
-    EmberClientBuilder
-      .default[F]
-      .withTimeout(httpClientConfig.timeout)
-      .withIdleTimeInPool(httpClientConfig.idleTimeInPool)
-      .build
-
   def make[F[_] : Async : Parallel : HasherSelector](
                                                       configuration: SnapshotStreamingConfig,
                                                       lastIncrementalGlobalSnapshotStorage: LastSnapshotStorage[F, GlobalIncrementalSnapshot, GlobalSnapshotInfo],
@@ -101,12 +90,6 @@ object SnapshotProcessorS3 {
                                                     ): SnapshotProcessor[F] = new SnapshotProcessor[F] {
     private val logger = Slf4jLogger.getLogger[F]
 
-    private def logGroupedRequests(br: Seq[UpdateRequest], mode: String): F[Unit] = {
-      val groupedBr = br.groupBy(_.index.index)
-      groupedBr.toList.traverse_ { case (index, group) =>
-        logger.info(s"Processing $mode group for index: $index with ${group.size} requests")
-      }
-    }
 
     private def storeInPostgres(global: GlobalData, metagraph: MetagraphData) =
       snapshotDAO.traverse(dao =>
@@ -181,7 +164,7 @@ object SnapshotProcessorS3 {
         .flatMap { startAfterOrdinal =>
           opensearchDAO.get
             .bulkStream(searchGlobalSnapshots, hitMapper, cursorMapper, startAfterOrdinal)
-            .chunkLimit(10)
+            .chunkLimit(1)
             .evalMap(
               _.parTraverse { case (h, ts) =>
                 logger.info(s"Downloading ${h} from S3") >>
@@ -197,8 +180,10 @@ object SnapshotProcessorS3 {
           logger.info(s"Found ${incrementalSnapshots.size} global snapshots to process") >>
           lastIncrementalGlobalSnapshotStorage.getCombined.flatMap {
             case Some((lastSnapshot, lastState)) =>
+              println("--------------------111111111111-")
               ProcessedSnapshots(lastSnapshot.signed, lastState, List.empty).pure
             case None =>
+              println("---------------------22222")
               lastFullGlobalSnapshotStorage.get.map {
                 case Some(signedFullGlobalSnapshot) =>
                   val incSnapshot = incrementalSnapshots.head._1.signed
@@ -209,9 +194,11 @@ object SnapshotProcessorS3 {
                   )
               }
           }.flatMap { state =>
+            println("---------------------")
             incrementalSnapshots
               .foldM(state) { case (processedSnapshots, (snapshot, dt)) =>
                 logger.info(s"Processing global snapshot: ${getSnapshotReference(snapshot).show}")
+                println("-------------3333--------")
                 tessellationServices.globalSnapshotContextService
                   .createContext(
                     processedSnapshots.lastState,
@@ -220,6 +207,7 @@ object SnapshotProcessorS3 {
                     dt
                   )
                   .map { globalSnapshotsWithState =>
+                    println("-------------3333-11111-------")
                     ProcessedSnapshots(
                       snapshot.signed,
                       globalSnapshotsWithState.snapshotInfo,
@@ -231,11 +219,13 @@ object SnapshotProcessorS3 {
           }
         }
         .evalTap { snapshots =>
+          println("-------4444444--------------")
           snapshots.traverse { case GlobalSnapshotWithState(snapshot, _, _, _, _) =>
             logger.info(s"Pulled following global snapshot: ${getSnapshotReference(snapshot).show}")
           }
         }
         .evalMap { snapshots =>
+          println("-------5555555--------------")
           snapshots.parTraverse { case state@GlobalSnapshotWithState(snapshot, _, _, _, _) =>
             val hasher = HasherSelector[F].getForOrdinal(snapshot.ordinal)
             process(state, hasher).map(_ => state)

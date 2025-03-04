@@ -20,7 +20,7 @@ object Dependencies {
     val logstash = "7.2"
     val organizeImports = "0.6.0"
     val refined = "0.10.1"
-    val tessellation = "2.12.1-61-bb3557f8-dirty-SNAPSHOT"
+    val tessellation = "2.12.3-95-4009b96b-SNAPSHOT"
     val weaver = "0.8.1"
   }
 
@@ -84,7 +84,6 @@ object Dependencies {
     val organizeImports = "com.github.liancheng" %% "organize-imports" % V.organizeImports
 
     val tessellationSdk = "io.constellationnetwork" %% "tessellation-sdk" % V.tessellation
-    val tessellationShared = "io.constellationnetwork" %% "tessellation-shared" % V.tessellation
 
     val weaverCats = weaver("cats")
     val weaverScalaCheck = weaver("scalacheck")

@@ -19,6 +19,9 @@ import pureconfig.ConfigSource
 import pureconfig.generic.auto._
 import pureconfig.module.catseffect.syntax._
 import pureconfig.module.enumeratum._
+import io.constellationnetwork.ext.kryo._
+import io.constellationnetwork.node.shared.nodeSharedKryoRegistrar
+import io.constellationnetwork.shared.sharedKryoRegistrar
 
 object AppS3 extends IOApp {
   private val logger = Slf4jLogger.getLogger[IO]
@@ -29,7 +32,8 @@ object AppS3 extends IOApp {
       .flatMap { appConfig =>
         ConfigSource.default.loadF[IO, SharedConfigReader]().flatMap { sharedCfg =>
           Random.scalaUtilRandom[IO].flatMap { implicit random =>
-            KryoSerializer.forAsync[IO](shared.sharedKryoRegistrar ++ kryoRegistrar).use { implicit ks =>
+            val cryOs =  nodeSharedKryoRegistrar.union(io.constellationnetwork.dag.l1.dagL1KryoRegistrar).union(sharedKryoRegistrar).union(kryoRegistrar)
+            KryoSerializer.forAsync[IO](cryOs).use { implicit ks =>
               JsonSerializer.forSync[IO].asResource.use { implicit jsonSerializer =>
                 val hashSelect = makeHashSelect(appConfig, sharedCfg)
                 implicit val hasherSelector =

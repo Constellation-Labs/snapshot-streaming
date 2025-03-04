@@ -105,7 +105,7 @@ object Configuration {
     SharedConfig(
       env,
       c.gossip,
-      null,
+      null, // http: HttpConfig,
       c.leavingDelay,
       c.stateAfterJoining,
       CliMethod.collateralConfig(env, c.collateral.map(_.amount)),
@@ -117,7 +117,12 @@ object Configuration {
       c.lastKryoHashOrdinal,
       c.addresses,
       c.allowSpends,
-      c.tokenLocks
+      c.tokenLocks,
+      c.lastGlobalSnapshotsSync,
+      c.validationErrorStorage,
+      c.delegatedStaking,
+      c.fieldsAddedOrdinals
     )
+
 
 }

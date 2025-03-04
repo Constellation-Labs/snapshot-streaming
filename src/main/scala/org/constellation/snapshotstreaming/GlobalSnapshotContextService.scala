@@ -1,5 +1,6 @@
 package org.constellation.snapshotstreaming
 
+import cats.Applicative
 import cats.effect.kernel.Async
 import cats.syntax.all._
 import io.constellationnetwork.currency.schema.currency.CurrencyIncrementalSnapshot
@@ -7,8 +8,7 @@ import io.constellationnetwork.currency.schema.currency.CurrencySnapshot
 import io.constellationnetwork.currency.schema.currency.CurrencySnapshotInfo
 import io.constellationnetwork.node.shared.infrastructure.snapshot.GlobalSnapshotContextFunctions
 import io.constellationnetwork.node.shared.infrastructure.snapshot.GlobalSnapshotStateChannelEventsProcessor
-import io.constellationnetwork.schema.GlobalIncrementalSnapshot
-import io.constellationnetwork.schema.GlobalSnapshotInfo
+import io.constellationnetwork.schema.{GlobalIncrementalSnapshot, GlobalSnapshotInfo, SnapshotOrdinal}
 import io.constellationnetwork.security.signature.Signed
 import io.constellationnetwork.security.Hashed
 import io.constellationnetwork.security.HasherSelector
@@ -36,6 +36,8 @@ object GlobalSnapshotContextService {
   ): GlobalSnapshotContextService[F] =
     new GlobalSnapshotContextService[F] {
 
+      def noOp(s: SnapshotOrdinal): F[Option[Hashed[GlobalIncrementalSnapshot]]] = none[Hashed[GlobalIncrementalSnapshot]].pure
+
       def createContext(
         context: GlobalSnapshotInfo,
         lastArtifact: Signed[GlobalIncrementalSnapshot],
@@ -44,17 +46,27 @@ object GlobalSnapshotContextService {
       ): F[GlobalSnapshotWithState] =
         HasherSelector[F]
           .forOrdinal(artifact.ordinal) { implicit hasher =>
-            globalSnapshotContextFns.createContext(context, lastArtifact, artifact.signed)
+            println(s"hasher: ${hasher}")
+            globalSnapshotContextFns.createContext(context, lastArtifact, artifact.signed, None, noOp)
           }
           .flatMap { newContext =>
+            println(s"newContext: ${newContext}")
             HasherSelector[F].forOrdinal(artifact.ordinal) { implicit hasher =>
               // TODO: Instead of reversing here we should fix `allowedForProcessing` in acceptance manager so it preserves the order
               val reversedStateChannelSnapshots = artifact.signed.value.stateChannelSnapshots.map {
                 case (address, snapshots) => address -> snapshots.reverse
               }
+              val snapshotOrdinal = artifact.ordinal
+              val lastGlobalSnapshotInfo = context
+              val scSnapshots = reversedStateChannelSnapshots
 
-              globalSnapshotStateChannelEventsProcessor
-                .processCurrencySnapshots(artifact.ordinal, context, reversedStateChannelSnapshots)
+              globalSnapshotStateChannelEventsProcessor.processCurrencySnapshots(
+                snapshotOrdinal,
+                lastGlobalSnapshotInfo,
+                scSnapshots,
+                None,
+                  noOp
+              )
                 .flatMap {
                   _.mapFilter { case (snapshots, _) =>
                     snapshots.collect { case (binary, Some(currencySnapshotWithState)) =>
