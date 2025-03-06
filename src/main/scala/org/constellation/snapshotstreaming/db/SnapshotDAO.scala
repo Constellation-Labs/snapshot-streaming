@@ -369,7 +369,7 @@ object SnapshotDAO {
         metagraph_snapshot_hash,
         metagraph_snapshot_ordinal,
         created_at
-      ) VALUES ($varchar, $varchar, $varchar, $varchar, $int8, $varchar, $varchar, $int8 $timestamp)
+      ) VALUES ($varchar, $varchar, $varchar, $varchar, $int8, $varchar, $varchar, $int8, $timestamp)
       ON CONFLICT (metagraph_id, hash) DO NOTHING;
     """.command.contramap { case CurrencyData(id, tx: FeeTransaction) =>
       (

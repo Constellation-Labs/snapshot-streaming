@@ -73,7 +73,6 @@ object FileBasedLastGlobalIncrementalSnapshotStorage {
           (hasher.getLogic(snapshot.ordinal) match {
             case JsonHash => StateProofValidator.validate(snapshot, state)
             case KryoHash =>
-            println(s"Validating proof for ${snapshot.ordinal} and hash ${snapshot.hash}")
               StateProofValidator.validate(snapshot, GlobalSnapshotInfoV2.fromGlobalSnapshotInfo(state))
           }).flatMap(Async[F].fromValidated)
         }

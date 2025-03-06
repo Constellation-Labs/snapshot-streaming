@@ -3,6 +3,7 @@ package org.constellation.snapshotstreaming
 import cats.effect._
 import cats.effect.std.Random
 import cats.syntax.all._
+import com.esotericsoftware.minlog.Log
 import io.constellationnetwork._
 import io.constellationnetwork.ext.cats.effect._
 import io.constellationnetwork.json.JsonSerializer
@@ -12,7 +13,7 @@ import io.constellationnetwork.node.shared.ext.pureconfig._
 import io.constellationnetwork.schema.SnapshotOrdinal
 import io.constellationnetwork.security._
 import eu.timepit.refined.pureconfig._
-import org.constellation.snapshotstreaming.schema.kryoRegistrar
+import org.constellation.snapshotstreaming.schema.{kryoRegistrar, migrations}
 import org.typelevel.log4cats.slf4j.Slf4jLogger
 import org.typelevel.otel4s.trace.Tracer.Implicits.noop
 import pureconfig.ConfigSource
@@ -32,8 +33,8 @@ object AppS3 extends IOApp {
       .flatMap { appConfig =>
         ConfigSource.default.loadF[IO, SharedConfigReader]().flatMap { sharedCfg =>
           Random.scalaUtilRandom[IO].flatMap { implicit random =>
-            val cryOs =  nodeSharedKryoRegistrar.union(io.constellationnetwork.dag.l1.dagL1KryoRegistrar).union(sharedKryoRegistrar).union(kryoRegistrar)
-            KryoSerializer.forAsync[IO](cryOs).use { implicit ks =>
+            val cryOs =  sharedKryoRegistrar.union(kryoRegistrar)
+            KryoSerializer.forAsync[IO](cryOs, migrations).use { implicit ks =>
               JsonSerializer.forSync[IO].asResource.use { implicit jsonSerializer =>
                 val hashSelect = makeHashSelect(appConfig, sharedCfg)
                 implicit val hasherSelector =

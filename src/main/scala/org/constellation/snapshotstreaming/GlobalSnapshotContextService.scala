@@ -46,11 +46,9 @@ object GlobalSnapshotContextService {
       ): F[GlobalSnapshotWithState] =
         HasherSelector[F]
           .forOrdinal(artifact.ordinal) { implicit hasher =>
-            println(s"hasher: ${hasher}")
             globalSnapshotContextFns.createContext(context, lastArtifact, artifact.signed, None, noOp)
           }
           .flatMap { newContext =>
-            println(s"newContext: ${newContext}")
             HasherSelector[F].forOrdinal(artifact.ordinal) { implicit hasher =>
               // TODO: Instead of reversing here we should fix `allowedForProcessing` in acceptance manager so it preserves the order
               val reversedStateChannelSnapshots = artifact.signed.value.stateChannelSnapshots.map {

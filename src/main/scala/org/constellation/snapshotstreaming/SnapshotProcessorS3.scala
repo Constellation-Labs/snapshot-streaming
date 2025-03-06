@@ -164,29 +164,24 @@ object SnapshotProcessorS3 {
         .flatMap { startAfterOrdinal =>
           opensearchDAO.get
             .bulkStream(searchGlobalSnapshots, hitMapper, cursorMapper, startAfterOrdinal)
-            .chunkLimit(1)
-            .evalMap(
-              _.parTraverse { case (h, ts) =>
-                logger.info(s"Downloading ${h} from S3") >>
+            .parEvalMap(100) { case (h, ts) =>
+              logger.info(s"Downloading ${h} from S3") >>
                 s3DAO.get.downloadSnapshot(Hash(h)).flatMap { snapshot =>
                   implicit val hasher = HasherSelector[F].getForOrdinal(snapshot.ordinal)
                   snapshot.toHashed[F]
-                }.map((_, ts))
-              })
-        }.map {
-          _.toVector.sortBy(_._1.ordinal.value.value)
-        }
-        .evalMap { incrementalSnapshots =>
+                }.map((h, _, ts))
+            }
+        }.chunkLimit(100)
+        .evalMap { chunk =>
+          val incrementalSnapshots = chunk.toList
           logger.info(s"Found ${incrementalSnapshots.size} global snapshots to process") >>
           lastIncrementalGlobalSnapshotStorage.getCombined.flatMap {
             case Some((lastSnapshot, lastState)) =>
-              println("--------------------111111111111-")
               ProcessedSnapshots(lastSnapshot.signed, lastState, List.empty).pure
             case None =>
-              println("---------------------22222")
               lastFullGlobalSnapshotStorage.get.map {
                 case Some(signedFullGlobalSnapshot) =>
-                  val incSnapshot = incrementalSnapshots.head._1.signed
+                  val incSnapshot = incrementalSnapshots.head._2.signed
                   ProcessedSnapshots(incSnapshot, signedFullGlobalSnapshot.value.info, List.empty)
                 case None =>
                   throw new Throwable(
@@ -194,11 +189,10 @@ object SnapshotProcessorS3 {
                   )
               }
           }.flatMap { state =>
-            println("---------------------")
             incrementalSnapshots
-              .foldM(state) { case (processedSnapshots, (snapshot, dt)) =>
+              .foldM(state) { case (processedSnapshots, (gsHash, snapshot, dt)) =>
                 logger.info(s"Processing global snapshot: ${getSnapshotReference(snapshot).show}")
-                println("-------------3333--------")
+
                 tessellationServices.globalSnapshotContextService
                   .createContext(
                     processedSnapshots.lastState,
@@ -206,8 +200,10 @@ object SnapshotProcessorS3 {
                     snapshot,
                     dt
                   )
-                  .map { globalSnapshotsWithState =>
-                    println("-------------3333-11111-------")
+                  .map { globalSnapshotsWithStateNew =>
+                    val globalSnapshotsWithState = globalSnapshotsWithStateNew.copy(
+                      snapshot = globalSnapshotsWithStateNew.snapshot.copy(hash = Hash(gsHash))
+                    )
                     ProcessedSnapshots(
                       snapshot.signed,
                       globalSnapshotsWithState.snapshotInfo,
@@ -219,13 +215,11 @@ object SnapshotProcessorS3 {
           }
         }
         .evalTap { snapshots =>
-          println("-------4444444--------------")
           snapshots.traverse { case GlobalSnapshotWithState(snapshot, _, _, _, _) =>
             logger.info(s"Pulled following global snapshot: ${getSnapshotReference(snapshot).show}")
           }
         }
         .evalMap { snapshots =>
-          println("-------5555555--------------")
           snapshots.parTraverse { case state@GlobalSnapshotWithState(snapshot, _, _, _, _) =>
             val hasher = HasherSelector[F].getForOrdinal(snapshot.ordinal)
             process(state, hasher).map(_ => state)
