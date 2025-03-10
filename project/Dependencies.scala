@@ -13,12 +13,14 @@ object Dependencies {
     val fs2 = "3.4.0"
     val guava = "31.1-jre"
     val http4s = "0.23.16"
+    val skunk = "1.1.0-M3"
+    val pureconfig = "0.17.5"
     val log4cats = "2.5.0"
     val logback = "1.3.5"
     val logstash = "7.2"
     val organizeImports = "0.6.0"
     val refined = "0.10.1"
-    val tessellation = "2.12.0"
+    val tessellation = "2.12.3"
     val weaver = "0.8.1"
   }
 
@@ -66,6 +68,11 @@ object Dependencies {
 
     val guava = "com.google.guava" % "guava" % V.guava
 
+    val skunk = "org.tpolecat" %% "skunk-core" % V.skunk
+    val skunkCirce = "org.tpolecat" %% "skunk-circe" % V.skunk
+    val pureconfigCore = "com.github.pureconfig" %% "pureconfig" % V.pureconfig
+    val pureconfigEnumeratum = "com.github.pureconfig" %% "pureconfig-enumeratum" % V.pureconfig
+
     val http4sCirce = http4s("circe")
     val http4sClient = http4s("ember-client")
     val http4sDsl = http4s("dsl")
@@ -77,7 +84,7 @@ object Dependencies {
     val organizeImports = "com.github.liancheng" %% "organize-imports" % V.organizeImports
 
     val tessellationSdk = "org.constellation" %% "tessellation-sdk" % V.tessellation
-    val tessellationShared = "org.constellation" %% "tessellation-shared" % V.tessellation
+//    val tessellationShared = "org.constellation" %% "tessellation-shared" % V.tessellation
 
     val weaverCats = weaver("cats")
     val weaverScalaCheck = weaver("scalacheck")

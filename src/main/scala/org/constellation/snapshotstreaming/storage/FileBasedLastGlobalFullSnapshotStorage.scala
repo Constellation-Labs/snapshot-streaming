@@ -11,14 +11,13 @@ import org.tessellation.security.Hashed
 import org.tessellation.security.signature.Signed
 import fs2.io.file.Path
 import fs2.io.file._
-import fs2.Stream
-import fs2.text
-import io.circe.parser.decode
-import io.circe.syntax._
+import fs2.{Stream, text}
 import io.circe.Codec
 import io.circe.generic.semiauto.deriveCodec
 import org.tessellation.schema.snapshot.Snapshot
 import org.tessellation.schema.GlobalSnapshot
+import io.circe.parser.decode
+import io.circe.syntax._
 
 trait FileBasedLastGlobalFullSnapshotStorage[F[_]] {
   def set(snapshot: Hashed[GlobalSnapshot]): F[Unit]

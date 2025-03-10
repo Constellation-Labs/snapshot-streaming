@@ -1,5 +1,6 @@
 package org.constellation.snapshotstreaming
 
+import cats.Applicative
 import cats.effect.kernel.Async
 import cats.syntax.all._
 import org.tessellation.currency.schema.currency.CurrencyIncrementalSnapshot
@@ -7,20 +8,22 @@ import org.tessellation.currency.schema.currency.CurrencySnapshot
 import org.tessellation.currency.schema.currency.CurrencySnapshotInfo
 import org.tessellation.node.shared.infrastructure.snapshot.GlobalSnapshotContextFunctions
 import org.tessellation.node.shared.infrastructure.snapshot.GlobalSnapshotStateChannelEventsProcessor
-import org.tessellation.schema.GlobalIncrementalSnapshot
-import org.tessellation.schema.GlobalSnapshotInfo
+import org.tessellation.schema.{GlobalIncrementalSnapshot, GlobalSnapshotInfo, SnapshotOrdinal}
 import org.tessellation.security.signature.Signed
 import org.tessellation.security.Hashed
 import org.tessellation.security.HasherSelector
 import org.constellation.snapshotstreaming.SnapshotProcessor.GlobalSnapshotWithState
 import org.tessellation.statechannel.StateChannelSnapshotBinary
 
+import java.time.LocalDateTime
+
 trait GlobalSnapshotContextService[F[_]] {
 
   def createContext(
     context: GlobalSnapshotInfo,
     lastArtifact: Signed[GlobalIncrementalSnapshot],
-    artifact: Hashed[GlobalIncrementalSnapshot]
+    artifact: Hashed[GlobalIncrementalSnapshot],
+    dt: LocalDateTime
   ): F[GlobalSnapshotWithState]
 
 }
@@ -33,10 +36,13 @@ object GlobalSnapshotContextService {
   ): GlobalSnapshotContextService[F] =
     new GlobalSnapshotContextService[F] {
 
+      def noOp(s: SnapshotOrdinal): F[Option[Hashed[GlobalIncrementalSnapshot]]] = none[Hashed[GlobalIncrementalSnapshot]].pure
+
       def createContext(
         context: GlobalSnapshotInfo,
         lastArtifact: Signed[GlobalIncrementalSnapshot],
-        artifact: Hashed[GlobalIncrementalSnapshot]
+        artifact: Hashed[GlobalIncrementalSnapshot],
+        dt: LocalDateTime
       ): F[GlobalSnapshotWithState] =
         HasherSelector[F]
           .forOrdinal(artifact.ordinal) { implicit hasher =>
@@ -45,11 +51,17 @@ object GlobalSnapshotContextService {
           .flatMap { newContext =>
             HasherSelector[F].forOrdinal(artifact.ordinal) { implicit hasher =>
               // TODO: Instead of reversing here we should fix `allowedForProcessing` in acceptance manager so it preserves the order
-              val reversedStateChannelSnapshots = artifact.signed.value.stateChannelSnapshots
-                .map { case (address, snapshots) => address -> snapshots.reverse }
-
-              globalSnapshotStateChannelEventsProcessor
-                .processCurrencySnapshots(artifact.ordinal, context, reversedStateChannelSnapshots)
+              val reversedStateChannelSnapshots = artifact.signed.value.stateChannelSnapshots.map {
+                case (address, snapshots) => address -> snapshots.reverse
+              }
+              val snapshotOrdinal = artifact.ordinal
+              val lastGlobalSnapshotInfo = context
+              val scSnapshots = reversedStateChannelSnapshots
+              globalSnapshotStateChannelEventsProcessor.processCurrencySnapshots(
+                snapshotOrdinal,
+                lastGlobalSnapshotInfo,
+                scSnapshots
+              )
                 .flatMap {
                   _.mapFilter { case (snapshots, _) =>
                     snapshots.collect { case (binary, Some(currencySnapshotWithState)) =>
@@ -72,7 +84,7 @@ object GlobalSnapshotContextService {
                     }
                   })
                 }
-                .map(GlobalSnapshotWithState(artifact, context.some, newContext, _))
+                .map(GlobalSnapshotWithState(artifact, context.some, newContext, _, dt))
             }
           }
 

@@ -25,13 +25,14 @@ import weaver.MutableIOSuite
 import org.tessellation.security.Hasher
 import org.tessellation.json.JsonSerializer
 import org.tessellation.security.HasherSelector
+import org.constellation.snapshotstreaming.schema.kryoRegistrar
 
 object FileBasedLastGlobalIncrementalSnapshotStorageSuite extends MutableIOSuite {
 
   type Res = (KryoSerializer[IO], HasherSelector[IO])
 
   override def sharedResource: Resource[IO, Res] =
-    KryoSerializer.forAsync[IO](sharedKryoRegistrar).flatMap { implicit ks =>
+    KryoSerializer.forAsync[IO](sharedKryoRegistrar ++ kryoRegistrar).flatMap { implicit ks =>
       JsonSerializer.forSync[IO].asResource.map { implicit jsonSerializer =>
         (ks, HasherSelector.forSync[IO](Hasher.forJson[IO], Hasher.forKryo[IO], hashSelect))
       }

@@ -1,15 +1,12 @@
 package org.constellation.snapshotstreaming.storage
 
-import cats.effect.std.Mutex
-import cats.effect.Async
+import cats.{Applicative, MonadThrow}
+import cats.effect._
 import cats.syntax.all._
-import cats.Applicative
-import cats.MonadThrow
-import org.tessellation.schema._
-import org.tessellation.security._
 import fs2.io.file._
-import fs2.Stream
-import fs2.text
+import fs2.{Stream, text}
+import io.circe.generic.semiauto.deriveCodec
+import io.circe.{Codec, jawn}
 import io.circe.syntax._
 import io.circe.Codec
 import io.circe.generic.semiauto.deriveCodec
@@ -18,89 +15,132 @@ import org.tessellation.merkletree.StateProofValidator
 import org.tessellation.node.shared.domain.snapshot.storage.LastSnapshotStorage
 import org.tessellation.node.shared.domain.snapshot.Validator.isNextSnapshot
 import org.tessellation.schema.height.Height
+import org.tessellation.kryo.KryoSerializer
+import org.tessellation.merkletree.StateProofValidator
+import org.tessellation.node.shared.domain.snapshot.Validator.isNextSnapshot
+import org.tessellation.node.shared.domain.snapshot.storage.LastSnapshotStorage
+import org.tessellation.schema._
+import org.tessellation.schema.height.Height
+import org.tessellation.security._
+import org.tessellation.ext.kryo._
+import fs2.compression.Compression
+
 
 object FileBasedLastGlobalIncrementalSnapshotStorage {
 
-  private case class SnapshotWithState(snapshot: Hashed[GlobalIncrementalSnapshot], state: GlobalSnapshotInfo)
 
-  def make[F[_]: Async: HasherSelector: Files](path: Path): F[LastSnapshotStorage[F, GlobalIncrementalSnapshot, GlobalSnapshotInfo]] =
-    Mutex[F].map(make(_, path))
 
-  def make[F[_]: Async: HasherSelector: Files](
-    mutex: Mutex[F],
+  def make[F[_]: Async: HasherSelector: Files: KryoSerializer](
+    path: Path
+  ): F[LastSnapshotStorage[F, GlobalIncrementalSnapshot, GlobalSnapshotInfo]] = {
+
+    def deserializeWithJson(data: Array[Byte]) = jawn.decode[SnapshotWithState](new String(data, "UTF-8"))
+
+    def deserializeWithKryoOrJson(data: Array[Byte]) =
+      data.fromBinary[SnapshotWithState].handleErrorWith { e =>
+        println(s"Failed to deserialize with kryo: ${e.getMessage}")
+        jawn.decode[SnapshotWithState](new String(data, "UTF-8"))
+      }
+
+    val readSnapshotWithState: F[Option[SnapshotWithState]] =
+      Files[F]
+        .readAll(path)
+        .through(Compression[F].gunzip())
+        .flatMap(_.content)
+        .compile
+        .to(Array)
+        .map(deserializeWithJson)
+        .flatMap(_.liftTo[F])
+        .map(_.some)
+        .handleErrorWith {
+          case _: NoSuchFileException => Applicative[F].pure(None)
+          case e                      => e.raiseError[F, Option[SnapshotWithState]]
+        }
+
+    readSnapshotWithState.flatMap(Ref.of[F, Option[SnapshotWithState]](_).map(make(_, path)))
+  }
+
+  def make[F[_]: Async: HasherSelector: Files: KryoSerializer](
+    cachedSnapshot: Ref[F, Option[SnapshotWithState]],
     path: Path
   ): LastSnapshotStorage[F, GlobalIncrementalSnapshot, GlobalSnapshotInfo] =
     new LastSnapshotStorage[F, GlobalIncrementalSnapshot, GlobalSnapshotInfo] {
-      private implicit val codec: Codec[Hashed[GlobalIncrementalSnapshot]] = deriveCodec[Hashed[GlobalIncrementalSnapshot]]
-      private implicit val snapshotWithInfoCodec: Codec[SnapshotWithState] = deriveCodec[SnapshotWithState]
 
       private def validateStateProof(snapshot: Hashed[GlobalIncrementalSnapshot], state: GlobalSnapshotInfo): F[Unit] =
         HasherSelector[F].forOrdinal(snapshot.ordinal) { implicit hasher =>
           (hasher.getLogic(snapshot.ordinal) match {
             case JsonHash => StateProofValidator.validate(snapshot, state)
-            case KryoHash => StateProofValidator.validate(snapshot, GlobalSnapshotInfoV2.fromGlobalSnapshotInfo(state))
+            case KryoHash =>
+              StateProofValidator.validate(snapshot, GlobalSnapshotInfoV2.fromGlobalSnapshotInfo(state))
           }).flatMap(Async[F].fromValidated)
         }
 
-      private def getSnapshotWithState[A](extract: SnapshotWithState => A): F[Option[A]] = Files[F]
-        .readAll(path)
-        .through(text.utf8.decode)
-        .compile
-        .toList
-        .map(_.mkString)
-        .map(jawn.decode[SnapshotWithState])
-        .flatMap(_.liftTo[F])
-        .map(extract)
-        .map(_.some)
-        .handleErrorWith {
-          case _: NoSuchFileException => Applicative[F].pure(None)
-          case e                      => e.raiseError[F, Option[A]]
-        }
-
       def set(snapshot: Hashed[GlobalIncrementalSnapshot], state: GlobalSnapshotInfo): F[Unit] =
-        mutex.lock.surround {
-          validateStateProof(snapshot, state) >>
-            get.flatMap {
-              case Some(last) if isNextSnapshot(last, snapshot.signed.value) =>
-                Stream
-                  .emit(SnapshotWithState(snapshot, state).asJson.spaces2)
-                  .through(text.utf8.encode)
-                  .through(Files[F].writeAll(path))
-                  .compile
-                  .drain
-              case Some(last) =>
-                MonadThrow[F].raiseError[Unit](
-                  new IllegalStateException(
-                    s"Snapshot is not the next one! last: ${SnapshotReference
-                        .fromHashedSnapshot(last)}, lastHash: ${last.hash}, next: ${SnapshotReference
-                        .fromHashedSnapshot(snapshot)}, prevHash: ${snapshot.signed.value.lastSnapshotHash}"
-                  )
-                )
-              case None =>
-                MonadThrow[F].raiseError[Unit](
-                  new IllegalStateException("Previous snapshot not found when setting next global snapshot!")
-                )
-            }
+        validateStateProof(snapshot, state) >> {
+          cachedSnapshot.get.flatMap { x =>
+            x.map { _ =>
+              val snapshotWithState = SnapshotWithState(snapshot, state)
+              writeSnapshotWithStateJson(snapshotWithState) >> cachedSnapshot.set(Some(snapshotWithState))
+            }.getOrElse(setInitial(snapshot, state))
+          }
         }
+//          get.flatMap {
+//            case Some(last) if isNextSnapshot(last, snapshot.signed.value) =>
+//              val snapshotWithState = SnapshotWithState(snapshot, state)
+//              writeSnapshotWithStateKryo(snapshotWithState) >> cachedSnapshot.set(Some(snapshotWithState))
+//            case Some(last) =>
+//              MonadThrow[F].raiseError[Unit](
+//                new IllegalStateException(
+//                  s"Snapshot is not the next one! last: ${SnapshotReference
+//                      .fromHashedSnapshot(last)}, lastHash: ${last.hash}, next: ${SnapshotReference
+//                      .fromHashedSnapshot(snapshot)}, prevHash: ${snapshot.signed.value.lastSnapshotHash}"
+//                )
+//              )
+//            case None =>
+//              MonadThrow[F].raiseError[Unit](
+//                new IllegalStateException("Previous snapshot not found when setting next global snapshot!")
+//              )
+//          }
 
-      def setInitial(snapshot: Hashed[GlobalIncrementalSnapshot], state: GlobalSnapshotInfo): F[Unit] =
-        mutex.lock.surround {
-          validateStateProof(snapshot, state) >>
-            Stream
-              .emit(SnapshotWithState(snapshot, state).asJson.spaces2)
-              .through(text.utf8.encode)
-              .through(Files[F].writeAll(path, Flags(Flag.Write, Flag.CreateNew)))
-              .compile
-              .drain
-        }
+      private def writeSnapshotWithStateJson(
+        snapshotWithState: SnapshotWithState,
+        flags: Flags = Flags(Flag.Write, Flag.Truncate)
+      ) =
+        Stream
+          .emit(snapshotWithState.asJson.spaces2)
+          .through(text.utf8.encode)
+          .through(Compression[F].gzip())
+          .through(Files[F].writeAll(path, flags))
+          .compile
+          .drain
+
+      private def writeSnapshotWithStateKryo(
+        snapshotWithState: SnapshotWithState,
+        flags: Flags = Flags(Flag.Write, Flag.Truncate)
+      ) =
+        Stream
+          .evalSeq(snapshotWithState.toBinaryF.map(_.toSeq))
+          .through(Compression[F].gzip())
+          .through(Files[F].writeAll(path, flags))
+          .compile
+          .drain
+
+      def setInitial(snapshot: Hashed[GlobalIncrementalSnapshot], state: GlobalSnapshotInfo): F[Unit] = {
+        val snapshotWithState = SnapshotWithState(snapshot, state)
+        validateStateProof(snapshot, state) >> writeSnapshotWithStateJson(
+          snapshotWithState,
+          Flags(Flag.Write, Flag.CreateNew)
+        ) >> cachedSnapshot.set(Some(snapshotWithState))
+      }
 
       def get: F[Option[Hashed[GlobalIncrementalSnapshot]]] =
-        getSnapshotWithState(_.snapshot)
+        cachedSnapshot.get.map(_.map(_.snapshot))
 
       def getCombined: F[Option[(Hashed[GlobalIncrementalSnapshot], GlobalSnapshotInfo)]] =
-        getSnapshotWithState(sws => (sws.snapshot, sws.state))
+        cachedSnapshot.get.map(_.map(sws => (sws.snapshot, sws.state)))
 
-      def getCombinedStream: fs2.Stream[F, Option[(Hashed[GlobalIncrementalSnapshot], GlobalSnapshotInfo)]] = ???
+      def getCombinedStream: fs2.Stream[F, Option[(Hashed[GlobalIncrementalSnapshot], GlobalSnapshotInfo)]] =
+        Stream.eval(getCombined)
 
       def getOrdinal: F[Option[SnapshotOrdinal]] = get.map(_.map(_.ordinal))
 

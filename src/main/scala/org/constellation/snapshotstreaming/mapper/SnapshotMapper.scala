@@ -1,25 +1,20 @@
-package org.constellation.snapshotstreaming.opensearch.mapper
+package org.constellation.snapshotstreaming.mapper
 
-import java.util.Date
 import cats.effect.Async
 import cats.syntax.all._
-
-import scala.collection.immutable.SortedMap
-import scala.collection.immutable.SortedSet
+import eu.timepit.refined.auto._
 import org.tessellation.schema.address.Address
 import org.tessellation.schema.balance.Balance
-import org.tessellation.schema.snapshot.SnapshotInfo
-import org.tessellation.schema.snapshot.{Snapshot => OriginalSnapshot}
-import org.tessellation.schema.transaction.{TransactionReference => OriginalTransactionReference}
-import org.tessellation.schema.transaction.{Transaction => OriginalTransaction}
-import org.tessellation.schema.transaction.{RewardTransaction => OriginalRewardTransaction}
+import org.tessellation.schema.snapshot.{SnapshotInfo, Snapshot => OriginalSnapshot}
+import org.tessellation.schema.transaction.{RewardTransaction => OriginalRewardTransaction, Transaction => OriginalTransaction, TransactionReference => OriginalTransactionReference}
 import org.tessellation.schema.{Block => OriginalBlock}
+import org.tessellation.security.{Hashed, Hasher}
 import org.tessellation.security.signature.Signed
-import org.tessellation.security.Hashed
-import org.tessellation.security.Hasher
 import org.tessellation.syntax.sortedCollection._
-import eu.timepit.refined.auto._
-import org.constellation.snapshotstreaming.opensearch.schema._
+import org.constellation.snapshotstreaming.schema.{AddressBalance, Block, BlockReference, Transaction, TransactionReference }
+
+import java.time.LocalDateTime
+import scala.collection.immutable.{SortedMap, SortedSet}
 
 case class SnapshotReferredAddresses(source: Set[Address], destination: Set[Address])
 
@@ -37,18 +32,19 @@ abstract class SnapshotMapper[F[_]: Async, S <: OriginalSnapshot, SI <: Snapshot
     transaction.toHashed.map(_.hash.value)
   }
 
-  def mapBlocks(snapshot: Hashed[S], timestamp: Date, txHasher: Hasher[F], hasher: Hasher[F]): F[Seq[Block]] = for {
-    blocks <- snapshot.blocks.unsorted
-      .map(_.block)
-      .map(mapBlock(snapshot.hash.value, snapshot.ordinal.value.value, timestamp, txHasher, hasher))
-      .toList
-      .sequence
-  } yield blocks
+  def mapBlocks(snapshot: Hashed[S], timestamp: LocalDateTime, txHasher: Hasher[F], hasher: Hasher[F]): F[Seq[Block]] =
+    for {
+      blocks <- snapshot.blocks.unsorted
+        .map(_.block)
+        .map(mapBlock(snapshot.hash.value, snapshot.ordinal.value.value, timestamp, txHasher, hasher))
+        .toList
+        .sequence
+    } yield blocks
 
   private def mapBlock(
     snapshotHash: String,
     snapshotOrdinal: Long,
-    timestamp: Date,
+    timestamp: LocalDateTime,
     txHasher: Hasher[F],
     hasher: Hasher[F]
   )(
@@ -70,7 +66,7 @@ abstract class SnapshotMapper[F[_]: Async, S <: OriginalSnapshot, SI <: Snapshot
       timestamp = timestamp
     )
 
-  def mapTransactions(snapshot: Hashed[S], timestamp: Date, txHasher: Hasher[F], hasher: Hasher[F]) = for {
+  def mapTransactions(snapshot: Hashed[S], timestamp: LocalDateTime, txHasher: Hasher[F], hasher: Hasher[F]) = for {
     transactions <- snapshot.blocks.unsorted
       .map(_.block)
       .map(mapTransactionsFromBlock(snapshot.hash.value, snapshot.ordinal.value.value, timestamp, txHasher, hasher))
@@ -81,7 +77,7 @@ abstract class SnapshotMapper[F[_]: Async, S <: OriginalSnapshot, SI <: Snapshot
   private def mapTransactionsFromBlock(
     snapshotHash: String,
     snapshotOrdinal: Long,
-    timestamp: Date,
+    timestamp: LocalDateTime,
     txHasher: Hasher[F],
     hasher: Hasher[F]
   )(
@@ -98,7 +94,7 @@ abstract class SnapshotMapper[F[_]: Async, S <: OriginalSnapshot, SI <: Snapshot
     blockHash: String,
     snapshotHash: String,
     snapshotOrdinal: Long,
-    timestamp: Date,
+    timestamp: LocalDateTime,
     txHasher: Hasher[F]
   )(
     transaction: Signed[OriginalTransaction]
@@ -116,6 +112,7 @@ abstract class SnapshotMapper[F[_]: Async, S <: OriginalSnapshot, SI <: Snapshot
     snapshotHash = snapshotHash,
     snapshotOrdinal = snapshotOrdinal,
     transactionOriginal = transaction,
+    ordinal = transaction.value.ordinal.value.value,
     timestamp = timestamp
   )
 
@@ -125,7 +122,7 @@ abstract class SnapshotMapper[F[_]: Async, S <: OriginalSnapshot, SI <: Snapshot
   def balanceDiff(
     snapshot: S,
     prevBalances: Option[SortedMap[Address, Balance]],
-    info: SnapshotInfo[_],
+    info: SnapshotInfo[_]
   ): SortedMap[Address, Balance] =
     prevBalances match {
       case Some(prev) =>
@@ -154,7 +151,7 @@ abstract class SnapshotMapper[F[_]: Async, S <: OriginalSnapshot, SI <: Snapshot
   def mapBalances(
     globalSnapshot: Hashed[S],
     balances: SortedMap[Address, Balance],
-    timestamp: Date
+    timestamp: LocalDateTime
   ): Seq[AddressBalance] =
     balances.toSeq.map { case (address, balance) =>
       AddressBalance(

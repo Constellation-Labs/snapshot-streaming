@@ -29,6 +29,8 @@ import org.constellation.snapshotstreaming.data.hashSelect
 import org.constellation.snapshotstreaming.data.incrementalCurrencySnapshot
 import org.tessellation.currency.schema.currency.CurrencyIncrementalSnapshot
 import org.tessellation.currency.schema.currency.CurrencySnapshotInfo
+import org.constellation.snapshotstreaming.mapper.CurrencyIncrementalSnapshotMapper
+import org.tessellation.currency.schema.currency.{CurrencyIncrementalSnapshot, CurrencySnapshotInfo}
 import weaver.MutableIOSuite
 import org.tessellation.security.Hasher
 import org.tessellation.json.JsonSerializer
@@ -94,10 +96,10 @@ object CurrencySnapshotMapperSuite extends MutableIOSuite {
         initialBalances,
         blocks.flatMap(_.block.transactions.toList).toList,
         List.empty,
-        List.empty,
+        List.empty
       )
 
-      updatedInfo = CurrencySnapshotInfo(SortedMap.empty, updatedBalances, None, None)
+      updatedInfo = CurrencySnapshotInfo(SortedMap.empty, updatedBalances, None, None )
 
       snapshot <- incrementalCurrencySnapshot[IO](
         100L,
@@ -135,13 +137,13 @@ object CurrencySnapshotMapperSuite extends MutableIOSuite {
       txn2 <- createTxn(address2, key2, address1, TransactionAmount(1L))
       blocks <- createBlocksWithTransactions(
         key1,
-        NonEmptySet.fromSetUnsafe(SortedSet(txn1, txn2)),
+        NonEmptySet.fromSetUnsafe(SortedSet(txn1, txn2))
       )
       updatedBalances = applyTransactions(
         initialBalances,
         blocks.flatMap(_.block.transactions.toList).toList,
         List.empty,
-        List.empty,
+        List.empty
       )
       updatedInfo = CurrencySnapshotInfo(SortedMap.empty, updatedBalances, None, None)
 
@@ -224,7 +226,7 @@ object CurrencySnapshotMapperSuite extends MutableIOSuite {
         initialBalances,
         blocks.flatMap(_.block.transactions.toList).toList,
         List.empty,
-        List.empty,
+        List.empty
       )
       updatedInfo = CurrencySnapshotInfo(SortedMap.empty, updatedBalances, None, None)
       snapshot <- incrementalCurrencySnapshot[IO](
@@ -247,15 +249,15 @@ object CurrencySnapshotMapperSuite extends MutableIOSuite {
     )
   }
 
-    test("leave balances for addresses from rewards") { res =>
-      implicit val (h, _, js, _, key1, key2, key3, key4) = res
-      val address1 = key1.getPublic.toAddress
-      val address2 = key2.getPublic.toAddress
-      val address3 = key3.getPublic.toAddress
-      val address4 = key4.getPublic.toAddress
+  test("leave balances for addresses from rewards") { res =>
+    implicit val (h, _, js, _, key1, key2, key3, key4) = res
+    val address1 = key1.getPublic.toAddress
+    val address2 = key2.getPublic.toAddress
+    val address3 = key3.getPublic.toAddress
+    val address4 = key4.getPublic.toAddress
 
-      val initialBalances = createBalances(address1, address2, address3, address4)
-      val rewards = createRewards(address1, address2)
+    val initialBalances = createBalances(address1, address2, address3, address4)
+    val rewards = createRewards(address1, address2)
 
       val updatedBalances = applyTransactions(
         initialBalances,
@@ -265,21 +267,22 @@ object CurrencySnapshotMapperSuite extends MutableIOSuite {
       )
       val updatedInfo = CurrencySnapshotInfo(SortedMap.empty, updatedBalances, None, None)
 
-      for {
-        snapshot <- incrementalCurrencySnapshot[IO](
-          100L,
-          10L,
-          20L,
-          Hash("abc"),
-          Hash("def"),
-          updatedInfo,
-          rewards = rewards
-        )
-
-        result = CurrencyIncrementalSnapshotMapper.make().balanceDiff(snapshot, initialBalances.some, updatedInfo)
-      } yield expect.same(
-        result,
-        updatedBalances - address3 - address4
+    for {
+      snapshot <- incrementalCurrencySnapshot[IO](
+        100L,
+        10L,
+        20L,
+        Hash("abc"),
+        Hash("def"),
+        updatedInfo,
+        rewards = rewards
       )
-    }
+
+      result = CurrencyIncrementalSnapshotMapper.make().balanceDiff(snapshot, initialBalances.some, updatedInfo)
+    } yield expect.same(
+      result,
+      updatedBalances - address3 - address4
+    )
+  }
+
 }

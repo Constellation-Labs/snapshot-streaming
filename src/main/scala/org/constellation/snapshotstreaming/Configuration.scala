@@ -1,90 +1,129 @@
 package org.constellation.snapshotstreaming
 
 import cats.data.NonEmptyMap
+import cats.effect.Sync
+import com.comcast.ip4s.{Host, Port}
+import eu.timepit.refined.types.all.PosLong
+import eu.timepit.refined.pureconfig._
 
 import scala.collection.immutable.SortedMap
 import scala.concurrent.duration.Duration
 import scala.concurrent.duration.FiniteDuration
-import scala.jdk.CollectionConverters._
-import scala.util.Try
 import org.tessellation.env.AppEnvironment
 import org.tessellation.schema.SnapshotOrdinal
-import org.tessellation.schema.balance.Amount
 import org.tessellation.schema.peer.L0Peer
 import org.tessellation.schema.peer.PeerId
-import com.typesafe.config.Config
-import com.typesafe.config.ConfigFactory
-import eu.timepit.refined.types.numeric.NonNegLong
-import eu.timepit.refined.types.numeric.PosLong
 import fs2.io.file.Path
-import io.circe.parser.decode
 import org.http4s.Uri
-import org.tessellation.node.shared.config.types
-import org.tessellation.node.shared.config.types.SharedConfigReader
-import org.tessellation.node.shared.domain.statechannel.FeeCalculatorConfig
+import org.tessellation.node.shared.cli.CliMethod
+import org.tessellation.node.shared.config.types.{SharedConfig, SharedConfigReader}
+import org.tessellation.security.hex.Hex
+import org.tessellation.node.shared.ext.pureconfig._
+import pureconfig.module.enumeratum._
+import pureconfig.generic.auto._
+import pureconfig._
+import pureconfig.generic.ProductHint
+import pureconfig.module.catseffect.syntax.CatsEffectConfigSource
 
-class Configuration(sharedConfigReader: SharedConfigReader) {
-  private val config: Config = ConfigFactory.load().resolve()
+final case class DbConfig(
+  host: String,
+  port: Int,
+  user: String,
+  password: Option[String],
+  database: String,
+  maxSessions: Int
+)
 
-  private val httpClient = config.getConfig("snapshotStreaming.httpClient")
-  private val node = config.getConfig("snapshotStreaming.node")
-  private val opensearch = config.getConfig("snapshotStreaming.opensearch")
-  private val s3 = config.getConfig("snapshotStreaming.s3")
+final case class S3ApiConfig(endpoint: Option[String], region: Option[String], pathStyleEnabled: Option[Boolean])
+final case class S3Config(bucketRegion: String, bucketName: String, bucketDir: String, api: S3ApiConfig)
 
-  val lastFullSnapshotPath: Path = Path(config.getString("snapshotStreaming.lastSnapshotPath"))
-  val lastIncrementalSnapshotPath: Path = Path(config.getString("snapshotStreaming.lastIncrementalSnapshotPath"))
-  val collateral: Amount = Amount(NonNegLong.unsafeFrom(config.getLong("snapshotStreaming.collateral")))
+final case class OpenSearchConfig(uri: Uri, bulkSize: Int, indexes: IndexesConfig)
 
-  val environment: AppEnvironment =
-    AppEnvironment.withNameInsensitive(config.getString("snapshotStreaming.environment"))
+final case class IndexesConfig(
+  snapshots: String,
+  blocks: String,
+  transactions: String,
+  balances: String,
+  currency: CurrencyIndexConfig
+)
 
-  val lastKryoHashOrdinal: SnapshotOrdinal =
-    sharedConfigReader.lastKryoHashOrdinal.getOrElse(environment, SnapshotOrdinal.MinValue)
+final case class CurrencyIndexConfig(
+  snapshots: String,
+  blocks: String,
+  transactions: String,
+  balances: String,
+  feeTransactions: String
+)
 
-  val snapshotSize: types.SnapshotSizeConfig = sharedConfigReader.snapshot.size
+final case class HttpClientConfig(
+  timeout: FiniteDuration,
+  idleTimeInPool: FiniteDuration
+)
 
-  val feeConfigs: SortedMap[SnapshotOrdinal, FeeCalculatorConfig] = sharedConfigReader.feeConfigs.get(environment)
-    .map(configs => SortedMap.from(configs))
-    .getOrElse(SortedMap.empty[SnapshotOrdinal, FeeCalculatorConfig])
+final case class NodeConfig(
+  l0Peers: List[L0Peer],
+  pullInterval: FiniteDuration,
+  pullLimit: PosLong,
+  terminalSnapshotOrdinal: Option[SnapshotOrdinal]
+) {
+  val l0PeersMap = NonEmptyMap.fromMapUnsafe(SortedMap.from(l0Peers.map(p => p.id -> p)))
+}
 
-  val l0Peers: NonEmptyMap[PeerId, L0Peer] = NonEmptyMap.fromMapUnsafe(
-    SortedMap.from(
-      node.getStringList("l0Peers").asScala.toList.map(decode[L0Peer](_).toOption.get).map(p => p.id -> p)
+final case class SnapshotStreamingConfig(
+  lastSnapshotPath: Path,
+  lastIncrementalSnapshotPath: Path,
+  parallelism: Int,
+  environment: AppEnvironment,
+  httpClient: HttpClientConfig,
+  node: NodeConfig,
+  s3: Option[S3Config],
+  db: Option[DbConfig],
+  opensearch: Option[OpenSearchConfig]
+)
+
+final case class AppConfig(
+  snapshotStreaming: SnapshotStreamingConfig
+)
+
+object Configuration {
+
+  implicit val finiteDurationReader: ConfigReader[FiniteDuration] =
+    ConfigReader[String].map(Duration.apply).map(_.asInstanceOf[FiniteDuration])
+
+  implicit val hostReader: ConfigReader[Host] = ConfigReader[String].map(Host.fromString).map(_.get)
+  implicit val portReader: ConfigReader[Port] = ConfigReader[String].map(Port.fromString).map(_.get)
+  implicit val peerIdReader: ConfigReader[PeerId] = ConfigReader[String].map(s => PeerId(Hex(s)))
+  implicit val pathReader: ConfigReader[Path] = ConfigReader[String].map(Path.apply)
+  implicit val uriReader: ConfigReader[Uri] = ConfigReader[String].map(Uri.unsafeFromString)
+
+  implicit def hint[A]: ProductHint[A] = ProductHint[A](ConfigFieldMapping(CamelCase, CamelCase))
+
+
+  ConfigSource.default.load[PosLong]
+  ConfigSource.default.load[L0Peer]
+  ConfigSource.default.load[FiniteDuration]
+  ConfigSource.default.load[SnapshotOrdinal]
+  ConfigSource.default.load[NodeConfig]
+
+
+  def load[F[_]: Sync]: F[AppConfig] = ConfigSource.default
+    .loadF[F, AppConfig]()
+
+  def nodeSharedConfig(env: AppEnvironment, c: SharedConfigReader): SharedConfig =
+    SharedConfig(
+      env,
+      c.gossip,
+      null, // http: HttpConfig,
+      c.leavingDelay,
+      c.stateAfterJoining,
+      CliMethod.collateralConfig(env, c.collateral.map(_.amount)),
+      c.trust.storage,
+      c.priorityPeerIds.get(env),
+      c.snapshot.size,
+      c.feeConfigs.get(env).map(SortedMap.from(_)).getOrElse(SortedMap.empty),
+      c.forkInfoStorage,
+      c.lastKryoHashOrdinal,
     )
-  )
 
-  val pullInterval: FiniteDuration = {
-    val d = Duration(node.getString("pullInterval"))
-    FiniteDuration(d._1, d._2)
-  }
-
-  val pullLimit: PosLong = PosLong.from(node.getLong("pullLimit")).toOption.get
-
-  val terminalSnapshotOrdinal: Option[SnapshotOrdinal] =
-    Try(node.getLong("terminalSnapshotOrdinal")).toOption.map(NonNegLong.from(_).toOption.get).map(SnapshotOrdinal(_))
-
-  val httpClientTimeout: Duration = Duration(httpClient.getString("timeout"))
-  val httpClientIdleTime: Duration = Duration(httpClient.getString("idleTimeInPool"))
-
-  private val opensearchHost: String = opensearch.getString("host")
-  private val opensearchPort: Int = opensearch.getInt("port")
-  val opensearchUrl = Uri.unsafeFromString(s"$opensearchHost:$opensearchPort")
-  val snapshotsIndex: String = opensearch.getString("indexes.snapshots")
-  val blocksIndex: String = opensearch.getString("indexes.blocks")
-  val transactionsIndex: String = opensearch.getString("indexes.transactions")
-  val balancesIndex: String = opensearch.getString("indexes.balances")
-  val currencySnapshotsIndex: String = opensearch.getString("indexes.currency.snapshots")
-  val currencyBlocksIndex: String = opensearch.getString("indexes.currency.blocks")
-  val currencyTransactionsIndex: String = opensearch.getString("indexes.currency.transactions")
-  val currencyFeeTransactionsIndex: String = opensearch.getString("indexes.currency.fee-transactions")
-  val currencyBalancesIndex: String = opensearch.getString("indexes.currency.balances")
-  val bulkSize: Int = opensearch.getInt("bulkSize")
-
-  val bucketRegion: String = s3.getString("bucketRegion")
-  val bucketName: String = s3.getString("bucketName")
-  val bucketDir: String = s3.getString("bucketDir")
-  val s3ApiEndpoint: Option[String] = Try(s3.getString("api.endpoint")).toOption
-  val s3ApiRegion: Option[String] = Try(s3.getString("api.region")).toOption
-  val s3ApiPathStyleEnabled: Option[Boolean] = Try(s3.getBoolean("api.pathStyleEnabled")).toOption
 
 }

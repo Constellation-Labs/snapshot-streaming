@@ -1,11 +1,9 @@
-package org.constellation.snapshotstreaming.opensearch.schema
-
-import java.util.Date
+package org.constellation.snapshotstreaming.schema
 
 import io.circe.Encoder
 import io.circe.generic.semiauto._
 
-import schema._
+import java.time.LocalDateTime
 
 final case class Snapshot(
   hash: String,
@@ -13,9 +11,11 @@ final case class Snapshot(
   height: Long,
   subHeight: Long,
   lastSnapshotHash: String,
+  epochProgress: Long,
   blocks: Set[String],
   rewards: Set[RewardTransaction],
-  timestamp: Date
+  version: String,
+  timestamp: LocalDateTime
 )
 
 object Snapshot {

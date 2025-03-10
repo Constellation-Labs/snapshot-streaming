@@ -1,9 +1,9 @@
-package org.constellation.snapshotstreaming.opensearch.schema
+package org.constellation.snapshotstreaming.schema
 
-import java.util.Date
 import io.circe.Encoder
 import io.circe.generic.semiauto._
-import schema._
+
+import java.time.LocalDateTime
 
 final case class CurrencySnapshot(
   hash: String,
@@ -11,12 +11,14 @@ final case class CurrencySnapshot(
   height: Long,
   subHeight: Long,
   lastSnapshotHash: String,
+  epochProgress: Long,
   blocks: Set[String],
   rewards: Set[RewardTransaction],
-  timestamp: Date,
-  fee: Long,
-  ownerAddress: Option[String],
-  stakingAddress: Option[String],
+  fee: Option[Long] = None,
+  ownerAddress: Option[String] = None,
+  stakingAddress: Option[String] = None,
+  version: String,
+  timestamp: LocalDateTime,
   sizeInKB: Long
 )
 

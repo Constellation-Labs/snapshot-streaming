@@ -1,4 +1,4 @@
-package org.constellation.snapshotstreaming.opensearch.schema
+package org.constellation.snapshotstreaming.schema
 
 import io.circe.Encoder
 import io.circe.generic.semiauto._

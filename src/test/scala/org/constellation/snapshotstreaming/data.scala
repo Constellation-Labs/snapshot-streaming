@@ -27,8 +27,7 @@ import cats.effect.kernel.Sync
 import cats.effect.Async
 import org.tessellation.currency.schema.currency.CurrencyIncrementalSnapshot
 import org.tessellation.currency.schema.currency.CurrencySnapshotInfo
-import org.tessellation.currency.schema.feeTransaction.FeeTransaction
-import org.tessellation.currency.schema.feeTransaction.FeeTransactionReference
+import org.tessellation.currency.schema.feeTransaction.{FeeTransaction, FeeTransactionReference}
 import org.tessellation.kryo.KryoSerializer
 import org.tessellation.schema.address.Address
 import org.tessellation.schema.balance.Amount
@@ -54,34 +53,6 @@ object data {
   val hashSelect = new HashSelect {
     def select(ordinal: SnapshotOrdinal): HashLogic = JsonHash
   }
-
-  def globalSnapshot(
-    ordinal: NonNegLong,
-    height: NonNegLong,
-    subHeight: NonNegLong,
-    lastSnapshot: Hash,
-    hash: Hash
-  ): Hashed[GlobalSnapshot] =
-    Hashed(
-      Signed(
-        GlobalSnapshot(
-          ordinal = SnapshotOrdinal(ordinal),
-          height = Height(height),
-          subHeight = SubHeight(subHeight),
-          lastSnapshotHash = lastSnapshot,
-          blocks = SortedSet.empty,
-          stateChannelSnapshots = SortedMap.empty,
-          rewards = SortedSet.empty,
-          epochProgress = EpochProgress.MinValue,
-          nextFacilitators = NonEmptyList.of(PeerId(Hex(""))),
-          info = GlobalSnapshotInfoV1(SortedMap.empty, SortedMap.empty, SortedMap.empty),
-          tips = SnapshotTips(SortedSet.empty, SortedSet.empty)
-        ),
-        NonEmptySet.one(SignatureProof(Id(Hex("")), Signature(Hex(""))))
-      ),
-      hash,
-      ProofsHash(Hash.empty.value)
-    )
 
   def incrementalGlobalSnapshot[F[_]: Sync: HasherSelector](
     ordinal: NonNegLong,
@@ -109,7 +80,7 @@ object data {
             epochProgress = EpochProgress.MinValue,
             nextFacilitators = NonEmptyList.of(PeerId(Hex(""))),
             tips = SnapshotTips(SortedSet.empty, SortedSet.empty),
-            stateProof = sp
+            stateProof = sp,
           ),
           NonEmptySet.one(SignatureProof(Id(Hex("")), Signature(Hex(""))))
         ),
@@ -119,8 +90,10 @@ object data {
     }
   }
 
+
   def emptyCurrencySnapshotInfo: CurrencySnapshotInfo =
     CurrencySnapshotInfo(SortedMap.empty, SortedMap.empty, None, None)
+
 
   def createBalances(addresses: Address*) =
     addresses.map(address => address -> Balance(1000L)).toMap.toSortedMap
@@ -237,7 +210,9 @@ object data {
             tips = SnapshotTips(SortedSet.empty, SortedSet.empty),
             stateProof = sp,
             epochProgress = EpochProgress.MinValue,
-            feeTransactions = feeTransactions
+            dataApplication = None,
+            messages = None,
+            feeTransactions = feeTransactions,
           ),
           NonEmptySet.one(SignatureProof(Id(Hex("")), Signature(Hex(""))))
         ),

@@ -1,7 +1,8 @@
-package org.constellation.snapshotstreaming.opensearch.schema
+package org.constellation.snapshotstreaming.schema
 
 import io.circe.Encoder
 import io.circe.generic.semiauto.deriveEncoder
+
 case class CurrencyData[A](identifier: String, data: A)
 
 object CurrencyData {
