@@ -1,6 +1,6 @@
 package org.constellation.snapshotstreaming
 
-import cats.data.Validated
+import cats.data.{NonEmptyList, Validated}
 import cats.effect._
 import cats.effect.std.{Console, Random}
 import cats.syntax.all._
@@ -11,6 +11,8 @@ import com.sksamuel.elastic4s.requests.update.UpdateRequest
 import fs2.Stream
 import fs2.io.file.Files
 import fs2.io.net.Network
+import io.constellationnetwork.currency.schema.currency.{CurrencyIncrementalSnapshot, CurrencySnapshot, CurrencySnapshotInfo}
+import io.constellationnetwork.ext.cats.syntax.next.catsSyntaxNext
 import io.constellationnetwork.json.JsonSerializer
 import io.constellationnetwork.kryo.KryoSerializer
 import io.constellationnetwork.merkletree.StateProofValidator
@@ -18,9 +20,12 @@ import io.constellationnetwork.node.shared.config.types.SharedConfigReader
 import io.constellationnetwork.node.shared.domain.snapshot.storage.LastSnapshotStorage
 import io.constellationnetwork.node.shared.infrastructure.cluster.storage.L0ClusterStorage
 import io.constellationnetwork.schema.SnapshotReference.{fromHashedSnapshot => getSnapshotReference}
+import io.constellationnetwork.schema.address.Address
 import io.constellationnetwork.schema.{GlobalIncrementalSnapshot, GlobalSnapshot, GlobalSnapshotInfo, GlobalSnapshotInfoV2}
 import io.constellationnetwork.security._
 import io.constellationnetwork.security.hash.Hash
+import io.constellationnetwork.security.signature.Signed
+import io.constellationnetwork.statechannel.StateChannelSnapshotBinary
 import org.constellation.snapshotstreaming.SnapshotProcessor.{GlobalSnapshotWithState, ProcessedSnapshots}
 import org.constellation.snapshotstreaming.db.SnapshotDAO
 import org.constellation.snapshotstreaming.mapper.{CurrencySnapshotMapper, GlobalSnapshotMapper}
@@ -154,85 +159,63 @@ object SnapshotProcessorS3 {
     def cursorMapper(hit: SearchHit) = hit.sourceAsMap.get("ordinal").map(_.toString.toLong)
 
     val runtime: Stream[F, Unit] = {
-      val fOrdinal = for {
-        incrementalOrdO <- lastIncrementalGlobalSnapshotStorage.getOrdinal.map(_.map(_.value.value))
-        fullOrdinalO <- lastFullGlobalSnapshotStorage.get.map(_.map(_.value.ordinal.value.value))
-      } yield incrementalOrdO.orElse(fullOrdinalO.orElse(Some(0L)))
 
       Stream
-        .eval(fOrdinal)
-        .flatMap { startAfterOrdinal =>
+        .eval(lastFullGlobalSnapshotStorage.get.map(_.get))
+        .evalMap(full => lastIncrementalGlobalSnapshotStorage.getCombined.map(inc => (full, inc) ))
+        .flatMap { case (signedFullGlobalSnapshot, hashedIncrementalCombinedO)  =>
+
+          val startAfterOrdinal = hashedIncrementalCombinedO.map(_._1.ordinal).orElse(signedFullGlobalSnapshot.value.ordinal.some).map(_.value.value)
+
           opensearchDAO.get
             .bulkStream(searchGlobalSnapshots, hitMapper, cursorMapper, startAfterOrdinal)
             .parEvalMap(100) { case (h, ts) =>
-              logger.info(s"Downloading ${h} from S3") >>
+              logger.info(s"Downloading hash ${h} from S3") >>
                 s3DAO.get.downloadSnapshot(Hash(h)).flatMap { snapshot =>
                   implicit val hasher = HasherSelector[F].getForOrdinal(snapshot.ordinal)
+                  logger.info(s" ordinal ${snapshot.ordinal} for hash ${h}")
                   snapshot.toHashed[F]
                 }.map((h, _, ts))
-            }
-        }.chunkLimit(100)
-        .evalMap { chunk =>
-          val incrementalSnapshots = chunk.toList
-          logger.info(s"Found ${incrementalSnapshots.size} global snapshots to process") >>
-          lastIncrementalGlobalSnapshotStorage.getCombined.flatMap {
-            case Some((lastSnapshot, lastState)) =>
-              ProcessedSnapshots(lastSnapshot.signed, lastState, List.empty).pure
-            case None =>
-              lastFullGlobalSnapshotStorage.get.map {
-                case Some(signedFullGlobalSnapshot) =>
-                  val incSnapshot = incrementalSnapshots.head._2.signed
-                  ProcessedSnapshots(incSnapshot, signedFullGlobalSnapshot.value.info, List.empty)
-                case None =>
-                  throw new Throwable(
-                    s"Neither last processed snapshot nor initial snapshot were found on disk!"
-                  )
-              }
-          }.flatMap { state =>
-            incrementalSnapshots
-              .foldM(state) { case (processedSnapshots, (gsHash, snapshot, dt)) =>
-                logger.info(s"Processing global snapshot: ${getSnapshotReference(snapshot).show}")
+            }.prefetchN(200)
+            .evalMapAccumulate(hashedIncrementalCombinedO.map{ case (lastSnapshot, lastState) => ProcessedSnapshots(lastSnapshot.signed, lastState, List.empty)}) {
+              case (None, (gsHash, snapshot, dt)) =>
+                val gss= GlobalSnapshotWithState(snapshot.copy(hash = Hash(gsHash)), None, signedFullGlobalSnapshot.value.info, Map.empty, dt)
+                (Option(ProcessedSnapshots( snapshot.signed, signedFullGlobalSnapshot.value.info , List(gss))), gss).pure
+              case (Some(processoStatus), (gsHash, snapshot, dt)) =>
 
-                tessellationServices.globalSnapshotContextService
-                  .createContext(
-                    processedSnapshots.lastState,
-                    processedSnapshots.lastSnapshot,
-                    snapshot,
-                    dt
-                  )
-                  .map { globalSnapshotsWithStateNew =>
-                    val globalSnapshotsWithState = globalSnapshotsWithStateNew.copy(
-                      snapshot = globalSnapshotsWithStateNew.snapshot.copy(hash = Hash(gsHash))
-                    )
-                    ProcessedSnapshots(
-                      snapshot.signed,
-                      globalSnapshotsWithState.snapshotInfo,
-                      processedSnapshots.snapshotsWithState.appended(globalSnapshotsWithState)
-                    )
-                  }
-              }
-              .map(_.snapshotsWithState)
-          }
-        }
-        .evalTap { snapshots =>
-          snapshots.traverse { case GlobalSnapshotWithState(snapshot, _, _, _, _) =>
+                //logger.info(s"Processing global snapshot: ${getSnapshotReference(snapshot).show}") >>
+                  val z = tessellationServices.globalSnapshotContextService
+                    .createContext(
+                      processoStatus.lastState,
+                      processoStatus.lastSnapshot,
+                      snapshot,
+                      dt
+                    ).map { newContext =>
+                      val updatedSnapshot = newContext.snapshot.copy(hash = Hash(gsHash))
+                      val updatedGSS = newContext.copy(snapshot = updatedSnapshot)
+                      val updatedPprocessoStatus = processoStatus.copy(
+                        lastSnapshot = updatedSnapshot.signed,
+                        lastState = newContext.snapshotInfo,
+                        List(updatedGSS)
+                      )
+                      (Option(updatedPprocessoStatus), updatedGSS)
+                    }
+                z
+            }
+        }.map(_._2)
+        .evalTap { case GlobalSnapshotWithState(snapshot, _, _, _, _) =>
             logger.info(s"Pulled following global snapshot: ${getSnapshotReference(snapshot).show}")
-          }
         }
-        .evalMap { snapshots =>
-          snapshots.parTraverse { case state@GlobalSnapshotWithState(snapshot, _, _, _, _) =>
+        .parEvalMap(100) { case state@GlobalSnapshotWithState(snapshot, _, _, _, _) =>
             val hasher = HasherSelector[F].getForOrdinal(snapshot.ordinal)
             process(state, hasher).map(_ => state)
-          }
-        }
+        }.chunkMin(10)
         .evalMap { snapshots =>
-          val last = snapshots.maxBy(_.snapshot.ordinal.value.value)
-          lastIncrementalGlobalSnapshotStorage.getCombined.flatMap {
-            case None => lastIncrementalGlobalSnapshotStorage.setInitial(last.snapshot, last.snapshotInfo)
-            case _ => lastIncrementalGlobalSnapshotStorage.set(last.snapshot, last.snapshotInfo)
+          snapshots.last.traverse { last =>
+            logger.info(s"Checkpoint at snapshot ordinal ${last.snapshot.ordinal} hash ${last.snapshot.hash} ") >>
+              lastIncrementalGlobalSnapshotStorage.set(last.snapshot, last.snapshotInfo)
           }
-
-        }
+        }.void
     }
   }
 }

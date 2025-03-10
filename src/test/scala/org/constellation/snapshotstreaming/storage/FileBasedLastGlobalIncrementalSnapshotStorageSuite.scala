@@ -26,7 +26,6 @@ import io.constellationnetwork.security.Hasher
 import io.constellationnetwork.json.JsonSerializer
 import io.constellationnetwork.security.HasherSelector
 import org.constellation.snapshotstreaming.schema.kryoRegistrar
-import org.constellation.snapshotstreaming.storage.FileBasedLastGlobalIncrementalSnapshotStorage.SnapshotWithState
 
 object FileBasedLastGlobalIncrementalSnapshotStorageSuite extends MutableIOSuite {
 

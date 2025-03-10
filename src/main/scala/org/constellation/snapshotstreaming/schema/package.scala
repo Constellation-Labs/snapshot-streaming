@@ -21,7 +21,7 @@ import io.constellationnetwork.schema.{GlobalIncrementalSnapshot, GlobalIncremen
 import io.constellationnetwork.security.Hashed
 import io.constellationnetwork.security.signature.Signed
 import io.constellationnetwork.security.signature.signature.SignatureProof
-import org.constellation.snapshotstreaming.storage.FileBasedLastGlobalIncrementalSnapshotStorage.SnapshotWithState
+import org.constellation.snapshotstreaming.storage.SnapshotWithState
 
 import scala.collection.immutable.{SortedMap, SortedSet}
 
@@ -33,13 +33,6 @@ package object schema {
   type StreamingKryoRegistrationId = KryoRegistrationId[StreamingKryoRegistrationIdRange]
 
   implicit val optionAddressOrdering: Ordering[Option[Address]] = Ordering.Option(Address.OrderingInstance)
-
-
-  implicit object MessageTypeOrderingInstance extends OrderBasedOrdering[MessageType]
-  implicit object CurrencyMessageOrderingInstance extends OrderBasedOrdering[CurrencyMessage]
-  implicit object PeerIdOrderingInstance extends OrderBasedOrdering[PeerId]
-
-  implicit val peerIdOrdering: Ordering[PeerId] = PeerIdOrderingInstance
 
 
   val kryoRegistrar: Map[Class[_], StreamingKryoRegistrationId] = Map(
@@ -74,52 +67,14 @@ package object schema {
     classOf[MessageType] -> 1032,
     MessageType.Owner.getClass -> 1033,
     MessageType.Staking.getClass -> 1034,
-    MessageTypeOrderingInstance.getClass -> 1035,
-    CurrencyMessageOrderingInstance.getClass -> 1036,
-    PeerIdOrderingInstance.getClass -> 1037,
-    peerIdOrdering.getClass -> 1038,
-
+    MessageType.OrderingInstance.getClass -> 1035,
+    CurrencyMessage.OrderingInstance.getClass -> 1036,
+    PeerId.OrderingInstance.getClass -> 1037,
+    GlobalSnapshotSync.OrderingInstance.getClass -> 1038,
+    MessageType.OrderingInstance.getClass -> 1039,
   )
 
   val migrations = List(Migration[GlobalIncrementalSnapshotV1, GlobalIncrementalSnapshot](_.toGlobalIncrementalSnapshot))
 
-
-
-  //    def stateProof[F[_]: Sync: Hasher](ordinal: SnapshotOrdinal): F[CurrencySnapshotStateProof] =
-  //      (
-  //        lastTxRefs.hash,
-  //        balances.hash,
-  //        lastMessages.traverse(_.hash),
-  //        globalSnapshotSyncView.traverse(_.hash),
-  //      ).tupled
-  //        .map(CurrencySnapshotStateProof.apply)
-  //  }
-
-
-//    lastTxRefs: SortedMap[Address, TransactionReference],
-  //    balances: SortedMap[Address, Balance],
-  //    lastMessages: Option[SortedMap[MessageType, Signed[CurrencyMessage]]],
-  //    lastFeeTxRefs: Option[SortedMap[Address, TransactionReference]],
-  //    lastAllowSpendRefs: Option[SortedMap[Address, AllowSpendReference]],
-  //    activeAllowSpends: Option[SortedMap[Address, SortedSet[Signed[AllowSpend]]]],
-  //    globalSnapshotSyncView: Option[SortedMap[PeerId, Signed[GlobalSnapshotSync]]],
-  //    lastTokenLockRefs: Option[SortedMap[Address, TokenLockReference]],
-  //    activeTokenLocks: Option[SortedMap[Address, SortedSet[Signed[TokenLock]]]]
-
-
-
-  //case class GlobalSnapshotInfo(
-  //  lastStateChannelSnapshotHashes: SortedMap[Address, Hash],
-  //  lastTxRefs: SortedMap[Address, TransactionReference],
-  //  balances: SortedMap[Address, Balance],
-  //  lastCurrencySnapshots: SortedMap[Address, Either[Signed[CurrencySnapshot], (Signed[CurrencyIncrementalSnapshot], CurrencySnapshotInfo)]],
-  //  lastCurrencySnapshotsProofs: SortedMap[Address, Proof],
-  //  activeAllowSpends: Option[SortedMap[Option[Address], SortedMap[Address, SortedSet[Signed[AllowSpend]]]]],
-  //  activeTokenLocks: Option[SortedMap[Address, SortedSet[Signed[TokenLock]]]],
-  //  tokenLockBalances: Option[SortedMap[Address, SortedMap[Address, Balance]]],
-  //  lastAllowSpendRefs: Option[SortedMap[Address, AllowSpendReference]],
-  //  lastTokenLockRefs: Option[SortedMap[Address, TokenLockReference]],
-  //  updateNodeParameters: Option[SortedMap[Id, (Signed[UpdateNodeParameters], SnapshotOrdinal)]]
-  //)
 }
 

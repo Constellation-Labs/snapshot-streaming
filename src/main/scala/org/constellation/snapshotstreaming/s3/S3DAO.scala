@@ -52,7 +52,8 @@ object S3DAO {
     private val logger = Slf4jLogger.getLogger[F]
 
     def uploadSnapshot(snapshot: Hashed[GlobalIncrementalSnapshot]): F[Unit] =
-      for {
+      Async[F].unit
+      /*for {
         arr <- snapshot.signed.toBinaryF
         is = new ByteArrayInputStream(arr)
         keyName = s"${config.bucketDir}/${snapshot.hash}"
@@ -60,7 +61,7 @@ object S3DAO {
         _ <- logger.info(
           s"Snapshot ${snapshot.ordinal.value.value} (hash: ${snapshot.hash.show.take(8)}) uploaded to s3."
         )
-      } yield ()
+      } yield ()*/
 
     def downloadSnapshot(hash: Hash): F[Signed[GlobalIncrementalSnapshot]] = {
       val keyName = s"${config.bucketDir}/${hash}"

@@ -24,25 +24,25 @@ import io.constellationnetwork.schema.height.Height
 import io.constellationnetwork.security._
 import io.constellationnetwork.ext.kryo._
 import fs2.compression.Compression
+import io.constellationnetwork.schema.tokenLock.TokenLockOrdinal
+
 
 object FileBasedLastGlobalIncrementalSnapshotStorage {
 
+  TokenLockOrdinal.ordering$macro$9
 
-  case class SnapshotWithState(snapshot: Hashed[GlobalIncrementalSnapshot], state: GlobalSnapshotInfo)
-
-  private implicit val codec: Codec[Hashed[GlobalIncrementalSnapshot]] = deriveCodec[Hashed[GlobalIncrementalSnapshot]]
-  private implicit val snapshotWithInfoCodec: Codec[SnapshotWithState] = deriveCodec[SnapshotWithState]
 
   def make[F[_]: Async: HasherSelector: Files: KryoSerializer](
     path: Path
   ): F[LastSnapshotStorage[F, GlobalIncrementalSnapshot, GlobalSnapshotInfo]] = {
 
     def deserializeWithJson(data: Array[Byte]) = jawn.decode[SnapshotWithState](new String(data, "UTF-8"))
-//    def deserializeWithKryoOrJson(data: Array[Byte]) =
-//      data.fromBinary[SnapshotWithState].handleErrorWith { e =>
-//        println(s"Failed to deserialize with kryo: ${e.getMessage}")
-//        jawn.decode[SnapshotWithState](new String(data, "UTF-8"))
-//      }
+
+    def deserializeWithKryoOrJson(data: Array[Byte]) =
+      data.fromBinary[SnapshotWithState].handleErrorWith { e =>
+        println(s"Failed to deserialize with kryo: ${e.getMessage}")
+        jawn.decode[SnapshotWithState](new String(data, "UTF-8"))
+      }
 
     val readSnapshotWithState: F[Option[SnapshotWithState]] =
       Files[F]
@@ -78,9 +78,13 @@ object FileBasedLastGlobalIncrementalSnapshotStorage {
         }
 
       def set(snapshot: Hashed[GlobalIncrementalSnapshot], state: GlobalSnapshotInfo): F[Unit] =
-        /*validateStateProof(snapshot, state) >> */{
-          val snapshotWithState = SnapshotWithState(snapshot, state)
-          writeSnapshotWithStateJson(snapshotWithState) >> cachedSnapshot.set(Some(snapshotWithState))
+        validateStateProof(snapshot, state) >> {
+          cachedSnapshot.get.flatMap { x =>
+            x.map { _ =>
+              val snapshotWithState = SnapshotWithState(snapshot, state)
+              writeSnapshotWithStateJson(snapshotWithState) >> cachedSnapshot.set(Some(snapshotWithState))
+            }.getOrElse(setInitial(snapshot, state))
+          }
         }
 //          get.flatMap {
 //            case Some(last) if isNextSnapshot(last, snapshot.signed.value) =>
@@ -112,16 +116,16 @@ object FileBasedLastGlobalIncrementalSnapshotStorage {
           .compile
           .drain
 
-//      private def writeSnapshotWithStateKryo(
-//        snapshotWithState: SnapshotWithState,
-//        flags: Flags = Flags(Flag.Write, Flag.Truncate)
-//      ) =
-//        Stream
-//          .evalSeq(snapshotWithState.toBinaryF.map(_.toSeq))
-//          .through(Compression[F].gzip())
-//          .through(Files[F].writeAll(path, flags))
-//          .compile
-//          .drain
+      private def writeSnapshotWithStateKryo(
+        snapshotWithState: SnapshotWithState,
+        flags: Flags = Flags(Flag.Write, Flag.Truncate)
+      ) =
+        Stream
+          .evalSeq(snapshotWithState.toBinaryF.map(_.toSeq))
+          .through(Compression[F].gzip())
+          .through(Files[F].writeAll(path, flags))
+          .compile
+          .drain
 
       def setInitial(snapshot: Hashed[GlobalIncrementalSnapshot], state: GlobalSnapshotInfo): F[Unit] = {
         val snapshotWithState = SnapshotWithState(snapshot, state)

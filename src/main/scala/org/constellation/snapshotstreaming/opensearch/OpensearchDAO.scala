@@ -42,8 +42,8 @@ object OpensearchDAO {
 
   def make[F[_]: Async](esClient: ElasticClient, osCfg: OpenSearchConfig): OpensearchDAO[F] = new OpensearchDAO[F] {
 
-    def sendToOpensearch(bulkRequest: BulkRequest): F[Unit] =
-      Async[F].delay(esClient.execute(bulkRequest)).flatMap { fut =>
+    def sendToOpensearch(bulkRequest: BulkRequest): F[Unit] = Async[F].unit
+      /*Async[F].delay(esClient.execute(bulkRequest)).flatMap { fut =>
         Async[F].executionContext.flatMap { implicit ec =>
           Async[F].async_[Response[BulkResponse]] { cb =>
             fut.onComplete {
@@ -59,7 +59,7 @@ object OpensearchDAO {
             }
           }
         }.as(())
-      }
+      }*/
 
     def bulkStream[T: ClassTag, C: ClassTag](
       search: SearchRequest,

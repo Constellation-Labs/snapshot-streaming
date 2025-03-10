@@ -63,7 +63,7 @@ object GlobalSnapshotContextService {
                 lastGlobalSnapshotInfo,
                 scSnapshots,
                 None,
-                  noOp
+                noOp
               )
                 .flatMap {
                   _.mapFilter { case (snapshots, _) =>
