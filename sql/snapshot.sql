@@ -342,14 +342,10 @@ insert
 CREATE TABLE dag_token_unlocks (
 	lock_reference_ordinal int8 NOT NULL,
 	lock_reference_hash varchar NOT NULL,
-	amount int8 NOT NULL,
-	address varchar NOT NULL,
-	created_at timestamp DEFAULT now() NOT NULL,
-	updated_at timestamp DEFAULT now() NOT NULL,
 	CONSTRAINT dag_token_unlocks_pk PRIMARY KEY (lock_reference_ordinal, lock_reference_hash),
 	CONSTRAINT dag_token_unlocks_token_locks_fk FOREIGN KEY (lock_reference_hash,lock_reference_ordinal) REFERENCES dag_token_locks(hash,ordinal),
-	CONSTRAINT ddag_token_unlocks_address_fk FOREIGN KEY (address) REFERENCES addresses(address)
-);
+	CONSTRAINT ddag_token_unlocks_address_fk FOREIGN KEY (source_addr) REFERENCES addresses(address)
+) INHERITS (public.abstract_transactions);
 
 -- Table Triggers
 
@@ -357,7 +353,10 @@ create trigger set_updated_at_dag_token_unlocks before
 update
     on
     public.dag_token_unlocks for each row execute function update_updated_at_column();
-
+create trigger trigger_insert_abstract_transactions_dag_token_unlocks after
+insert
+    on
+    public.dag_token_unlocks for each row execute function insert_into_parent_abstract_transactions();
 
 -- public.dag_transactions definition
 
@@ -547,16 +546,12 @@ CREATE TABLE metagraph_token_unlocks (
 	metagraph_id varchar NOT NULL,
 	lock_reference_ordinal int8 NOT NULL,
 	lock_reference_hash varchar NOT NULL,
-	amount int8 NOT NULL,
-	address varchar NOT NULL,
-	created_at timestamp DEFAULT now() NOT NULL,
-	updated_at timestamp DEFAULT now() NOT NULL,
 	CONSTRAINT metagraph_token_unlocks_pk PRIMARY KEY (lock_reference_ordinal, lock_reference_hash),
-	CONSTRAINT address_fk FOREIGN KEY (address) REFERENCES addresses(address),
+	CONSTRAINT address_fk FOREIGN KEY (source_addr) REFERENCES addresses(address),
 	CONSTRAINT metagraph_id_fk FOREIGN KEY (metagraph_id) REFERENCES metagraphs(id),
-	CONSTRAINT metagraph_token_unlocks_token_locks_hash_fk FOREIGN KEY (metagraph_id,lock_reference_hash) REFERENCES metagraph_token_locks(metagraph_id,hash),
+	CONSTRAINT metagraph_token_unlocks_token_locks_fk FOREIGN KEY (metagraph_id,lock_reference_hash) REFERENCES metagraph_token_locks(metagraph_id,hash),
 	CONSTRAINT metagraph_token_unlocks_token_locks_ordinal_fk FOREIGN KEY (metagraph_id,lock_reference_ordinal) REFERENCES metagraph_token_locks(metagraph_id,ordinal)
-);
+) INHERITS (public.abstract_transactions);
 
 -- Table Triggers
 
@@ -564,6 +559,10 @@ create trigger set_updated_at_metagraph_token_unlocks before
 update
     on
     public.metagraph_token_unlocks for each row execute function update_updated_at_column();
+create trigger trigger_insert_abstract_transactions_metagraph_token_unlocks after
+insert
+    on
+    public.metagraph_token_unlocks for each row execute function insert_into_parent_abstract_transactions();
 
 
 -- public.dag_allow_spend_approvers definition
@@ -817,6 +816,7 @@ SELECT
   p.relname AS table_name
 FROM public.abstract_transactions tx
 JOIN pg_class p ON tx.tableoid = p.oid
+JOIN dag_token_locks dtl ON dtl.hash = p.hash
 WHERE p.relname <> 'abstract_transactions';
 
 
