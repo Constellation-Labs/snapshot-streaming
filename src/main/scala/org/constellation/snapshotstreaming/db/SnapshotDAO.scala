@@ -453,7 +453,7 @@ object SnapshotDAO {
       preparedProofs <- session.prepareR(insertProofCommand)
       preparedBlockParent <- session.prepareR(insertBlockParentCommand)
       preparedAddress <- session.prepareR(insertAddressCommand)
-      _ <- Resource.eval(executeCmd(preparedAddress)(AddressExtractor.extract(snapshot)))
+      _ <- Resource.eval(executeCmd(preparedAddress)(AddressExtractor.extract(snapshot).toSeq))
       xa <- session.transaction
     } yield {
       val gsHash = snapshot.snapshot.hash
@@ -485,7 +485,7 @@ object SnapshotDAO {
         preparedMgRewardTxs <- session.prepareR(insertMetagraphRewardTxCommand)
         preparedMgAddressBalance <- session.prepareR(insertMetagraphAddressBalanceCommand)
         preparedAddress <- session.prepareR(insertAddressCommand)
-        _ <- Resource.eval(executeCmd(preparedAddress)(AddressExtractor.extract(mgSnapshot)))
+        _ <- Resource.eval(executeCmd(preparedAddress)(AddressExtractor.extract(mgSnapshot).toSeq))
         _ <- Resource.eval(executeCmd(preparedMetagraphs)(MetagraphExtractor.extract(mgSnapshot)))
         xa <- session.transaction
       } yield {
