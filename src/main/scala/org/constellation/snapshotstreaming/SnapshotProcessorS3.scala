@@ -196,7 +196,7 @@ object SnapshotProcessorS3 {
                       val updatedPprocessoStatus = processoStatus.copy(
                         lastSnapshot = updatedSnapshot.signed,
                         lastState = newContext.snapshotInfo,
-                        processoStatus.snapshotsWithState ++ List(newContext)
+                        List(newContext)
                       )
                       (Option(updatedPprocessoStatus), newContext)
                     }
