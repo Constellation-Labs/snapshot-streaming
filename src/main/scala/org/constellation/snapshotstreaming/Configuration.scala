@@ -74,7 +74,6 @@ final case class Reindexer( s3Parallelism: Int, s3Prefetch: Int, snapshotContext
 final case class SnapshotStreamingConfig(
   lastSnapshotPath: Path,
   lastIncrementalSnapshotPath: Path,
-  parallelism: Int,
   environment: AppEnvironment,
   httpClient: HttpClientConfig,
   node: NodeConfig,
