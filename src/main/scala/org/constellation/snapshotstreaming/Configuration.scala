@@ -69,6 +69,8 @@ final case class NodeConfig(
   val l0PeersMap = NonEmptyMap.fromMapUnsafe(SortedMap.from(l0Peers.map(p => p.id -> p)))
 }
 
+final case class Reindexer( s3Parallelism: Int, s3Prefetch: Int, snapshotContextPrefetch: Int, dbParallelism: Int, checkpointEvery: Int)
+
 final case class SnapshotStreamingConfig(
   lastSnapshotPath: Path,
   lastIncrementalSnapshotPath: Path,
@@ -78,7 +80,8 @@ final case class SnapshotStreamingConfig(
   node: NodeConfig,
   s3: Option[S3Config],
   db: Option[DbConfig],
-  opensearch: Option[OpenSearchConfig]
+  opensearch: Option[OpenSearchConfig],
+  reindexer: Option[Reindexer]
 )
 
 final case class AppConfig(
@@ -105,7 +108,7 @@ object Configuration {
     SharedConfig(
       env,
       c.gossip,
-      null, // http: HttpConfig,
+      null, // http: HttpConfig, not needed
       c.leavingDelay,
       c.stateAfterJoining,
       CliMethod.collateralConfig(env, c.collateral.map(_.amount)),

@@ -74,14 +74,8 @@ object S3DAO {
         .flatMap(inputStream => io.readInputStream(Async[F].delay(inputStream.getDelegateStream), chunkSize = 4096))
         .compile
         .to(Array)
-        .flatMap( d => d.fromBinaryF[Signed[GlobalIncrementalSnapshotV1]]).map {
-          case Signed(snapV1, proofs) => Signed(snapV1.toGlobalIncrementalSnapshot, proofs)
-        }
+        .flatMap( d => d.fromBinaryF[Signed[GlobalIncrementalSnapshot]])
 
-    }
-
-    private def safeProofSet(proofs : NonEmptySet[SignatureProof]): NonEmptySet[SignatureProof] ={
-      NonEmptySet.fromSetUnsafe(SortedSet.from(proofs.toSortedSet)(SignatureProof.OrderingInstance))
     }
 
     def metadata(hash: Hash) =

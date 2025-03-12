@@ -159,6 +159,8 @@ object SnapshotProcessorS3 {
 
     def cursorMapper(hit: SearchHit) = hit.sourceAsMap.get("ordinal").map(_.toString.toLong)
 
+    val reindexerConf = configuration.reindexer.get
+
     val runtime: Stream[F, Unit] = {
 
       Stream
@@ -170,14 +172,14 @@ object SnapshotProcessorS3 {
 
           opensearchDAO.get
             .bulkStream(searchGlobalSnapshots, hitMapper, cursorMapper, startAfterOrdinal)
-            .parEvalMap(500) { case (h, ts) =>
+            .parEvalMap(reindexerConf.s3Parallelism) { case (h, ts) =>
               logger.info(s"Downloading hash ${h} from S3") >>
                 s3DAO.get.downloadSnapshot(Hash(h)).flatMap { snapshot =>
                   implicit val hasher = HasherSelector[F].getForOrdinal(snapshot.ordinal)
                   logger.info(s" ordinal ${snapshot.ordinal} for hash ${h}")
                   snapshot.toHashed[F]
                 }.map((h, _, ts))
-            }.prefetchN(1000)
+            }.prefetchN(reindexerConf.s3Parallelism*2)
             .evalMapAccumulate(hashedIncrementalCombinedO.map{ case (lastSnapshot, lastState) => ProcessedSnapshots(lastSnapshot.signed, lastState, List.empty)}) {
               case (None, (gsHash, snapshot, dt)) =>
                 val gss= GlobalSnapshotWithState(snapshot.copy(hash = Hash(gsHash)), None, signedFullGlobalSnapshot.value.info, Map.empty, dt)
@@ -194,20 +196,20 @@ object SnapshotProcessorS3 {
                       val updatedPprocessoStatus = processoStatus.copy(
                         lastSnapshot = updatedSnapshot.signed,
                         lastState = newContext.snapshotInfo,
-                        processoStatus.snapshotsWithState ++ List(newContext)
+                        List(newContext)
                       )
                       (Option(updatedPprocessoStatus), newContext)
                     }
             }
         }.map(_._2)
-        .prefetchN(500)
+        .prefetchN(reindexerConf.snapshotContextPrefetch)
         .evalTap { case GlobalSnapshotWithState(snapshot, _, _, _, _) =>
             logger.info(s"Pulled following global snapshot: ${getSnapshotReference(snapshot).show}")
         }
-        .parEvalMap(30) { case state@GlobalSnapshotWithState(snapshot, _, _, _, _) =>
+        .parEvalMap(reindexerConf.dbParallelism) { case state@GlobalSnapshotWithState(snapshot, _, _, _, _) =>
             val hasher = HasherSelector[F].getForOrdinal(snapshot.ordinal)
             process(state, hasher).map(_ => state)
-        }.chunkMin(50)
+        }.chunkMin(reindexerConf.checkpointEvery)
         .evalMap { snapshots =>
           snapshots.last.traverse { last =>
             logger.info(s"Checkpoint at snapshot ordinal ${last.snapshot.ordinal} hash ${last.snapshot.hash} ") >>

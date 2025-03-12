@@ -34,7 +34,7 @@ object AppS3 extends IOApp {
         ConfigSource.default.loadF[IO, SharedConfigReader]().flatMap { sharedCfg =>
           Random.scalaUtilRandom[IO].flatMap { implicit random =>
             val cryOs =  sharedKryoRegistrar.union(kryoRegistrar)
-            KryoSerializer.forAsync[IO](cryOs, migrations).use { implicit ks =>
+            KryoSerializer.forAsync[IO](sharedKryoRegistrar ++ kryoRegistrar, migrations).use { implicit ks =>
               JsonSerializer.forSync[IO].asResource.use { implicit jsonSerializer =>
                 val hashSelect = makeHashSelect(appConfig, sharedCfg)
                 implicit val hasherSelector =

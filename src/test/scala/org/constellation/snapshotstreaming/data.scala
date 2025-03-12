@@ -35,7 +35,6 @@ import io.constellationnetwork.schema.balance.Balance
 import io.constellationnetwork.schema.transaction.Transaction
 import io.constellationnetwork.schema.transaction.TransactionAmount
 import io.constellationnetwork.schema.transaction.TransactionFee
-import io.constellationnetwork.schema.transaction.TransactionOrdinal
 import io.constellationnetwork.schema.transaction.TransactionReference
 import io.constellationnetwork.schema.transaction.TransactionSalt
 import io.constellationnetwork.security.HasherSelector
@@ -218,7 +217,7 @@ object data {
             globalSnapshotSyncs= None,
             feeTransactions = feeTransactions,
             artifacts= None,
-            allowSpendBlocks = None,  //TODO populate
+            allowSpendBlocks = None,
             tokenLockBlocks = None,
             globalSyncView = None
           ),
