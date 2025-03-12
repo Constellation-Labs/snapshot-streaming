@@ -3,17 +3,10 @@ package org.constellation.snapshotstreaming
 import cats.effect.kernel.Async
 import cats.syntax.all._
 
-import io.constellationnetwork.currency.schema.currency.{
-  CurrencyIncrementalSnapshot,
-  CurrencySnapshot,
-  CurrencySnapshotInfo
-}
+import io.constellationnetwork.currency.schema.currency.{CurrencyIncrementalSnapshot, CurrencySnapshot, CurrencySnapshotInfo}
 import io.constellationnetwork.kryo.KryoSerializer
-import io.constellationnetwork.node.shared.infrastructure.snapshot.{
-  GlobalSnapshotContextFunctions,
-  GlobalSnapshotStateChannelEventsProcessor
-}
-import io.constellationnetwork.schema.{GlobalIncrementalSnapshot, GlobalSnapshotInfo}
+import io.constellationnetwork.node.shared.infrastructure.snapshot.{GlobalSnapshotContextFunctions, GlobalSnapshotStateChannelEventsProcessor}
+import io.constellationnetwork.schema.{GlobalIncrementalSnapshot, GlobalSnapshotInfo, SnapshotOrdinal}
 import io.constellationnetwork.security.signature.Signed
 import io.constellationnetwork.security.{Hashed, HasherSelector}
 import io.constellationnetwork.statechannel.StateChannelSnapshotBinary
@@ -25,7 +18,8 @@ trait GlobalSnapshotContextService[F[_]] {
   def createContext(
     context: GlobalSnapshotInfo,
     lastArtifact: Signed[GlobalIncrementalSnapshot],
-    artifact: Hashed[GlobalIncrementalSnapshot]
+    artifact: Hashed[GlobalIncrementalSnapshot],
+    getGlobalSnapshotByOrdinal: SnapshotOrdinal => F[Option[Hashed[GlobalIncrementalSnapshot]]]
   ): F[GlobalSnapshotWithState]
 
 }
@@ -41,7 +35,8 @@ object GlobalSnapshotContextService {
       def createContext(
         context: GlobalSnapshotInfo,
         lastArtifact: Signed[GlobalIncrementalSnapshot],
-        artifact: Hashed[GlobalIncrementalSnapshot]
+        artifact: Hashed[GlobalIncrementalSnapshot],
+        getGlobalSnapshotByOrdinal: SnapshotOrdinal => F[Option[Hashed[GlobalIncrementalSnapshot]]]
       ): F[GlobalSnapshotWithState] =
         HasherSelector[F]
           .forOrdinal(artifact.ordinal) { implicit hasher =>
@@ -50,7 +45,8 @@ object GlobalSnapshotContextService {
                 context,
                 lastArtifact,
                 artifact.signed,
-                List(lastArtifactHashed).some
+                List(lastArtifactHashed).some,
+                getGlobalSnapshotByOrdinal
               )
             }
           }
@@ -67,7 +63,8 @@ object GlobalSnapshotContextService {
                     artifact.ordinal,
                     context,
                     reversedStateChannelSnapshots,
-                    List(lastArtifactHashed).some
+                    List(lastArtifactHashed).some,
+                    getGlobalSnapshotByOrdinal
                   )
                   .flatMap {
                     _.mapFilter { case (snapshots, _) =>

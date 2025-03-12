@@ -83,6 +83,8 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
         None,
         None,
         None,
+        None,
+        None,
         None
       )
 
@@ -135,6 +137,8 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
         updatedBalances,
         SortedMap.empty,
         SortedMap.empty,
+        None,
+        None,
         None,
         None,
         None,
@@ -192,6 +196,8 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
         None,
         None,
         None,
+        None,
+        None,
         None
       )
       snapshot <- incrementalGlobalSnapshot[IO](
@@ -235,6 +241,8 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
       updatedBalances,
       SortedMap.empty,
       SortedMap.empty,
+      None,
+      None,
       None,
       None,
       None,
