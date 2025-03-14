@@ -3,9 +3,6 @@ package org.constellation.snapshotstreaming.schema.extractors
 import org.constellation.snapshotstreaming.schema.AllowSpends.{AllowSpend, TokenLock, TokenUnlock}
 import org.constellation.snapshotstreaming.schema.schema.{GlobalData, MetagraphData}
 import org.constellation.snapshotstreaming.schema._
-import org.constellation.snapshotstreaming.schema.AllowSpends.{AllowSpend, TokenLock, TokenUnlock}
-import org.constellation.snapshotstreaming.schema.schema.{GlobalData, MetagraphData}
-import org.constellation.snapshotstreaming.schema.{AddressBalance, RewardTransaction, Transaction}
 
 trait AddressExtractor[T] {
   def extractAddresses(value: T): Set[String]
@@ -49,7 +46,7 @@ object AddressExtractor {
       data.balances.toSet.flatMap(implicitly[AddressExtractor[AddressBalance]].extractAddresses)
 
   implicit val metagraphDataExtractor: AddressExtractor[MetagraphData] = data =>
-    data.snapshots.toSet.flatMap(implicitly[AddressExtractor[CurrencyData[CurrencySnapshot]]].extractAddresses) ++
+    data.allAsIncremental.toSet.flatMap(implicitly[AddressExtractor[CurrencyData[CurrencySnapshot]]].extractAddresses) ++
       data.txs.toSet.flatMap(implicitly[AddressExtractor[CurrencyData[Transaction]]].extractAddresses) ++
       data.feeTxs.toSet.flatMap(implicitly[AddressExtractor[CurrencyData[FeeTransaction]]].extractAddresses) ++
       data.allowSpends.toSet.flatMap(implicitly[AddressExtractor[CurrencyData[AllowSpend]]].extractAddresses) ++

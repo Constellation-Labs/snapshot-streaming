@@ -17,21 +17,21 @@ import java.time.LocalDateTime
 import scala.collection.immutable.SortedSet
 
 abstract class CurrencyIncrementalSnapshotMapper[F[_]: Async]
-    extends SnapshotMapper[F, CurrencyIncrementalSnapshot, CurrencySnapshotInfo] {
+  extends SnapshotMapper[F, CurrencyIncrementalSnapshot, CurrencySnapshotInfo] {
 
   def mapSnapshot(
-    snapshot: Hashed[CurrencyIncrementalSnapshot],
-    binary: Signed[StateChannelSnapshotBinary],
-    info: CurrencySnapshotInfo,
-    timestamp: LocalDateTime,
-    hasher: Hasher[F]
-  ): F[CurrencySnapshot]
+                   snapshot: Hashed[CurrencyIncrementalSnapshot],
+                   binary: Signed[StateChannelSnapshotBinary],
+                   info: CurrencySnapshotInfo,
+                   timestamp: LocalDateTime,
+                   hasher: Hasher[F]
+                 ): F[CurrencySnapshot]
 
   def mapFeeTransactions(
-    snapshot: Hashed[CurrencyIncrementalSnapshot],
-    timestamp: LocalDateTime,
-    hasher: Hasher[F]
-  ): F[List[FeeTransaction]]
+                          snapshot: Hashed[CurrencyIncrementalSnapshot],
+                          timestamp: LocalDateTime,
+                          hasher: Hasher[F]
+                        ): F[List[FeeTransaction]]
 
 }
 
@@ -52,10 +52,10 @@ object CurrencyIncrementalSnapshotMapper {
       }
 
       def mapFeeTransactions(
-        snapshot: Hashed[CurrencyIncrementalSnapshot],
-        timestamp: LocalDateTime,
-        hasher: Hasher[F]
-      ): F[List[FeeTransaction]] = {
+                              snapshot: Hashed[CurrencyIncrementalSnapshot],
+                              timestamp: LocalDateTime,
+                              hasher: Hasher[F]
+                            ): F[List[FeeTransaction]] = {
         implicit val hs: Hasher[F] = hasher
         snapshot.feeTransactions.toList.flatTraverse(
           _.toList.traverse(mapFeeTransaction(snapshot.hash.value, snapshot.ordinal.value, timestamp))
@@ -63,19 +63,13 @@ object CurrencyIncrementalSnapshotMapper {
       }
 
       def mapSnapshot(
-        snapshot: Hashed[CurrencyIncrementalSnapshot],
-        binary: Signed[StateChannelSnapshotBinary],
-        info: CurrencySnapshotInfo,
-        timestamp: LocalDateTime,
-        hasher: Hasher[F]
-      ): F[CurrencySnapshot] = for {
+                       snapshot: Hashed[CurrencyIncrementalSnapshot],
+                       binary: Signed[StateChannelSnapshotBinary],
+                       info: CurrencySnapshotInfo,
+                       timestamp: LocalDateTime,
+                       hasher: Hasher[F]
+                     ): F[CurrencySnapshot] = for {
         blocksHashes <- snapshot.blocks.unsorted.map(_.block).map(hashBlock(_, hasher)).toList.sequence
-        rewards = fetchRewards(snapshot).unsorted.map(reward =>
-          RewardTransaction(
-            reward.destination.value,
-            reward.amount.value
-          )
-        )
         sizeInKb <- SizeCalculator.kilobytes(binary)
       } yield CurrencySnapshot(
         hash = snapshot.hash.value,
@@ -84,13 +78,18 @@ object CurrencyIncrementalSnapshotMapper {
         subHeight = snapshot.subHeight.value,
         lastSnapshotHash = snapshot.lastSnapshotHash.value,
         blocks = blocksHashes.toSet,
-        rewards = rewards,
+        rewards = fetchRewards(snapshot).unsorted.map(reward =>
+          RewardTransaction(
+            reward.destination.value,
+            reward.amount.value
+          )
+        ),
         epochProgress = snapshot.epochProgress.value,
         timestamp = timestamp,
-        version = snapshot.version.version,
-        fee = Some(binary.fee.value),
+        fee = binary.fee.value,
         stakingAddress = getMessageAddress(MessageType.Staking, info),
         ownerAddress = getMessageAddress(MessageType.Owner, info),
+        version = snapshot.version.version,
         sizeInKB = sizeInKb.toLong
       )
 
@@ -98,7 +97,6 @@ object CurrencyIncrementalSnapshotMapper {
         feeTransaction: Signed[OriginalFeeTransaction]
       )(implicit hasher: Hasher[F]): F[FeeTransaction] =
         feeTransaction.toHashed.map { feeTx =>
-
           FeeTransaction(
             feeTx.hash.value,
             feeTx.amount.value,

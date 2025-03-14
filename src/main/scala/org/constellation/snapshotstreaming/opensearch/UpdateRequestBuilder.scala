@@ -1,8 +1,5 @@
 package org.constellation.snapshotstreaming.opensearch
 
-import cats.effect.Async
-import cats.syntax.all._
-import io.constellationnetwork.security.Hasher
 import com.sksamuel.elastic4s.ElasticApi.updateById
 import com.sksamuel.elastic4s.circe._
 import com.sksamuel.elastic4s.requests.update.UpdateRequest
@@ -37,7 +34,7 @@ object UpdateRequestBuilder {
         val GlobalData(snapshot, blocks, transactions, balances, proofs, _, _, _) =
           mappedGlobalData
 
-        val MetagraphData(
+        val MetagraphData(currSnapshots,
           currIncrementalSnapshots,
           currBlocks,
           currTransactions,
@@ -53,7 +50,7 @@ object UpdateRequestBuilder {
           blocks,
           transactions,
           balances,
-          Seq(), // there's no full currSnapshot, TODO : validate
+          currSnapshots,
           currIncrementalSnapshots,
           currBlocks,
           currTransactions,

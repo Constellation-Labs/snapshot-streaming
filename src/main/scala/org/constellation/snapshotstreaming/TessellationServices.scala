@@ -16,8 +16,7 @@ import io.constellationnetwork.security.HasherSelector
 import io.constellationnetwork.security.SecurityProvider
 import eu.timepit.refined.auto._
 import io.constellationnetwork.env.AppEnvironment
-import io.constellationnetwork.node.shared.config.types.{AddressesConfig, SharedConfigReader}
-import io.constellationnetwork.node.shared.domain.block.processing.BlockAcceptanceManager
+import io.constellationnetwork.node.shared.config.types.SharedConfigReader
 import io.constellationnetwork.node.shared.domain.node.UpdateNodeParametersAcceptanceManager
 import io.constellationnetwork.node.shared.domain.statechannel.FeeCalculator
 import io.constellationnetwork.node.shared.domain.swap.block.AllowSpendBlockAcceptanceManager

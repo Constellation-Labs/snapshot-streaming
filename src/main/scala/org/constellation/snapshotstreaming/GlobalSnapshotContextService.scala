@@ -1,6 +1,5 @@
 package org.constellation.snapshotstreaming
 
-import cats.Applicative
 import cats.effect.kernel.Async
 import cats.syntax.all._
 import io.constellationnetwork.currency.schema.currency.CurrencyIncrementalSnapshot
@@ -23,6 +22,7 @@ trait GlobalSnapshotContextService[F[_]] {
     context: GlobalSnapshotInfo,
     lastArtifact: Signed[GlobalIncrementalSnapshot],
     artifact: Hashed[GlobalIncrementalSnapshot],
+    getGlobalSnapshotByOrdinal: SnapshotOrdinal => F[Option[Hashed[GlobalIncrementalSnapshot]]],
     dt: LocalDateTime
   ): F[GlobalSnapshotWithState]
 
@@ -36,17 +36,27 @@ object GlobalSnapshotContextService {
   ): GlobalSnapshotContextService[F] =
     new GlobalSnapshotContextService[F] {
 
-      def noOp(s: SnapshotOrdinal): F[Option[Hashed[GlobalIncrementalSnapshot]]] = none[Hashed[GlobalIncrementalSnapshot]].pure
-
       def createContext(
-        context: GlobalSnapshotInfo,
-        lastArtifact: Signed[GlobalIncrementalSnapshot],
-        artifact: Hashed[GlobalIncrementalSnapshot],
-        dt: LocalDateTime
-      ): F[GlobalSnapshotWithState] =
+                         context: GlobalSnapshotInfo,
+                         lastArtifact: Signed[GlobalIncrementalSnapshot],
+                         artifact: Hashed[GlobalIncrementalSnapshot],
+                         getGlobalSnapshotByOrdinal: SnapshotOrdinal => F[Option[Hashed[GlobalIncrementalSnapshot]]],
+                           dt: LocalDateTime
+
+      ):
+      F[GlobalSnapshotWithState] =
         HasherSelector[F]
           .forOrdinal(artifact.ordinal) { implicit hasher =>
-            globalSnapshotContextFns.createContext(context, lastArtifact, artifact.signed, None, noOp)
+            lastArtifact.toHashed.flatMap { lastArtifactHashed =>
+              globalSnapshotContextFns.createContext(
+                context,
+                lastArtifact,
+                artifact.signed,
+                List(lastArtifactHashed).some,
+                getGlobalSnapshotByOrdinal
+              )
+            }
+            //globalSnapshotContextFns.createContext(context, lastArtifact, artifact.signed, None, noOp)
           }
           .flatMap { newContext =>
             HasherSelector[F].forOrdinal(artifact.ordinal) { implicit hasher =>
@@ -54,40 +64,40 @@ object GlobalSnapshotContextService {
               val reversedStateChannelSnapshots = artifact.signed.value.stateChannelSnapshots.map {
                 case (address, snapshots) => address -> snapshots.reverse
               }
-              val snapshotOrdinal = artifact.ordinal
-              val lastGlobalSnapshotInfo = context
-              val scSnapshots = reversedStateChannelSnapshots
 
-              globalSnapshotStateChannelEventsProcessor.processCurrencySnapshots(
-                snapshotOrdinal,
-                lastGlobalSnapshotInfo,
-                scSnapshots,
-                None,
-                noOp
-              )
-                .flatMap {
-                  _.mapFilter { case (snapshots, _) =>
-                    snapshots.collect { case (binary, Some(currencySnapshotWithState)) =>
-                      (binary, currencySnapshotWithState)
-                    }.toNel
-                  }.traverse(_.traverse { case (binary, currencySnapshotWithState) =>
-                    currencySnapshotWithState match {
-                      case Left(full) =>
-                        full.toHashed.map(
-                          _.asLeft[
-                            (
-                              Hashed[CurrencyIncrementalSnapshot],
-                              CurrencySnapshotInfo,
-                              Signed[StateChannelSnapshotBinary]
-                            )
-                          ]
-                        )
-                      case Right((inc, info)) =>
-                        inc.toHashed.map(hashed => (hashed, info, binary).asRight[Hashed[CurrencySnapshot]])
-                    }
-                  })
-                }
-                .map(GlobalSnapshotWithState(artifact, context.some, newContext, _, dt))
+              lastArtifact.toHashed.flatMap { lastArtifactHashed =>
+                globalSnapshotStateChannelEventsProcessor
+                  .processCurrencySnapshots(
+                    artifact.ordinal,
+                    context,
+                    reversedStateChannelSnapshots,
+                    List(lastArtifactHashed).some,
+                    getGlobalSnapshotByOrdinal
+                  )
+                  .flatMap {
+                    _.mapFilter { case (snapshots, _) =>
+                      snapshots.collect { case (binary, Some(currencySnapshotWithState)) =>
+                        (binary, currencySnapshotWithState)
+                      }.toNel
+                    }.traverse(_.traverse { case (binary, currencySnapshotWithState) =>
+                      currencySnapshotWithState match {
+                        case Left(full) =>
+                          full.toHashed.map(
+                            _.asLeft[
+                              (
+                                Hashed[CurrencyIncrementalSnapshot],
+                                CurrencySnapshotInfo,
+                                Signed[StateChannelSnapshotBinary]
+                              )
+                            ]
+                          )
+                        case Right((inc, info)) =>
+                          inc.toHashed.map(hashed => (hashed, info, binary).asRight[Hashed[CurrencySnapshot]])
+                      }
+                    })
+                  }
+                  .map(GlobalSnapshotWithState(artifact, context.some, newContext, _, dt))
+              }
             }
           }
 

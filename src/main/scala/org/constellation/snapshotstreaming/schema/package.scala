@@ -1,29 +1,20 @@
 package org.constellation.snapshotstreaming
 
-import cats.data.{NonEmptyMap, NonEmptySet}
 import eu.timepit.refined.auto._
 import eu.timepit.refined.numeric.Greater
 import io.constellationnetwork.currency.schema.currency.{CurrencyIncrementalSnapshot, CurrencySnapshotInfo, CurrencySnapshotStateProof}
 import io.constellationnetwork.currency.schema.globalSnapshotSync.GlobalSnapshotSync
-import io.constellationnetwork.ext.cats.data.OrderBasedOrdering
 import io.constellationnetwork.ext.kryo.KryoRegistrationId
 import io.constellationnetwork.kryo.Migration
-import io.constellationnetwork.schema.ID.Id
 import io.constellationnetwork.schema.address.Address
-import io.constellationnetwork.schema.balance.Balance
 import io.constellationnetwork.schema.currencyMessage.{CurrencyMessage, MessageType}
 import io.constellationnetwork.schema.node.UpdateNodeParameters
-import io.constellationnetwork.schema.peer.PeerId
 import io.constellationnetwork.schema.snapshot.SnapshotInfo
 import io.constellationnetwork.schema.swap.{AllowSpend, AllowSpendBlock, AllowSpendReference}
 import io.constellationnetwork.schema.tokenLock.{TokenLock, TokenLockBlock, TokenLockReference}
-import io.constellationnetwork.schema.{GlobalIncrementalSnapshot, GlobalIncrementalSnapshotV1, GlobalSnapshotInfo, GlobalSnapshotStateProof, SnapshotOrdinal}
+import io.constellationnetwork.schema.{GlobalIncrementalSnapshot, GlobalIncrementalSnapshotV1, GlobalSnapshotInfo, GlobalSnapshotStateProof}
 import io.constellationnetwork.security.Hashed
-import io.constellationnetwork.security.signature.Signed
-import io.constellationnetwork.security.signature.signature.SignatureProof
 import org.constellation.snapshotstreaming.storage.SnapshotWithState
-
-import scala.collection.immutable.{SortedMap, SortedSet}
 
 
 package object schema {

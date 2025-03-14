@@ -6,13 +6,13 @@ import cats.syntax.functor._
 import com.sksamuel.elastic4s.ElasticDsl._
 import com.sksamuel.elastic4s._
 import com.sksamuel.elastic4s.http.JavaClient
-import com.sksamuel.elastic4s.requests.bulk.{BulkRequest, BulkResponse}
-import com.sksamuel.elastic4s.requests.searches.{SearchHit, SearchRequest, SearchResponse}
-import org.typelevel.log4cats.slf4j.Slf4jLogger
+import com.sksamuel.elastic4s.requests.bulk.BulkRequest
+import com.sksamuel.elastic4s.requests.searches.{SearchHit, SearchRequest}
 import fs2.Stream
 import org.constellation.snapshotstreaming.OpenSearchConfig
+import org.typelevel.log4cats.slf4j.Slf4jLogger
+
 import scala.reflect.ClassTag
-import scala.util.{Failure, Success}
 
 trait OpensearchDAO[F[_]] {
   def sendToOpensearch(bulkRequest: BulkRequest): F[Unit]
@@ -24,6 +24,8 @@ trait OpensearchDAO[F[_]] {
     initialCursor: Option[C]
   ): Stream[F, T]
 
+  def singleQuery[T: ClassTag, C: ClassTag]( search: SearchRequest,
+                                             transformHit: SearchHit => Option[T]): F[Option[T]]
 }
 
 object OpensearchDAO {
@@ -88,6 +90,14 @@ object OpensearchDAO {
           }
         }
         .flatMap(Stream.emits)
+    }
+
+    def singleQuery[T: ClassTag, C: ClassTag]( search: SearchRequest,
+                     transformHit: SearchHit => Option[T]): F[Option[T]] = {
+
+      Async[F].fromFuture(Async[F].delay(esClient.execute(search))).map { response =>
+        response.result.hits.hits.headOption.flatMap(transformHit)
+      }
     }
 
   }

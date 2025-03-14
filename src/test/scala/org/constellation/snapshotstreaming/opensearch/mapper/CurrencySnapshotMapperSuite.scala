@@ -1,43 +1,27 @@
 package org.constellation.snapshotstreaming.opensearch.mapper
 
-import java.security.KeyPair
 import cats.data.NonEmptySet
-import cats.effect.IO
-import cats.effect.Resource
+import cats.effect.{IO, Resource}
 import cats.syntax.all._
-
-import scala.collection.immutable.SortedMap
-import scala.collection.immutable.SortedSet
+import eu.timepit.refined.auto._
+import io.constellationnetwork.currency.schema.currency.{CurrencyIncrementalSnapshot, CurrencySnapshotInfo}
 import io.constellationnetwork.ext.cats.effect.ResourceIO
+import io.constellationnetwork.json.JsonSerializer
 import io.constellationnetwork.kryo.KryoSerializer
-import io.constellationnetwork.schema.transaction._
 import io.constellationnetwork.node.shared.nodeSharedKryoRegistrar
+import io.constellationnetwork.schema.BlockAsActiveTip
+import io.constellationnetwork.schema.balance.Balance
+import io.constellationnetwork.schema.transaction._
+import io.constellationnetwork.security._
 import io.constellationnetwork.security.hash.Hash
 import io.constellationnetwork.security.key.ops.PublicKeyOps
-import io.constellationnetwork.security.KeyPairGenerator
-import io.constellationnetwork.security.SecurityProvider
 import io.constellationnetwork.shared.sharedKryoRegistrar
-import eu.timepit.refined.auto._
-import org.constellation.snapshotstreaming.data.applyTransactions
-import org.constellation.snapshotstreaming.data.createBalances
-import org.constellation.snapshotstreaming.data.createBlocksWithTransactions
-import org.constellation.snapshotstreaming.data.createFeeTxn
-import org.constellation.snapshotstreaming.data.createRewards
-import org.constellation.snapshotstreaming.data.createTxn
-import org.constellation.snapshotstreaming.data.emptyCurrencySnapshotInfo
-import org.constellation.snapshotstreaming.data.hashSelect
-import org.constellation.snapshotstreaming.data.incrementalCurrencySnapshot
-import io.constellationnetwork.currency.schema.currency.CurrencyIncrementalSnapshot
-import io.constellationnetwork.currency.schema.currency.CurrencySnapshotInfo
+import org.constellation.snapshotstreaming.data._
 import org.constellation.snapshotstreaming.mapper.CurrencyIncrementalSnapshotMapper
-import io.constellationnetwork.currency.schema.currency.{CurrencyIncrementalSnapshot, CurrencySnapshotInfo}
 import weaver.MutableIOSuite
-import io.constellationnetwork.security.Hasher
-import io.constellationnetwork.json.JsonSerializer
-import io.constellationnetwork.schema.balance.Balance
-import io.constellationnetwork.schema.BlockAsActiveTip
-import io.constellationnetwork.security.Hashed
-import io.constellationnetwork.security.HasherSelector
+
+import java.security.KeyPair
+import scala.collection.immutable.{SortedMap, SortedSet}
 
 object CurrencySnapshotMapperSuite extends MutableIOSuite {
 

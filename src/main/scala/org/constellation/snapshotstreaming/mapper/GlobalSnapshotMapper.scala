@@ -13,7 +13,7 @@ import java.time.LocalDateTime
 import scala.collection.immutable.SortedSet
 
 abstract class GlobalSnapshotMapper[F[_]: Async]
-    extends SnapshotMapper[F, GlobalIncrementalSnapshot, GlobalSnapshotInfo] {
+  extends SnapshotMapper[F, GlobalIncrementalSnapshot, GlobalSnapshotInfo] {
 
   def mapSnapshot(snapshot: Hashed[GlobalIncrementalSnapshot], timestamp: LocalDateTime, hasher: Hasher[F]): F[Snapshot]
 
@@ -55,32 +55,27 @@ object GlobalSnapshotMapper {
         SnapshotReferredAddresses(source, destination)
       }
 
-      def mapSnapshot(
-        snapshot: Hashed[GlobalIncrementalSnapshot],
-        timestamp: LocalDateTime,
-        hasher: Hasher[F]
-      ): F[Snapshot] =
-        for {
-          blockHashes <- snapshot.blocks.unsorted.map(_.block).map(hashBlock(_, hasher)).toList.sequence
-          rewards = fetchRewards(snapshot).unsorted.map(reward =>
-            RewardTransaction(
-              reward.destination.value,
-              reward.amount.value
-            )
+      def mapSnapshot(snapshot: Hashed[GlobalIncrementalSnapshot], timestamp: LocalDateTime, hasher: Hasher[F]): F[Snapshot] =
+        snapshot.blocks.unsorted.map(_.block).map(hashBlock(_, hasher)).toList.sequence.map { blocksHashes =>
+          Snapshot(
+            hash = snapshot.hash.value,
+            ordinal = snapshot.ordinal.value.value,
+            height = snapshot.height.value,
+            subHeight = snapshot.subHeight.value,
+            lastSnapshotHash = snapshot.lastSnapshotHash.value,
+            epochProgress = snapshot.epochProgress.value,
+            blocks = blocksHashes.toSet,
+            rewards = fetchRewards(snapshot).unsorted.map(reward =>
+              RewardTransaction(
+                reward.destination.value,
+                reward.amount.value
+              )
+            ),
+            version = snapshot.version.version,
+            timestamp = timestamp
           )
-        } yield Snapshot(
-          hash = snapshot.hash.value,
-          ordinal = snapshot.ordinal.value.value,
-          height = snapshot.height.value,
-          subHeight = snapshot.subHeight.value,
-          lastSnapshotHash = snapshot.lastSnapshotHash.value,
-          epochProgress = snapshot.epochProgress.value,
-          blocks = blockHashes.toSet,
-          rewards = rewards,
-          version = snapshot.version.version,
-          timestamp = timestamp
-        )
-
+        }
     }
 
 }
+

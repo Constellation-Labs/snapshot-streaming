@@ -8,10 +8,11 @@ import io.constellationnetwork.schema.balance.Balance
 import io.constellationnetwork.security.Hasher
 import org.constellation.snapshotstreaming.SnapshotProcessor.GlobalSnapshotWithState
 import org.constellation.snapshotstreaming.schema.schema.MetagraphData
-import org.constellation.snapshotstreaming.schema.{AddressBalance, Block, CurrencyData, FeeTransaction, Transaction, CurrencySnapshot => OSCurrencySnapshot}
+import org.constellation.snapshotstreaming.schema.{AddressBalance, Block, CurrencyData, FeeTransaction, Snapshot, Transaction, CurrencySnapshot => OSCurrencySnapshot}
 
 import java.time.LocalDateTime
 import scala.collection.immutable.SortedMap
+
 
 trait CurrencySnapshotMapper[F[_]] {
 
@@ -39,13 +40,14 @@ object CurrencySnapshotMapper {
     new CurrencySnapshotMapper[F] {
 
       type Acc = (
-        Seq[CurrencyData[OSCurrencySnapshot]],
-        Seq[CurrencyData[Block]],
-        Seq[CurrencyData[Transaction]],
-        Seq[CurrencyData[FeeTransaction]],
-        Seq[CurrencyData[AddressBalance]],
-        Map[Address, SortedMap[Address, Balance]]
-      )
+        Seq[CurrencyData[Snapshot]],
+          Seq[CurrencyData[OSCurrencySnapshot]],
+          Seq[CurrencyData[Block]],
+          Seq[CurrencyData[Transaction]],
+          Seq[CurrencyData[FeeTransaction]],
+          Seq[CurrencyData[AddressBalance]],
+          Map[Address, SortedMap[Address, Balance]]
+        )
 
       type CurrencySnapshotMapperResult = MetagraphData
 
@@ -68,6 +70,7 @@ object CurrencySnapshotMapper {
         }.getOrElse(SortedMap.empty[Address, SortedMap[Address, Balance]])
 
         val initialAcc: Acc = (
+          Seq.empty[CurrencyData[Snapshot]],
           Seq.empty[CurrencyData[OSCurrencySnapshot]],
           Seq.empty[CurrencyData[Block]],
           Seq.empty[CurrencyData[Transaction]],
@@ -79,9 +82,9 @@ object CurrencySnapshotMapper {
         currencySnapshots.toList.flatMap { case (i, s) => s.toList.map((i, _)) }
           .foldLeftM[F, Acc](initialAcc) {
             case (
-                  (aggSnap, aggBlocks, aggTxs, aggFeeTxs, aggBalances, aggLastBalances),
-                  (identifier, fullOrIncremental)
-                ) =>
+              (aggSnap, aggCurrencyIncrementalSnap, aggBlocks, aggTxs, aggFeeTxs, aggBalances, aggLastBalances),
+              (identifier, fullOrIncremental)
+              ) =>
               val identifierStr = identifier.value.value
 
               fullOrIncremental match {
@@ -101,6 +104,7 @@ object CurrencySnapshotMapper {
                       .map(CurrencyData(identifierStr, _))
                   } yield (
                     aggSnap :+ snapshot,
+                    aggCurrencyIncrementalSnap,
                     aggBlocks ++ blocks,
                     aggTxs ++ transactions,
                     aggFeeTxs,
@@ -132,7 +136,8 @@ object CurrencySnapshotMapper {
                       .mapBalances(incremental, filteredBalances, timestamp)
                       .map(CurrencyData(identifierStr, _))
                   } yield (
-                    aggSnap :+ snapshot,
+                    aggSnap,
+                    aggCurrencyIncrementalSnap :+ snapshot,
                     aggBlocks ++ blocks,
                     aggTxs ++ transactions,
                     aggFeeTxs ++ feeTransactions,
@@ -141,8 +146,8 @@ object CurrencySnapshotMapper {
                   )
               }
           }
-          .map { case (aggSnap, aggBlocks, aggTxs, aggFeeTxs, aggBalances, _) =>
-            MetagraphData(aggSnap, aggBlocks, aggTxs, aggFeeTxs, aggBalances)
+          .map { case (aggSnap, aggCurrencyIncrementalSnap, aggBlocks, aggTxs, aggFeeTxs, aggBalances, _) =>
+            MetagraphData(aggSnap, aggCurrencyIncrementalSnap, aggBlocks, aggTxs, aggFeeTxs, aggBalances)
           }
       }
 

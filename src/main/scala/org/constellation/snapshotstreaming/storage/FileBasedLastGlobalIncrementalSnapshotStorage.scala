@@ -1,30 +1,21 @@
 package org.constellation.snapshotstreaming.storage
 
-import cats.{Applicative, MonadThrow}
+import cats.Applicative
 import cats.effect._
 import cats.syntax.all._
+import fs2.compression.Compression
 import fs2.io.file._
 import fs2.{Stream, text}
-import io.circe.generic.semiauto.deriveCodec
-import io.circe.{Codec, jawn}
-import io.circe.syntax._
-import io.circe.Codec
-import io.circe.generic.semiauto.deriveCodec
 import io.circe.jawn
-import io.constellationnetwork.merkletree.StateProofValidator
-import io.constellationnetwork.node.shared.domain.snapshot.storage.LastSnapshotStorage
-import io.constellationnetwork.node.shared.domain.snapshot.Validator.isNextSnapshot
-import io.constellationnetwork.schema.height.Height
+import io.circe.syntax._
+import io.constellationnetwork.ext.kryo._
 import io.constellationnetwork.kryo.KryoSerializer
 import io.constellationnetwork.merkletree.StateProofValidator
-import io.constellationnetwork.node.shared.domain.snapshot.Validator.isNextSnapshot
 import io.constellationnetwork.node.shared.domain.snapshot.storage.LastSnapshotStorage
 import io.constellationnetwork.schema._
 import io.constellationnetwork.schema.height.Height
-import io.constellationnetwork.security._
-import io.constellationnetwork.ext.kryo._
-import fs2.compression.Compression
 import io.constellationnetwork.schema.tokenLock.TokenLockOrdinal
+import io.constellationnetwork.security._
 
 
 object FileBasedLastGlobalIncrementalSnapshotStorage {

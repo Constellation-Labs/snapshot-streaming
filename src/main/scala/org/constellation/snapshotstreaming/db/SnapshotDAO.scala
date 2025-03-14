@@ -214,10 +214,10 @@ object SnapshotDAO {
       version,
       created_at
     ) VALUES (
-      $varchar, $int8, $varchar, $varchar, $int8, $int8, $varchar, ${int8.opt}, ${varchar.opt}, ${varchar.opt}, $int8, $varchar, $timestamp
+      $varchar, $int8, $varchar, $varchar, $int8, $int8, $varchar, $int8, ${varchar.opt}, ${varchar.opt}, $int8, $varchar, $timestamp
     )
     ON CONFLICT (metagraph_id, hash) DO NOTHING;
-  """.command.contramap { case (gsHash, CurrencyData(id, cs)) =>
+  """.command.contramap { case (gsHash, CurrencyData(id, cs:CurrencySnapshot)) =>
       (
         id,
         cs.ordinal,
@@ -438,6 +438,8 @@ object SnapshotDAO {
 
   private def pairWith[V, T](elem: V, elements: Seq[T]) = elements.map((elem, _))
 
+
+
   def make[F[_]: Async](pool: Resource[F, Session[F]]): SnapshotDAO[F] = new SnapshotDAO[F] {
 
     def insertGlobalData(snapshot: GlobalData, mgSnaphotsCount: Int): F[Unit] = (for {
@@ -492,7 +494,8 @@ object SnapshotDAO {
         val blockParents = mgSnapshot.blocks.flatMap { currencyData =>
           currencyData.data.parent.map(parent => (currencyData.identifier, currencyData.data.hash, parent))
         }
-        executeCmd(preparedMetagraphSnapshot)(pairWith(globalSnapshotHash, mgSnapshot.snapshots)) >>
+        val unifiedSnapshots = mgSnapshot.allAsIncremental
+        executeCmd(preparedMetagraphSnapshot)(pairWith(globalSnapshotHash, unifiedSnapshots) )>>
           executeCmd(preparedMetagraphBlock)(mgSnapshot.blocks) >>
           executeCmd(preparedMgTxs)(mgSnapshot.txs) >>
           executeCmd(preparedMgAllowSpends)(mgSnapshot.allowSpends) >>
@@ -500,7 +503,7 @@ object SnapshotDAO {
           executeCmd(preparedMgTokenUnlocks)(mgSnapshot.tokenUnlocks) >>
           executeCmd(preparedMgFeeTxs)(mgSnapshot.feeTxs) >>
           executeCmd(preparedMgRewardTxs)(
-            mgSnapshot.snapshots.flatMap(mgs =>
+            unifiedSnapshots.flatMap(mgs =>
               mgs.data.rewards.map(r => (mgs.data.hash, CurrencyData(mgs.identifier, r)))
             )
           ) >>

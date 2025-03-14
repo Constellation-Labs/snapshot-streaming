@@ -166,8 +166,8 @@ object SnapshotProcessor {
       s3DAO.traverse(_.uploadSnapshot(globalSnapshotWithState.snapshot)).void
 
     private def splitData(globalSnapshotWithState: GlobalSnapshotWithState, d: LocalDateTime, hasher: Hasher[F]) = (
-      globalMapper.mapGlobalSnapshot(globalSnapshotWithState, d, hasher, txHasher),
-      currencyMapper.mapCurrencySnapshots(globalSnapshotWithState, d, hasher, txHasher)
+      globalMapper.mapGlobalSnapshot(globalSnapshotWithState, d, txHasher, hasher),
+      currencyMapper.mapCurrencySnapshots(globalSnapshotWithState, d, txHasher, hasher)
     ).tupled
 
     private def store(globalSnapshotWithState: GlobalSnapshotWithState, hasher: Hasher[F]): F[Unit] =
@@ -248,6 +248,7 @@ object SnapshotProcessor {
                           processedSnapshots.lastState,
                           processedSnapshots.lastSnapshot,
                           snapshot,
+                          l0Service.pullGlobalSnapshot,
                           LocalDateTime.now()
                         )
                         .map { globalSnapshotsWithState =>

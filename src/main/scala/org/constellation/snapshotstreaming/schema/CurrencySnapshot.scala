@@ -14,11 +14,11 @@ final case class CurrencySnapshot(
   epochProgress: Long,
   blocks: Set[String],
   rewards: Set[RewardTransaction],
-  fee: Option[Long] = None,
+  fee: Long,
   ownerAddress: Option[String] = None,
   stakingAddress: Option[String] = None,
-  version: String,
   timestamp: LocalDateTime,
+  version: String,
   sizeInKB: Long
 )
 

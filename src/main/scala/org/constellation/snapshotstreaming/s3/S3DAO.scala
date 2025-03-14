@@ -1,26 +1,20 @@
 package org.constellation.snapshotstreaming.s3
 
 import cats.Applicative
-import cats.data.NonEmptySet
 import cats.effect.{Async, Resource}
-import io.constellationnetwork.ext.kryo._
-import io.constellationnetwork.kryo.KryoSerializer
-import io.constellationnetwork.schema.GlobalIncrementalSnapshot
-import io.constellationnetwork.schema.GlobalIncrementalSnapshotV1
-import io.constellationnetwork.security.Hashed
-import io.constellationnetwork.security.signature.signature.SignatureProof
 import cats.syntax.all._
 import com.amazonaws.client.builder.AwsClientBuilder.EndpointConfiguration
 import com.amazonaws.services.s3.model.ObjectMetadata
 import com.amazonaws.services.s3.{AmazonS3, AmazonS3ClientBuilder}
+import io.constellationnetwork.ext.kryo._
+import io.constellationnetwork.kryo.KryoSerializer
+import io.constellationnetwork.schema.GlobalIncrementalSnapshot
+import io.constellationnetwork.security.Hashed
+import io.constellationnetwork.security.hash.Hash
+import io.constellationnetwork.security.signature.Signed
+import fs2.{Stream, io}
 import org.constellation.snapshotstreaming.S3Config
 import org.typelevel.log4cats.slf4j.Slf4jLogger
-import io.constellationnetwork.security.signature.Signed
-import io.constellationnetwork.security.hash.Hash
-import fs2.{Stream, io}
-
-import java.io.ByteArrayInputStream
-import scala.collection.immutable.SortedSet
 
 trait S3DAO[F[_]] {
   def uploadSnapshot(snapshot: Hashed[GlobalIncrementalSnapshot]): F[Unit]

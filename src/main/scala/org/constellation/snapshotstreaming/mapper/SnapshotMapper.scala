@@ -32,24 +32,23 @@ abstract class SnapshotMapper[F[_]: Async, S <: OriginalSnapshot, SI <: Snapshot
     transaction.toHashed.map(_.hash.value)
   }
 
-  def mapBlocks(snapshot: Hashed[S], timestamp: LocalDateTime, txHasher: Hasher[F], hasher: Hasher[F]): F[Seq[Block]] =
-    for {
-      blocks <- snapshot.blocks.unsorted
-        .map(_.block)
-        .map(mapBlock(snapshot.hash.value, snapshot.ordinal.value.value, timestamp, txHasher, hasher))
-        .toList
-        .sequence
-    } yield blocks
+  def mapBlocks(snapshot: Hashed[S], timestamp: LocalDateTime, txHasher: Hasher[F], hasher: Hasher[F]): F[Seq[Block]] = for {
+    blocks <- snapshot.blocks.unsorted
+      .map(_.block)
+      .map(mapBlock(snapshot.hash.value, snapshot.ordinal.value.value, timestamp, txHasher, hasher))
+      .toList
+      .sequence
+  } yield blocks
 
   private def mapBlock(
-    snapshotHash: String,
-    snapshotOrdinal: Long,
-    timestamp: LocalDateTime,
-    txHasher: Hasher[F],
-    hasher: Hasher[F]
-  )(
-    block: Signed[OriginalBlock]
-  ): F[Block] =
+                        snapshotHash: String,
+                        snapshotOrdinal: Long,
+                        timestamp: LocalDateTime,
+                        txHasher: Hasher[F],
+                        hasher: Hasher[F]
+                      )(
+                        block: Signed[OriginalBlock]
+                      ): F[Block] =
     for {
       blockHash <- hashBlock(block, hasher)
       transactionsHashes <- block.value.transactions.toSortedSet.unsorted
@@ -75,14 +74,14 @@ abstract class SnapshotMapper[F[_]: Async, S <: OriginalSnapshot, SI <: Snapshot
   } yield transactions.flatten
 
   private def mapTransactionsFromBlock(
-    snapshotHash: String,
-    snapshotOrdinal: Long,
-    timestamp: LocalDateTime,
-    txHasher: Hasher[F],
-    hasher: Hasher[F]
-  )(
-    block: Signed[OriginalBlock]
-  ) = for {
+                                        snapshotHash: String,
+                                        snapshotOrdinal: Long,
+                                        timestamp: LocalDateTime,
+                                        txHasher: Hasher[F],
+                                        hasher: Hasher[F]
+                                      )(
+                                        block: Signed[OriginalBlock]
+                                      ) = for {
     blockHash <- hashBlock(block, hasher)
     transactions <- block.transactions.toSortedSet.unsorted
       .map(mapTransaction(blockHash, snapshotHash, snapshotOrdinal, timestamp, txHasher))
@@ -91,14 +90,14 @@ abstract class SnapshotMapper[F[_]: Async, S <: OriginalSnapshot, SI <: Snapshot
   } yield transactions
 
   private def mapTransaction(
-    blockHash: String,
-    snapshotHash: String,
-    snapshotOrdinal: Long,
-    timestamp: LocalDateTime,
-    txHasher: Hasher[F]
-  )(
-    transaction: Signed[OriginalTransaction]
-  ): F[Transaction] = for {
+                              blockHash: String,
+                              snapshotHash: String,
+                              snapshotOrdinal: Long,
+                              timestamp: LocalDateTime,
+                              txHasher: Hasher[F]
+                            )(
+                              transaction: Signed[OriginalTransaction]
+                            ): F[Transaction] = for {
     transactionHash <- hashTransaction(transaction, txHasher)
   } yield Transaction(
     hash = transactionHash,
@@ -120,10 +119,10 @@ abstract class SnapshotMapper[F[_]: Async, S <: OriginalSnapshot, SI <: Snapshot
     TransactionReference(nodeRef.hash.value, nodeRef.ordinal.value)
 
   def balanceDiff(
-    snapshot: S,
-    prevBalances: Option[SortedMap[Address, Balance]],
-    info: SnapshotInfo[_]
-  ): SortedMap[Address, Balance] =
+                   snapshot: S,
+                   prevBalances: Option[SortedMap[Address, Balance]],
+                   info: SnapshotInfo[_],
+                 ): SortedMap[Address, Balance] =
     prevBalances match {
       case Some(prev) =>
         val changed = info.balances.filterNot { case (address, balance) =>
@@ -149,10 +148,10 @@ abstract class SnapshotMapper[F[_]: Async, S <: OriginalSnapshot, SI <: Snapshot
   def extractSnapshotReferredAddresses(snapshot: S): SnapshotReferredAddresses
 
   def mapBalances(
-    globalSnapshot: Hashed[S],
-    balances: SortedMap[Address, Balance],
-    timestamp: LocalDateTime
-  ): Seq[AddressBalance] =
+                   globalSnapshot: Hashed[S],
+                   balances: SortedMap[Address, Balance],
+                   timestamp: LocalDateTime
+                 ): Seq[AddressBalance] =
     balances.toSeq.map { case (address, balance) =>
       AddressBalance(
         address = address.value.value,

@@ -1,32 +1,25 @@
 package org.constellation.snapshotstreaming
 
-import cats.data.{NonEmptyList, Validated}
 import cats.effect._
 import cats.effect.std.{Console, Random}
 import cats.syntax.all._
 import cats.Parallel
+import cats.data.Validated
 import cats.effect.implicits.clockOps
-import com.sksamuel.elastic4s.ElasticApi.{fieldSort, matchAllQuery, search}
+import com.sksamuel.elastic4s.ElasticApi.{fieldSort, matchAllQuery, search, termQuery}
 import com.sksamuel.elastic4s.requests.searches.SearchHit
-import com.sksamuel.elastic4s.requests.update.UpdateRequest
 import fs2.Stream
 import fs2.io.file.Files
 import fs2.io.net.Network
-import io.constellationnetwork.currency.schema.currency.{CurrencyIncrementalSnapshot, CurrencySnapshot, CurrencySnapshotInfo}
-import io.constellationnetwork.ext.cats.syntax.next.catsSyntaxNext
 import io.constellationnetwork.json.JsonSerializer
 import io.constellationnetwork.kryo.KryoSerializer
 import io.constellationnetwork.merkletree.StateProofValidator
 import io.constellationnetwork.node.shared.config.types.SharedConfigReader
 import io.constellationnetwork.node.shared.domain.snapshot.storage.LastSnapshotStorage
-import io.constellationnetwork.node.shared.infrastructure.cluster.storage.L0ClusterStorage
 import io.constellationnetwork.schema.SnapshotReference.{fromHashedSnapshot => getSnapshotReference}
-import io.constellationnetwork.schema.address.Address
-import io.constellationnetwork.schema.{GlobalIncrementalSnapshot, GlobalSnapshot, GlobalSnapshotInfo, GlobalSnapshotInfoV2}
+import io.constellationnetwork.schema.{GlobalIncrementalSnapshot, GlobalSnapshot, GlobalSnapshotInfo, GlobalSnapshotInfoV2, SnapshotOrdinal}
 import io.constellationnetwork.security._
 import io.constellationnetwork.security.hash.Hash
-import io.constellationnetwork.security.signature.Signed
-import io.constellationnetwork.statechannel.StateChannelSnapshotBinary
 import org.constellation.snapshotstreaming.SnapshotProcessor.{GlobalSnapshotWithState, ProcessedSnapshots}
 import org.constellation.snapshotstreaming.db.SnapshotDAO
 import org.constellation.snapshotstreaming.mapper.{CurrencySnapshotMapper, GlobalSnapshotMapper}
@@ -34,7 +27,6 @@ import org.constellation.snapshotstreaming.opensearch.OpensearchDAO
 import org.constellation.snapshotstreaming.schema.schema.{GlobalData, MetagraphData}
 import org.constellation.snapshotstreaming.s3.S3DAO
 import org.constellation.snapshotstreaming.storage.{FileBasedLastGlobalFullSnapshotStorage, FileBasedLastGlobalIncrementalSnapshotStorage}
-import org.http4s.ember.client.EmberClientBuilder
 import org.typelevel.log4cats.slf4j.Slf4jLogger
 import org.typelevel.otel4s.trace.Tracer
 
@@ -159,6 +151,16 @@ object SnapshotProcessorS3 {
 
     def cursorMapper(hit: SearchHit) = hit.sourceAsMap.get("ordinal").map(_.toString.toLong)
 
+
+    def getGlobalSnapshotByOrdinal(ordinal: SnapshotOrdinal)(implicit hs: HasherSelector[F]) : F[Option[Hashed[GlobalIncrementalSnapshot]]] = {
+      implicit val hasher = hs.getForOrdinal(ordinal)
+      val q= search(configuration.opensearch.get.indexes.snapshots)
+        .query(termQuery("ordinal", ordinal.value.value))
+      opensearchDAO.get.singleQuery(q, hitMapper).flatMap ( _.traverse { case (hash, _) =>
+        s3DAO.get.downloadSnapshot(Hash(hash)).flatMap(_.toHashed)
+      })
+    }
+
     val reindexerConf = configuration.reindexer.get
 
     val runtime: Stream[F, Unit] = {
@@ -190,6 +192,7 @@ object SnapshotProcessorS3 {
                       processoStatus.lastState,
                       processoStatus.lastSnapshot,
                       snapshot,
+                      getGlobalSnapshotByOrdinal,
                       dt
                     ).map { newContext =>
                       val updatedSnapshot = newContext.snapshot
