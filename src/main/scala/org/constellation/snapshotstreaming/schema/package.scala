@@ -55,9 +55,9 @@ package object schema {
     classOf[TokenLock] -> 1019,
     TokenLock.OrderingInstance.getClass -> 1020,
     classOf[AllowSpendReference] -> 1021,
-    AllowSpendReference.OrderingInstance.getClass -> 1022,
+    // AllowSpendReference.OrderingInstance.getClass -> 1022,
     classOf[TokenLockReference] -> 1023,
-    TokenLockReference.OrderingInstance.getClass -> 1024,
+    // TokenLockReference.OrderingInstance.getClass -> 1024,
     classOf[UpdateNodeParameters] -> 1025,
     optionAddressOrdering.getClass -> 1026,
     classOf[CurrencyMessage] -> 1027,
@@ -67,11 +67,11 @@ package object schema {
     classOf[MessageType] -> 1032,
     MessageType.Owner.getClass -> 1033,
     MessageType.Staking.getClass -> 1034,
-    MessageType.OrderingInstance.getClass -> 1035,
-    CurrencyMessage.OrderingInstance.getClass -> 1036,
-    PeerId.OrderingInstance.getClass -> 1037,
-    GlobalSnapshotSync.OrderingInstance.getClass -> 1038,
-    MessageType.OrderingInstance.getClass -> 1039,
+//    MessageType.OrderingInstance.getClass -> 1035,
+//    CurrencyMessage.OrderingInstance.getClass -> 1036,
+//    PeerId.OrderingInstance.getClass -> 1037,
+//    GlobalSnapshotSync.OrderingInstance.getClass -> 1038,
+//    MessageType.OrderingInstance.getClass -> 1039,
   )
 
   val migrations = List(Migration[GlobalIncrementalSnapshotV1, GlobalIncrementalSnapshot](_.toGlobalIncrementalSnapshot))

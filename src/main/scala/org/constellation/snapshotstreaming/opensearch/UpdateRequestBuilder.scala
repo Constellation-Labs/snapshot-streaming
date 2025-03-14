@@ -53,7 +53,7 @@ object UpdateRequestBuilder {
           blocks,
           transactions,
           balances,
-          null, // there's no full currSnapshot, TODO : validate
+          Seq(), // there's no full currSnapshot, TODO : validate
           currIncrementalSnapshots,
           currBlocks,
           currTransactions,
