@@ -32,6 +32,7 @@ class Configuration(sharedConfigReader: SharedConfigReader) {
   val lastFullSnapshotPath: Path = Path(config.getString("snapshotStreaming.lastSnapshotPath"))
   val lastIncrementalSnapshotPath: Path = Path(config.getString("snapshotStreaming.lastIncrementalSnapshotPath"))
   val collateral: Amount = Amount(NonNegLong.unsafeFrom(config.getLong("snapshotStreaming.collateral")))
+  val withdrawalTimeLimit: NonNegLong = NonNegLong.unsafeFrom(config.getLong("snapshotStreaming.withdrawalTimeLimit"))
 
   val environment: AppEnvironment =
     AppEnvironment.withNameInsensitive(config.getString("snapshotStreaming.environment"))
@@ -51,6 +52,12 @@ class Configuration(sharedConfigReader: SharedConfigReader) {
 
   val globalTokenLocksAddedConfig: SnapshotOrdinal =
     sharedConfigReader.fieldsAddedOrdinals.globalTokenLocks.getOrElse(environment, SnapshotOrdinal.MinValue)
+
+  val delegatedStakeAddedConfig: SnapshotOrdinal =
+    sharedConfigReader.fieldsAddedOrdinals.delegatedStaking.getOrElse(environment, SnapshotOrdinal.MinValue)
+
+  val nodeCollateralAddedConfig: SnapshotOrdinal =
+    sharedConfigReader.fieldsAddedOrdinals.nodeCollateral.getOrElse(environment, SnapshotOrdinal.MinValue)
 
   val l0Peers: NonEmptyMap[PeerId, L0Peer] = NonEmptyMap.fromMapUnsafe(
     SortedMap.from(

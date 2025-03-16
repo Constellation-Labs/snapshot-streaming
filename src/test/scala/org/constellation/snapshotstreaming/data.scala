@@ -1,21 +1,19 @@
 package org.constellation.snapshotstreaming
 
 import java.security.KeyPair
-
 import cats.data.{NonEmptyList, NonEmptySet}
 import cats.effect.Async
 import cats.effect.kernel.Sync
 import cats.syntax.all._
 
 import scala.collection.immutable.{SortedMap, SortedSet}
-
 import io.constellationnetwork.currency.dataApplication.FeeTransaction
 import io.constellationnetwork.currency.schema.currency.{CurrencyIncrementalSnapshot, CurrencySnapshotInfo}
 import io.constellationnetwork.kryo.KryoSerializer
 import io.constellationnetwork.schema.ID.Id
 import io.constellationnetwork.schema._
 import io.constellationnetwork.schema.address.Address
-import io.constellationnetwork.schema.artifact.SpendAction
+import io.constellationnetwork.schema.artifact.{SharedArtifact, SpendAction}
 import io.constellationnetwork.schema.balance.{Amount, Balance}
 import io.constellationnetwork.schema.epoch.EpochProgress
 import io.constellationnetwork.schema.height.{Height, SubHeight}
@@ -31,9 +29,10 @@ import io.constellationnetwork.security.signature.Signed
 import io.constellationnetwork.security.signature.Signed.forAsyncHasher
 import io.constellationnetwork.security.signature.signature.{Signature, SignatureProof}
 import io.constellationnetwork.syntax.sortedCollection._
-
 import eu.timepit.refined.auto._
 import eu.timepit.refined.types.numeric.NonNegLong
+import io.constellationnetwork.schema.delegatedStake.UpdateDelegatedStake
+import io.constellationnetwork.schema.nodeCollateral.UpdateNodeCollateral
 
 object data {
 
@@ -99,7 +98,12 @@ object data {
             SortedSet.empty[Signed[AllowSpendBlock]].some,
             SortedSet.empty[Signed[TokenLockBlock]].some,
             SortedMap.empty[Address, List[SpendAction]].some,
-            SortedMap.empty[Id, Signed[UpdateNodeParameters]].some
+            SortedMap.empty[Id, Signed[UpdateNodeParameters]].some,
+            SortedSet.empty[SharedArtifact].some,
+            SortedMap.empty[Address, List[Signed[UpdateDelegatedStake.Create]]].some,
+            SortedMap.empty[Address, List[Signed[UpdateDelegatedStake.Withdraw]]].some,
+            SortedMap.empty[Address, List[Signed[UpdateNodeCollateral.Create]]].some,
+            SortedMap.empty[Address, List[Signed[UpdateNodeCollateral.Withdraw]]].some,
           ),
           NonEmptySet.one(SignatureProof(Id(Hex("")), Signature(Hex(""))))
         ),

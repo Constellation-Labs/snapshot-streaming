@@ -3,7 +3,6 @@ package org.constellation.snapshotstreaming
 import cats.effect.Async
 import cats.syntax.flatMap._
 import cats.syntax.functor._
-
 import io.constellationnetwork.json.{JsonBrotliBinarySerializer, JsonSerializer}
 import io.constellationnetwork.kryo.KryoSerializer
 import io.constellationnetwork.node.shared.config.types.{AddressesConfig, DelegatedStakingConfig, LastGlobalSnapshotsSyncConfig}
@@ -20,9 +19,10 @@ import io.constellationnetwork.schema.balance.Amount
 import io.constellationnetwork.schema.node.RewardFraction
 import io.constellationnetwork.security.signature.SignedValidator
 import io.constellationnetwork.security.{Hasher, HasherSelector, SecurityProvider}
-
 import eu.timepit.refined.auto._
 import eu.timepit.refined.types.numeric.{NonNegLong, PosInt}
+import io.constellationnetwork.node.shared.domain.delegatedStake.UpdateDelegatedStakeAcceptanceManager
+import io.constellationnetwork.node.shared.domain.nodeCollateral.UpdateNodeCollateralAcceptanceManager
 
 object TessellationServices {
 
@@ -41,7 +41,7 @@ object TessellationServices {
           configuration.feeConfigs,
           configuration.snapshotSize.maxStateChannelSnapshotBinarySizeInBytes,
           txHasher,
-          DelegatedStakingConfig(RewardFraction.MinValue, RewardFraction.MinValue)
+          DelegatedStakingConfig(RewardFraction.MinValue, RewardFraction.MinValue, configuration.withdrawalTimeLimit)
         )
       }
 
@@ -90,13 +90,18 @@ object TessellationServices {
           )
         val globalSnapshotAcceptanceManager: GlobalSnapshotAcceptanceManager[F] = GlobalSnapshotAcceptanceManager.make(
           configuration.globalTokenLocksAddedConfig,
+          configuration.delegatedStakeAddedConfig,
+          configuration.nodeCollateralAddedConfig,
           BlockAcceptanceManager.make[F](validators.blockValidator, txHasher),
           AllowSpendBlockAcceptanceManager.make[F](validators.allowSpendBlockValidator),
           TokenLockBlockAcceptanceManager.make[F](validators.tokenLockBlockValidator),
           globalSnapshotStateChannelEventsProcessor,
           UpdateNodeParametersAcceptanceManager.make[F](validators.updateNodeParametersValidator),
+          UpdateDelegatedStakeAcceptanceManager.make[F](validators.updateDelegatedStakeValidator),
+          UpdateNodeCollateralAcceptanceManager.make[F](validators.updateNodeCollateralValidator),
           SpendActionValidator.make[F],
-          configuration.collateral
+          configuration.collateral,
+          configuration.withdrawalTimeLimit
         )
         val globalSnapshotContextFns = GlobalSnapshotContextFunctions.make[F](globalSnapshotAcceptanceManager)
         GlobalSnapshotContextService.make(globalSnapshotStateChannelEventsProcessor, globalSnapshotContextFns)
