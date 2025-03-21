@@ -2,7 +2,7 @@ package org.constellation.snapshotstreaming.db
 
 import cats.effect.{Async, Resource}
 import cats.syntax.all._
-import org.constellation.snapshotstreaming.schema.AllowSpends.AllowSpend
+import org.constellation.snapshotstreaming.schema.AllowSpends.{AllowSpend, AllowSpendExpiration, SpendTransaction}
 import org.constellation.snapshotstreaming.schema.extractors.{AddressExtractor, MetagraphExtractor}
 import org.constellation.snapshotstreaming.schema.schema.{GlobalData, MetagraphData}
 import org.constellation.snapshotstreaming.schema.{AddressBalance, Block, BlockReference, CurrencyData, CurrencySnapshot, FeeTransaction, RewardTransaction, Snapshot, Transaction => STransaction}
@@ -122,18 +122,65 @@ object SnapshotDAO {
       )
     }
 
+  private val insertDagSpendTransactionCommand: Command[SpendTransaction] =
+    sql"""
+    INSERT INTO dag_spend_transactions (
+      hash,
+      source_addr,
+      amount,
+      destination_addr,
+      allow_spend_ref
+    ) VALUES ($varchar, $varchar, $int8, $varchar, ${varchar.opt})
+    ON CONFLICT (hash) DO NOTHING;
+  """.command.contramap { tx: SpendTransaction =>
+      (
+        tx.hash,
+        tx.source,
+        tx.amount,
+        tx.destination,
+        tx.allowSpendRef
+      )
+    }
+
+  private val insertDagExpiredSpendTransactionCommand: Command[AllowSpendExpiration] =
+    sql"""
+    INSERT INTO dag_expired_spend_transactions (
+      hash,
+      source_addr,
+      amount,
+      allow_spend_ref
+    )
+    SELECT
+      ${varchar},                       -- hash from AllowSpendExpiration
+      das.source_addr,
+      das.amount,
+      ${varchar}                        -- allowSpendRef from AllowSpendExpiration
+    FROM dag_allow_spends das
+    WHERE das.hash = ${varchar}
+    ON CONFLICT (hash) DO NOTHING;
+  """.command.contramap { exp: AllowSpendExpiration =>
+      (
+        exp.hash,
+        exp.allowSpendRef,
+        exp.allowSpendRef // used again in WHERE clause
+      )
+    }
+
+
   private val insertDagTokenLockCommand: Command[TokenLock] =
     sql"""
       INSERT INTO dag_token_locks (
+        global_snapshot_hash,
         hash,
         source_addr,
         amount,
         unlock_epoch,
-        global_snapshot_hash
-      ) VALUES ($varchar, $varchar, $int8, $int8, ${int8.opt}, $varchar)
+        ordinal,
+        round_id
+      ) VALUES ($varchar, $varchar, $varchar, $int8, ${int8.opt}, $int8, $uuid)
       ON CONFLICT (hash) DO NOTHING;
     """.command.contramap { tx: TokenLock =>
-      (tx.hash, tx.source, tx.amount, tx.ordinal, tx.unlockEpoch, tx.snapshotHash)
+      (tx.snapshotHash, tx.hash, tx.source, tx.amount, tx.unlockEpoch, tx.ordinal, tx.roundId)
     }
 
   private val insertDagTokenUnlockCommand: Command[TokenUnlock] =
@@ -305,6 +352,55 @@ object SnapshotDAO {
       )
     }
 
+  private val insertMetagraphSpendTransactionCommand: Command[CurrencyData[SpendTransaction]] =
+    sql"""
+    INSERT INTO metagraph_spend_transactions (
+      metagraph_id,
+      hash,
+      source_addr,
+      amount,
+      destination_addr,
+      allow_spend_ref
+    ) VALUES ($varchar, $varchar, $varchar, $int8, $varchar, ${varchar.opt})
+    ON CONFLICT (hash) DO NOTHING;
+  """.command.contramap { case CurrencyData(id, tx: SpendTransaction) =>
+      (
+        id,
+        tx.hash,
+        tx.source,
+        tx.amount,
+        tx.destination,
+        tx.allowSpendRef
+      )
+    }
+
+  private val insertMetagraphExpiredSpendTransactionCommand: Command[CurrencyData[AllowSpendExpiration]] =
+    sql"""
+    INSERT INTO metagraph_expired_spend_transactions (
+      metagraph_id,
+      hash,
+      source_addr,
+      amount,
+      allow_spend_ref
+    )
+    SELECT
+      ${varchar},                      -- metagraphId
+      ${varchar},                      -- hash from MetagraphAllowSpendExpiration
+      mas.source_addr,
+      mas.amount,
+      ${varchar}                       -- allowSpendRef
+    FROM metagraph_allow_spends mas
+    WHERE mas.hash = ${varchar}
+    ON CONFLICT (hash) DO NOTHING;
+  """.command.contramap { case CurrencyData(id, exp: AllowSpendExpiration) =>
+      (
+        id,
+        exp.hash,
+        exp.allowSpendRef,
+        exp.allowSpendRef // again used in the WHERE clause
+      )
+    }
+
   private val insertMetagraphTokenLockCommand: Command[CurrencyData[TokenLock]] =
     sql"""
     INSERT INTO metagraph_token_locks (
@@ -313,8 +409,10 @@ object SnapshotDAO {
       source_addr,
       amount,
       unlock_epoch,
+      ordinal,
+      round_id,
       snapshot_hash
-    ) VALUES ($varchar, $varchar, $varchar, $int8, $int8, ${int8.opt}, $varchar)
+    ) VALUES ($varchar, $varchar, $varchar, $int8, ${int8.opt}, $int8, $uuid, $varchar)
     ON CONFLICT (metagraph_id, hash) DO NOTHING;
   """.command.contramap { case CurrencyData(id, tx: TokenLock) =>
       (
@@ -322,8 +420,9 @@ object SnapshotDAO {
         tx.hash,
         tx.source,
         tx.amount,
-        tx.ordinal,
         tx.unlockEpoch,
+        tx.ordinal,
+        tx.roundId,
         tx.snapshotHash
       )
     }
@@ -332,19 +431,22 @@ object SnapshotDAO {
     sql"""
     INSERT INTO metagraph_token_unlocks (
       metagraph_id,
+      hash,
       lock_reference_hash,
       amount,
       source_addr
-    ) VALUES ($varchar, $varchar, $int8, $varchar)
+    ) VALUES ($varchar, $varchar, $varchar, $int8, $varchar)
     ON CONFLICT (lock_reference_ordinal, lock_reference_hash) DO NOTHING;
   """.command.contramap { case CurrencyData(id, tx: TokenUnlock) =>
       (
         id,
+        tx.hash,
         tx.lockReference,
         tx.amount,
         tx.address
       )
     }
+
 
   private val insertMetagraphFeeTransactionCommand: Command[CurrencyData[FeeTransaction]] =
     sql"""
@@ -437,6 +539,8 @@ object SnapshotDAO {
       preparedDagBlock <- session.prepareR(insertDagBlockCommand)
       preparedDagTxs <- session.prepareR(insertDagTxCommand)
       preparedDagAllowSpend <- session.prepareR(insertDagAllowSpendCommand)
+      preparedDagSpendTxs <- session.prepareR(insertDagSpendTransactionCommand)
+      preparedDagExpiredSpends <- session.prepareR(insertDagExpiredSpendTransactionCommand)
       preparedDagTokenLock <- session.prepareR(insertDagTokenLockCommand)
       preparedDagTokenUnlock <- session.prepareR(insertDagTokenUnlockCommand)
       preparedDagRewardTxs <- session.prepareR(insertDagRewardTxCommand)
@@ -453,6 +557,8 @@ object SnapshotDAO {
         executeCmd(preparedDagBlock)(snapshot.blocks.toList) >>
         executeCmd(preparedDagTxs)(snapshot.txs) >>
         executeCmd(preparedDagAllowSpend)(snapshot.allowSpends) >>
+        executeCmd(preparedDagSpendTxs)(snapshot.spendTransactions) >>
+        executeCmd(preparedDagExpiredSpends)(snapshot.allowSpendExpirations) >>
         executeCmd(preparedDagTokenLock)(snapshot.tokenLocks) >>
         executeCmd(preparedDagTokenUnlock)(snapshot.tokenUnlocks) >>
         executeCmd(preparedDagAddressBalance)(snapshot.balances) >>
@@ -470,6 +576,8 @@ object SnapshotDAO {
         preparedMetagraphBlock <- session.prepareR(insertMetagraphBlockCommand)
         preparedMgTxs <- session.prepareR(insertMetagraphTxCommand)
         preparedMgAllowSpends <- session.prepareR(insertMetagraphAllowSpendCommand)
+        preparedMgSpendsTxs <- session.prepareR(insertMetagraphSpendTransactionCommand)
+        preparedMgExpiredSpends <- session.prepareR(insertMetagraphExpiredSpendTransactionCommand)
         preparedMgTokenLocks <- session.prepareR(insertMetagraphTokenLockCommand)
         preparedMgTokenUnlocks <- session.prepareR(insertMetagraphTokenUnlockCommand)
         preparedMgFeeTxs <- session.prepareR(insertMetagraphFeeTransactionCommand)
@@ -488,6 +596,8 @@ object SnapshotDAO {
           executeCmd(preparedMetagraphBlock)(mgSnapshot.blocks) >>
           executeCmd(preparedMgTxs)(mgSnapshot.txs) >>
           executeCmd(preparedMgAllowSpends)(mgSnapshot.allowSpends) >>
+          executeCmd(preparedMgSpendsTxs)(mgSnapshot.spendTransactions) >>
+          executeCmd(preparedMgExpiredSpends)(mgSnapshot.allowSpendExpirations) >>
           executeCmd(preparedMgTokenLocks)(mgSnapshot.tokenLocks) >>
           executeCmd(preparedMgTokenUnlocks)(mgSnapshot.tokenUnlocks) >>
           executeCmd(preparedMgFeeTxs)(mgSnapshot.feeTxs) >>

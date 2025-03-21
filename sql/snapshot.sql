@@ -113,7 +113,7 @@ CREATE TABLE block_parents (
 	parent_proof_hash varchar NOT NULL,
 	parent_height int8 NOT NULL,
 	CONSTRAINT block_parents_pkey PRIMARY KEY (hash, parent_proof_hash),
-	CONSTRAINT block_parents_block_fk FOREIGN KEY (hash) REFERENCES abstract_blocks(hash)
+	CONSTRAINT block_parents_block_fk FOREIGN KEY (hash) REFERENCES abstract_blocks(hash) ON DELETE CASCADE
 );
 CREATE INDEX block_parents_hash_idx ON public.block_parents USING btree (hash);
 
@@ -131,7 +131,7 @@ CREATE TABLE dag_allow_spend_blocks (
 	updated_at timestamp DEFAULT now() NOT NULL,
 	CONSTRAINT dag_allow_spend_blocks_pkey PRIMARY KEY (global_snapshot_hash),
 	CONSTRAINT dag_allow_spend_blocks_unique UNIQUE (round_id),
-	CONSTRAINT dag_allow_spend_blocks_global_snapshot_fk FOREIGN KEY (global_snapshot_hash) REFERENCES global_snapshots(hash)
+	CONSTRAINT dag_allow_spend_blocks_global_snapshot_fk FOREIGN KEY (global_snapshot_hash) REFERENCES global_snapshots(hash) ON DELETE CASCADE
 );
 
 -- Table Triggers
@@ -166,9 +166,9 @@ CREATE TABLE dag_allow_spends (
 	ordinal int8 NOT NULL,
 	CONSTRAINT dag_allow_spends_ordinal UNIQUE (ordinal),
 	CONSTRAINT dag_allow_spends_pk PRIMARY KEY (hash),
-	CONSTRAINT allow_spends_block_fk FOREIGN KEY (round_id) REFERENCES dag_allow_spend_blocks(round_id),
-	CONSTRAINT dag_allow_spends_destination_addr_fk FOREIGN KEY (destination_addr) REFERENCES addresses(address),
-	CONSTRAINT dag_allow_spends_source_addr_fk FOREIGN KEY (source_addr) REFERENCES addresses(address)
+	CONSTRAINT allow_spends_block_fk FOREIGN KEY (round_id) REFERENCES dag_allow_spend_blocks(round_id) ON DELETE CASCADE,
+	CONSTRAINT dag_allow_spends_destination_addr_fk FOREIGN KEY (destination_addr) REFERENCES addresses(address) ON DELETE CASCADE,
+	CONSTRAINT dag_allow_spends_source_addr_fk FOREIGN KEY (source_addr) REFERENCES addresses(address) ON DELETE CASCADE
 )
 INHERITS (public.abstract_transactions);
 CREATE INDEX dag_allow_spends_round_id_idx ON public.dag_allow_spends USING btree (round_id);
@@ -199,8 +199,8 @@ CREATE TABLE dag_balance_changes (
 	updated_at timestamp DEFAULT now() NOT NULL,
 	snapshot_ordinal int8 NOT NULL,
 	CONSTRAINT dag_balance_change_pk PRIMARY KEY (snapshot_ordinal, address),
-	CONSTRAINT dag_balance_change_address_fk FOREIGN KEY (address) REFERENCES addresses(address),
-	CONSTRAINT dag_balance_change_global_snapshot_fk FOREIGN KEY (snapshot_hash) REFERENCES global_snapshots(hash)
+	CONSTRAINT dag_balance_change_address_fk FOREIGN KEY (address) REFERENCES addresses(address) ON DELETE CASCADE,
+	CONSTRAINT dag_balance_change_global_snapshot_fk FOREIGN KEY (snapshot_hash) REFERENCES global_snapshots(hash) ON DELETE CASCADE
 );
 CREATE INDEX dag_balance_changes_address_idx ON public.dag_balance_changes USING btree (address, created_at);
 
@@ -221,7 +221,7 @@ update
 CREATE TABLE dag_blocks (
 	snapshot_hash varchar NOT NULL,
 	CONSTRAINT dag_block_pk PRIMARY KEY (hash),
-	CONSTRAINT dag_block_global_snapshot_fk FOREIGN KEY (snapshot_hash) REFERENCES global_snapshots(hash)
+	CONSTRAINT dag_block_global_snapshot_fk FOREIGN KEY (snapshot_hash) REFERENCES global_snapshots(hash) ON DELETE CASCADE
 )
 INHERITS (public.abstract_blocks);
 CREATE INDEX dag_blocks_snapshot_hash_idx ON public.dag_blocks USING btree (snapshot_hash);
@@ -251,8 +251,8 @@ CREATE TABLE dag_reward_transactions (
 	created_at timestamp DEFAULT now() NOT NULL,
 	updated_at timestamp DEFAULT now() NOT NULL,
 	CONSTRAINT dag_reward_transaction_pk PRIMARY KEY (global_snapshot_hash, destination_addr),
-	CONSTRAINT dag_reward_transaction_global_snapshot_fk FOREIGN KEY (global_snapshot_hash) REFERENCES global_snapshots(hash),
-	CONSTRAINT dag_reward_transactions_destination_addr_fk FOREIGN KEY (destination_addr) REFERENCES addresses(address)
+	CONSTRAINT dag_reward_transaction_global_snapshot_fk FOREIGN KEY (global_snapshot_hash) REFERENCES global_snapshots(hash) ON DELETE CASCADE,
+	CONSTRAINT dag_reward_transactions_destination_addr_fk FOREIGN KEY (destination_addr) REFERENCES addresses(address) ON DELETE CASCADE
 );
 CREATE INDEX dag_reward_transactions_global_snapshot_hash_idx ON public.dag_reward_transactions USING btree (global_snapshot_hash);
 
@@ -274,8 +274,8 @@ CREATE TABLE dag_spend_transactions (
 	destination_addr varchar NULL,
 	allow_spend_ref varchar NULL,
 	CONSTRAINT dag_spend_transactions_pk PRIMARY KEY (hash),
-	CONSTRAINT dag_spend_transactions_dag_allow_spends_fk FOREIGN KEY (allow_spend_ref) REFERENCES dag_allow_spends(hash),
-	CONSTRAINT dag_spend_transactions_destination_addr_fk FOREIGN KEY (destination_addr) REFERENCES addresses(address)
+	CONSTRAINT dag_spend_transactions_dag_allow_spends_fk FOREIGN KEY (allow_spend_ref) REFERENCES dag_allow_spends(hash) ON DELETE CASCADE,
+	CONSTRAINT dag_spend_transactions_destination_addr_fk FOREIGN KEY (destination_addr) REFERENCES addresses(address) ON DELETE CASCADE
 )
 INHERITS (public.abstract_transactions);
 
@@ -291,6 +291,27 @@ insert
     public.dag_spend_transactions for each row execute function insert_into_parent_abstract_transactions();
 
 
+
+CREATE TABLE dag_expired_spend_transactions (
+	allow_spend_ref varchar NULL,
+	CONSTRAINT dag_expired_spend_transactions_pk PRIMARY KEY (hash),
+	CONSTRAINT dag_expired_spend_transactions_dag_allow_spends_fk FOREIGN KEY (allow_spend_ref) REFERENCES dag_allow_spends(hash) ON DELETE CASCADE,
+)
+INHERITS (public.abstract_transactions);
+
+-- Table Triggers
+
+create trigger set_updated_at_dag_expired_spend_transactions before
+update
+    on
+    public.dag_expired_spend_transactions for each row execute function update_updated_at_column();
+create trigger trigger_insert_abstract_transactions_dag_expired_spend_transactions after
+insert
+    on
+    public.dag_expired_spend_transactions for each row execute function insert_into_parent_abstract_transactions();
+
+
+
 -- public.dag_token_lock_blocks definition
 
 -- Drop table
@@ -304,7 +325,7 @@ CREATE TABLE dag_token_lock_blocks (
 	updated_at timestamp DEFAULT now() NOT NULL,
 	CONSTRAINT dag_token_lock_blocks_pkey PRIMARY KEY (round_id),
 	CONSTRAINT dag_token_lock_blocks_unique UNIQUE (global_snapshot_hash),
-	CONSTRAINT dag_token_lock_blocks_global_snapshot_fk FOREIGN KEY (global_snapshot_hash) REFERENCES global_snapshots(hash)
+	CONSTRAINT dag_token_lock_blocks_global_snapshot_fk FOREIGN KEY (global_snapshot_hash) REFERENCES global_snapshots(hash) ON DELETE CASCADE
 );
 
 
@@ -321,8 +342,8 @@ CREATE TABLE dag_token_locks (
 	global_snapshot_hash varchar NOT NULL,
 	CONSTRAINT dag_token_locks_pk PRIMARY KEY (hash),
 	CONSTRAINT dag_token_locks_unique UNIQUE (hash, ordinal),
-	CONSTRAINT dag_token_lock_block_fk FOREIGN KEY (round_id) REFERENCES dag_token_lock_blocks(round_id),
-	CONSTRAINT dag_token_locks_source_addr_fk FOREIGN KEY (source_addr) REFERENCES addresses(address)
+	CONSTRAINT dag_token_lock_block_fk FOREIGN KEY (round_id) REFERENCES dag_token_lock_blocks(round_id) ON DELETE CASCADE,
+	CONSTRAINT dag_token_locks_source_addr_fk FOREIGN KEY (source_addr) REFERENCES addresses(address) ON DELETE CASCADE
 )
 INHERITS (public.abstract_transactions);
 
@@ -348,8 +369,8 @@ CREATE TABLE dag_token_unlocks (
 	lock_reference_ordinal int8 NOT NULL,
 	lock_reference_hash varchar NOT NULL,
 	CONSTRAINT dag_token_unlocks_pk PRIMARY KEY (lock_reference_ordinal, lock_reference_hash),
-	CONSTRAINT dag_token_unlocks_token_locks_fk FOREIGN KEY (lock_reference_hash,lock_reference_ordinal) REFERENCES dag_token_locks(hash,ordinal),
-	CONSTRAINT ddag_token_unlocks_address_fk FOREIGN KEY (source_addr) REFERENCES addresses(address)
+	CONSTRAINT dag_token_unlocks_token_locks_fk FOREIGN KEY (lock_reference_hash,lock_reference_ordinal) REFERENCES dag_token_locks(hash,ordinal) ON DELETE CASCADE,
+	CONSTRAINT ddag_token_unlocks_address_fk FOREIGN KEY (source_addr) REFERENCES addresses(address) ON DELETE CASCADE
 )
 INHERITS (public.abstract_transactions);
 
@@ -380,9 +401,9 @@ CREATE TABLE dag_transactions (
 	ordinal int8 NOT NULL,
 	block_hash varchar NOT NULL,
 	CONSTRAINT dag_transaction_pk PRIMARY KEY (hash),
-	CONSTRAINT dag_transaction_dag_block_fk FOREIGN KEY (block_hash) REFERENCES dag_blocks(hash),
-	CONSTRAINT dag_transactions_destination_addr_fk FOREIGN KEY (destination_addr) REFERENCES addresses(address),
-	CONSTRAINT dag_transactions_source_addr_fk FOREIGN KEY (source_addr) REFERENCES addresses(address)
+	CONSTRAINT dag_transaction_dag_block_fk FOREIGN KEY (block_hash) REFERENCES dag_blocks(hash) ON DELETE CASCADE,
+	CONSTRAINT dag_transactions_destination_addr_fk FOREIGN KEY (destination_addr) REFERENCES addresses(address) ON DELETE CASCADE,
+	CONSTRAINT dag_transactions_source_addr_fk FOREIGN KEY (source_addr) REFERENCES addresses(address) ON DELETE CASCADE
 )
 INHERITS (public.abstract_transactions);
 
@@ -411,7 +432,7 @@ CREATE TABLE global_snapshot_proofs (
 	created_at timestamp DEFAULT now() NOT NULL,
 	updated_at timestamp DEFAULT now() NOT NULL,
 	CONSTRAINT proof_pk PRIMARY KEY (snapshot_hash, id),
-	CONSTRAINT proof_global_snapshot_fk FOREIGN KEY (snapshot_hash) REFERENCES global_snapshots(hash)
+	CONSTRAINT proof_global_snapshot_fk FOREIGN KEY (snapshot_hash) REFERENCES global_snapshots(hash) ON DELETE CASCADE
 );
 
 -- Table Triggers
@@ -445,10 +466,10 @@ CREATE TABLE metagraph_snapshots (
 	updated_at timestamp DEFAULT now() NOT NULL,
 	CONSTRAINT metagraph_snapshot_pk PRIMARY KEY (metagraph_id, hash),
 	CONSTRAINT metagraph_snapshot_unique UNIQUE (metagraph_id, ordinal),
-	CONSTRAINT metagraph_id_fk FOREIGN KEY (metagraph_id) REFERENCES metagraphs(id),
-	CONSTRAINT metagraph_snapshots_global_snapshots_fk FOREIGN KEY (global_snapshot_hash) REFERENCES global_snapshots(hash),
-	CONSTRAINT owner_address_fk FOREIGN KEY (owner_address) REFERENCES addresses(address),
-	CONSTRAINT staking_address_fk FOREIGN KEY (staking_address) REFERENCES addresses(address)
+	CONSTRAINT metagraph_id_fk FOREIGN KEY (metagraph_id) REFERENCES metagraphs(id) ON DELETE CASCADE,
+	CONSTRAINT metagraph_snapshots_global_snapshots_fk FOREIGN KEY (global_snapshot_hash) REFERENCES global_snapshots(hash) ON DELETE CASCADE,
+	CONSTRAINT owner_address_fk FOREIGN KEY (owner_address) REFERENCES addresses(address) ON DELETE CASCADE,
+	CONSTRAINT staking_address_fk FOREIGN KEY (staking_address) REFERENCES addresses(address) ON DELETE CASCADE
 );
 
 -- Table Triggers
@@ -473,8 +494,8 @@ CREATE TABLE metagraph_token_lock_blocks (
 	updated_at timestamp DEFAULT now() NOT NULL,
 	CONSTRAINT metagraph_token_lock_blocks_pkey PRIMARY KEY (metagraph_id, metagraph_snapshot_hash),
 	CONSTRAINT metagraph_token_lock_blocks_unique UNIQUE (metagraph_id, round_id),
-	CONSTRAINT metagraph_token_lock_blocks_metagraph_id_fk FOREIGN KEY (metagraph_id) REFERENCES metagraphs(id),
-	CONSTRAINT metagraph_token_lock_blocks_metagraph_snapshot_fk FOREIGN KEY (metagraph_id,metagraph_snapshot_hash) REFERENCES metagraph_snapshots(metagraph_id,hash)
+	CONSTRAINT metagraph_token_lock_blocks_metagraph_id_fk FOREIGN KEY (metagraph_id) REFERENCES metagraphs(id) ON DELETE CASCADE,
+	CONSTRAINT metagraph_token_lock_blocks_metagraph_snapshot_fk FOREIGN KEY (metagraph_id,metagraph_snapshot_hash) REFERENCES metagraph_snapshots(metagraph_id,hash) ON DELETE CASCADE
 );
 
 -- Table Triggers
@@ -498,9 +519,9 @@ CREATE TABLE metagraph_token_locks (
 	round_id uuid NOT NULL,
 	CONSTRAINT metagraph_token_locks_pk PRIMARY KEY (metagraph_id, hash),
 	CONSTRAINT metagraph_token_locks_unique UNIQUE (metagraph_id, ordinal),
-	CONSTRAINT metagraph_id_fk FOREIGN KEY (metagraph_id) REFERENCES metagraphs(id),
-	CONSTRAINT metagraph_token_lock_block_fk FOREIGN KEY (metagraph_id,round_id) REFERENCES metagraph_token_lock_blocks(metagraph_id,round_id),
-	CONSTRAINT metagraph_token_locks_source_addr_fk FOREIGN KEY (source_addr) REFERENCES addresses(address)
+	CONSTRAINT metagraph_id_fk FOREIGN KEY (metagraph_id) REFERENCES metagraphs(id) ON DELETE CASCADE,
+	CONSTRAINT metagraph_token_lock_block_fk FOREIGN KEY (metagraph_id,round_id) REFERENCES metagraph_token_lock_blocks(metagraph_id,round_id) ON DELETE CASCADE,
+	CONSTRAINT metagraph_token_locks_source_addr_fk FOREIGN KEY (source_addr) REFERENCES addresses(address) ON DELETE CASCADE
 )
 INHERITS (public.abstract_transactions);
 
@@ -527,10 +548,10 @@ CREATE TABLE metagraph_token_unlocks (
 	lock_reference_ordinal int8 NOT NULL,
 	lock_reference_hash varchar NOT NULL,
 	CONSTRAINT metagraph_token_unlocks_pk PRIMARY KEY (lock_reference_ordinal, lock_reference_hash),
-	CONSTRAINT address_fk FOREIGN KEY (source_addr) REFERENCES addresses(address),
-	CONSTRAINT metagraph_id_fk FOREIGN KEY (metagraph_id) REFERENCES metagraphs(id),
-	CONSTRAINT metagraph_token_unlocks_token_locks_fk FOREIGN KEY (metagraph_id,lock_reference_hash) REFERENCES metagraph_token_locks(metagraph_id,hash),
-	CONSTRAINT metagraph_token_unlocks_token_locks_ordinal_fk FOREIGN KEY (metagraph_id,lock_reference_ordinal) REFERENCES metagraph_token_locks(metagraph_id,ordinal)
+	CONSTRAINT address_fk FOREIGN KEY (source_addr) REFERENCES addresses(address) ON DELETE CASCADE,
+	CONSTRAINT metagraph_id_fk FOREIGN KEY (metagraph_id) REFERENCES metagraphs(id) ON DELETE CASCADE,
+	CONSTRAINT metagraph_token_unlocks_token_locks_fk FOREIGN KEY (metagraph_id,lock_reference_hash) REFERENCES metagraph_token_locks(metagraph_id,hash) ON DELETE CASCADE,
+	CONSTRAINT metagraph_token_unlocks_token_locks_ordinal_fk FOREIGN KEY (metagraph_id,lock_reference_ordinal) REFERENCES metagraph_token_locks(metagraph_id,ordinal) ON DELETE CASCADE
 )
 INHERITS (public.abstract_transactions);
 
@@ -556,8 +577,8 @@ CREATE TABLE dag_allow_spend_approvers (
 	allow_spend_hash varchar NOT NULL,
 	approver_address varchar NOT NULL,
 	CONSTRAINT dag_allow_spend_approvers_pk PRIMARY KEY (allow_spend_hash, approver_address),
-	CONSTRAINT dag_allow_spend_approvers_address_fk FOREIGN KEY (approver_address) REFERENCES addresses(address),
-	CONSTRAINT dag_allow_spends_fk FOREIGN KEY (allow_spend_hash) REFERENCES dag_allow_spends(hash)
+	CONSTRAINT dag_allow_spend_approvers_address_fk FOREIGN KEY (approver_address) REFERENCES addresses(address) ON DELETE CASCADE,
+	CONSTRAINT dag_allow_spends_fk FOREIGN KEY (allow_spend_hash) REFERENCES dag_allow_spends(hash) ON DELETE CASCADE
 );
 
 
@@ -574,7 +595,7 @@ CREATE TABLE metagraph_allow_spend_blocks (
 	created_at timestamp DEFAULT now() NOT NULL,
 	updated_at timestamp DEFAULT now() NOT NULL,
 	CONSTRAINT metagraph_allow_spend_blocks_pkey PRIMARY KEY (round_id),
-	CONSTRAINT metagraph_allow_spend_blocks_metagraph_snapshot_fk FOREIGN KEY (metagraph_id,metagraph_snapshot_hash) REFERENCES metagraph_snapshots(metagraph_id,hash)
+	CONSTRAINT metagraph_allow_spend_blocks_metagraph_snapshot_fk FOREIGN KEY (metagraph_id,metagraph_snapshot_hash) REFERENCES metagraph_snapshots(metagraph_id,hash) ON DELETE CASCADE
 );
 
 -- Table Triggers
@@ -602,10 +623,10 @@ CREATE TABLE metagraph_allow_spends (
 	ordinal int8 NOT NULL,
 	CONSTRAINT metagraph_allow_spends_ordinal UNIQUE (ordinal),
 	CONSTRAINT metagraph_allow_spends_pk PRIMARY KEY (hash),
-	CONSTRAINT allow_spends_block_fk FOREIGN KEY (round_id) REFERENCES metagraph_allow_spend_blocks(round_id),
-	CONSTRAINT metagraph_allow_spends_destination_addr_fk FOREIGN KEY (destination_addr) REFERENCES addresses(address),
-	CONSTRAINT metagraph_allow_spends_source_addr_fk FOREIGN KEY (source_addr) REFERENCES addresses(address),
-	CONSTRAINT metagraph_id_fk FOREIGN KEY (metagraph_id) REFERENCES metagraphs(id)
+	CONSTRAINT allow_spends_block_fk FOREIGN KEY (round_id) REFERENCES metagraph_allow_spend_blocks(round_id) ON DELETE CASCADE,
+	CONSTRAINT metagraph_allow_spends_destination_addr_fk FOREIGN KEY (destination_addr) REFERENCES addresses(address) ON DELETE CASCADE,
+	CONSTRAINT metagraph_allow_spends_source_addr_fk FOREIGN KEY (source_addr) REFERENCES addresses(address) ON DELETE CASCADE,
+	CONSTRAINT metagraph_id_fk FOREIGN KEY (metagraph_id) REFERENCES metagraphs(id) ON DELETE CASCADE
 )
 INHERITS (public.abstract_transactions);
 
@@ -636,9 +657,9 @@ CREATE TABLE metagraph_balance_changes (
 	updated_at timestamp DEFAULT now() NOT NULL,
 	metagraph_snapshot_ordinal int8 NOT NULL,
 	CONSTRAINT metagraph_balance_change_pk PRIMARY KEY (metagraph_id, address, metagraph_snapshot_ordinal),
-	CONSTRAINT address_fk FOREIGN KEY (address) REFERENCES addresses(address),
-	CONSTRAINT metagraph_balance_change_metagraph_snapshot_fk FOREIGN KEY (metagraph_id,metagraph_snapshot_hash) REFERENCES metagraph_snapshots(metagraph_id,hash),
-	CONSTRAINT metagraph_id_fk FOREIGN KEY (metagraph_id) REFERENCES metagraphs(id)
+	CONSTRAINT address_fk FOREIGN KEY (address) REFERENCES addresses(address) ON DELETE CASCADE,
+	CONSTRAINT metagraph_balance_change_metagraph_snapshot_fk FOREIGN KEY (metagraph_id,metagraph_snapshot_hash) REFERENCES metagraph_snapshots(metagraph_id,hash) ON DELETE CASCADE,
+	CONSTRAINT metagraph_id_fk FOREIGN KEY (metagraph_id) REFERENCES metagraphs(id) ON DELETE CASCADE
 );
 
 -- Table Triggers
@@ -659,8 +680,8 @@ CREATE TABLE metagraph_blocks (
 	metagraph_id varchar NOT NULL,
 	metagraph_snapshot_hash varchar NOT NULL,
 	CONSTRAINT metagraph_block_pk PRIMARY KEY (metagraph_id, hash),
-	CONSTRAINT metagraph_block_metagraph_snapshot_fk FOREIGN KEY (metagraph_id,metagraph_snapshot_hash) REFERENCES metagraph_snapshots(metagraph_id,hash),
-	CONSTRAINT metagraph_id_fk FOREIGN KEY (metagraph_id) REFERENCES metagraphs(id)
+	CONSTRAINT metagraph_block_metagraph_snapshot_fk FOREIGN KEY (metagraph_id,metagraph_snapshot_hash) REFERENCES metagraph_snapshots(metagraph_id,hash) ON DELETE CASCADE,
+	CONSTRAINT metagraph_id_fk FOREIGN KEY (metagraph_id) REFERENCES metagraphs(id) ON DELETE CASCADE
 )
 INHERITS (public.abstract_blocks);
 
@@ -690,10 +711,10 @@ CREATE TABLE metagraph_fee_transactions (
 	data_update_ref varchar NULL,
 	metagraph_snapshot_ordinal int8 NULL,
 	CONSTRAINT fee_transaction_pk PRIMARY KEY (metagraph_id, hash),
-	CONSTRAINT fee_transaction_metagraph_snapshot_fk FOREIGN KEY (metagraph_id,metagraph_snapshot_hash) REFERENCES metagraph_snapshots(metagraph_id,hash),
-	CONSTRAINT metagraph_fee_transactions_destination_addr_fk FOREIGN KEY (destination_addr) REFERENCES addresses(address),
-	CONSTRAINT metagraph_fee_transactions_source_addr_fk FOREIGN KEY (source_addr) REFERENCES addresses(address),
-	CONSTRAINT metagraph_id_fk FOREIGN KEY (metagraph_id) REFERENCES metagraphs(id)
+	CONSTRAINT fee_transaction_metagraph_snapshot_fk FOREIGN KEY (metagraph_id,metagraph_snapshot_hash) REFERENCES metagraph_snapshots(metagraph_id,hash) ON DELETE CASCADE,
+	CONSTRAINT metagraph_fee_transactions_destination_addr_fk FOREIGN KEY (destination_addr) REFERENCES addresses(address) ON DELETE CASCADE,
+	CONSTRAINT metagraph_fee_transactions_source_addr_fk FOREIGN KEY (source_addr) REFERENCES addresses(address) ON DELETE CASCADE,
+	CONSTRAINT metagraph_id_fk FOREIGN KEY (metagraph_id) REFERENCES metagraphs(id) ON DELETE CASCADE
 )
 INHERITS (public.abstract_transactions);
 
@@ -723,9 +744,9 @@ CREATE TABLE metagraph_reward_transactions (
 	created_at timestamp DEFAULT now() NOT NULL,
 	updated_at timestamp DEFAULT now() NOT NULL,
 	CONSTRAINT metagraph_reward_transaction_pk PRIMARY KEY (metagraph_id, metagraph_snapshot_hash, destination_addr),
-	CONSTRAINT metagraph_reward_transaction_metagraph_reward_transaction_fk FOREIGN KEY (metagraph_id,metagraph_snapshot_hash) REFERENCES metagraph_snapshots(metagraph_id,hash),
-	CONSTRAINT metagraph_reward_transactions_destination_addr_fk FOREIGN KEY (destination_addr) REFERENCES addresses(address),
-	CONSTRAINT metagraph_reward_transactions_metagraph_id_fk FOREIGN KEY (metagraph_id) REFERENCES metagraphs(id)
+	CONSTRAINT metagraph_reward_transaction_metagraph_reward_transaction_fk FOREIGN KEY (metagraph_id,metagraph_snapshot_hash) REFERENCES metagraph_snapshots(metagraph_id,hash) ON DELETE CASCADE,
+	CONSTRAINT metagraph_reward_transactions_destination_addr_fk FOREIGN KEY (destination_addr) REFERENCES addresses(address) ON DELETE CASCADE,
+	CONSTRAINT metagraph_reward_transactions_metagraph_id_fk FOREIGN KEY (metagraph_id) REFERENCES metagraphs(id) ON DELETE CASCADE
 );
 
 -- Table Triggers
@@ -747,9 +768,9 @@ CREATE TABLE metagraph_spend_transactions (
 	destination_addr varchar NOT NULL,
 	allow_spend_ref varchar NULL,
 	CONSTRAINT metagraph_spend_transactions_pk PRIMARY KEY (hash),
-	CONSTRAINT dag_spend_transactions_metagraph_allow_spends_fk FOREIGN KEY (allow_spend_ref) REFERENCES metagraph_allow_spends(hash),
-	CONSTRAINT metagraph_spend_transactions_destination_addr_fk FOREIGN KEY (destination_addr) REFERENCES addresses(address),
-	CONSTRAINT metagraph_spend_transactions_metagraph_id_fk FOREIGN KEY (metagraph_id) REFERENCES metagraphs(id)
+	CONSTRAINT metagraph_spend_transactions_metagraph_allow_spends_fk FOREIGN KEY (allow_spend_ref) REFERENCES metagraph_allow_spends(hash) ON DELETE CASCADE,
+	CONSTRAINT metagraph_spend_transactions_destination_addr_fk FOREIGN KEY (destination_addr) REFERENCES addresses(address) ON DELETE CASCADE,
+	CONSTRAINT metagraph_spend_transactions_metagraph_id_fk FOREIGN KEY (metagraph_id) REFERENCES metagraphs(id) ON DELETE CASCADE
 )
 INHERITS (public.abstract_transactions);
 
@@ -764,6 +785,25 @@ insert
     on
     public.metagraph_spend_transactions for each row execute function insert_into_parent_abstract_transactions();
 
+
+CREATE TABLE metagraph_expired_spend_transactions (
+    metagraph_id varchar NOT NULL,
+	allow_spend_ref varchar NULL,
+	CONSTRAINT metagraph_expired_spend_transactions_pk PRIMARY KEY (hash)
+	CONSTRAINT metagraph_expired_spend_transactions_metagraph_allow_spends_fk FOREIGN KEY (allow_spend_ref) REFERENCES metagraph_allow_spends(hash) ON DELETE CASCADE,
+)
+INHERITS (public.abstract_transactions);
+
+-- Table Triggers
+
+create trigger set_updated_at_metagraph_expired_spend_transactions before
+update
+    on
+    public.metagraph_expired_spend_transactions for each row execute function update_updated_at_column();
+create trigger trigger_insert_abstract_transactions_metagraph_expired_spend_transactions after
+insert
+    on
+    public.metagraph_expired_spend_transactions for each row execute function insert_into_parent_abstract_transactions();
 
 -- public.metagraph_transactions definition
 
@@ -781,10 +821,10 @@ CREATE TABLE metagraph_transactions (
 	ordinal int8 NOT NULL,
 	block_hash varchar NOT NULL,
 	CONSTRAINT metagraph_transaction_pk PRIMARY KEY (metagraph_id, hash),
-	CONSTRAINT metagraph_id_fk FOREIGN KEY (metagraph_id) REFERENCES metagraphs(id),
-	CONSTRAINT metagraph_transaction_metagraph_block_fk FOREIGN KEY (metagraph_id,block_hash) REFERENCES metagraph_blocks(metagraph_id,hash),
-	CONSTRAINT metagraph_transactions_destination_addrfk FOREIGN KEY (destination_addr) REFERENCES addresses(address),
-	CONSTRAINT metagraph_transactions_source_addr_fk FOREIGN KEY (source_addr) REFERENCES addresses(address)
+	CONSTRAINT metagraph_id_fk FOREIGN KEY (metagraph_id) REFERENCES metagraphs(id) ON DELETE CASCADE,
+	CONSTRAINT metagraph_transaction_metagraph_block_fk FOREIGN KEY (metagraph_id,block_hash) REFERENCES metagraph_blocks(metagraph_id,hash) ON DELETE CASCADE,
+	CONSTRAINT metagraph_transactions_destination_addrfk FOREIGN KEY (destination_addr) REFERENCES addresses(address) ON DELETE CASCADE,
+	CONSTRAINT metagraph_transactions_source_addr_fk FOREIGN KEY (source_addr) REFERENCES addresses(address) ON DELETE CASCADE
 )
 INHERITS (public.abstract_transactions);
 
@@ -810,8 +850,8 @@ CREATE TABLE metagraph_allow_spend_approvers (
 	allow_spend_hash varchar NOT NULL,
 	approver_address varchar NOT NULL,
 	CONSTRAINT metagraph_allow_spend_approvers_pk PRIMARY KEY (allow_spend_hash, approver_address),
-	CONSTRAINT ametagraph_llow_spends_fk FOREIGN KEY (allow_spend_hash) REFERENCES metagraph_allow_spends(hash),
-	CONSTRAINT metagraph_allow_spend_approvers_address_fk FOREIGN KEY (approver_address) REFERENCES addresses(address)
+	CONSTRAINT ametagraph_allow_spends_fk FOREIGN KEY (allow_spend_hash) REFERENCES metagraph_allow_spends(hash) ON DELETE CASCADE,
+	CONSTRAINT metagraph_allow_spend_approvers_address_fk FOREIGN KEY (approver_address) REFERENCES addresses(address) ON DELETE CASCADE
 );
 
 
