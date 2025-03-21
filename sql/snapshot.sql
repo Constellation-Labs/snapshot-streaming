@@ -2,55 +2,6 @@
 
 -- public.abstract_blocks definition
 
-
-
-
--- DROP FUNCTION public.insert_into_parent_abstract_blocks();
-
-CREATE OR REPLACE FUNCTION public.insert_into_parent_abstract_blocks()
- RETURNS trigger
- LANGUAGE plpgsql
-AS $function$
-BEGIN
-    INSERT INTO abstract_blocks (hash, height, created_at)
-    VALUES (NEW.hash, NEW.height, NEW.created_at)
-    ON CONFLICT (hash) DO NOTHING;
-    RETURN NEW;
-END;
-$function$
-;
-
--- DROP FUNCTION public.insert_into_parent_abstract_transactions();
-
-CREATE OR REPLACE FUNCTION public.insert_into_parent_abstract_transactions()
- RETURNS trigger
- LANGUAGE plpgsql
-AS $function$
-BEGIN
-    INSERT INTO abstract_transactions (hash, source_addr, amount, created_at)
-    VALUES (NEW.hash, NEW.source_addr, NEW.amount, NEW.created_at)
-    ON CONFLICT (hash) DO NOTHING;
-
-    RETURN NEW;
-END;
-$function$
-;
-
--- DROP FUNCTION public.update_updated_at_column();
-
-CREATE OR REPLACE FUNCTION public.update_updated_at_column()
- RETURNS trigger
- LANGUAGE plpgsql
-AS $function$
-BEGIN
-  NEW.updated_at = NOW();
-  RETURN NEW;
-END;
-$function$
-;
-
-
-
 -- Drop table
 
 -- DROP TABLE abstract_blocks;
@@ -193,6 +144,10 @@ create trigger set_updated_at_dag_token_lock_blocks before
 update
     on
     public.dag_allow_spend_blocks for each row execute function update_updated_at_column();
+create trigger trigger_insert_abstract_transactions_dag_allow_spend_blocks before
+update
+    on
+    public.dag_allow_spend_blocks for each row execute function update_updated_at_column();
 
 
 -- public.dag_allow_spends definition
@@ -317,7 +272,7 @@ update
 
 CREATE TABLE dag_spend_transactions (
 	destination_addr varchar NULL,
-	allow_spend_ref  varchar NULL,
+	allow_spend_ref varchar NULL,
 	CONSTRAINT dag_spend_transactions_pk PRIMARY KEY (hash),
 	CONSTRAINT dag_spend_transactions_dag_allow_spends_fk FOREIGN KEY (allow_spend_ref) REFERENCES dag_allow_spends(hash),
 	CONSTRAINT dag_spend_transactions_destination_addr_fk FOREIGN KEY (destination_addr) REFERENCES addresses(address)
@@ -363,6 +318,7 @@ CREATE TABLE dag_token_locks (
 	ordinal int8 NOT NULL,
 	unlock_epoch int8 NOT NULL,
 	round_id uuid NOT NULL,
+	global_snapshot_hash varchar NOT NULL,
 	CONSTRAINT dag_token_locks_pk PRIMARY KEY (hash),
 	CONSTRAINT dag_token_locks_unique UNIQUE (hash, ordinal),
 	CONSTRAINT dag_token_lock_block_fk FOREIGN KEY (round_id) REFERENCES dag_token_lock_blocks(round_id),
@@ -394,7 +350,8 @@ CREATE TABLE dag_token_unlocks (
 	CONSTRAINT dag_token_unlocks_pk PRIMARY KEY (lock_reference_ordinal, lock_reference_hash),
 	CONSTRAINT dag_token_unlocks_token_locks_fk FOREIGN KEY (lock_reference_hash,lock_reference_ordinal) REFERENCES dag_token_locks(hash,ordinal),
 	CONSTRAINT ddag_token_unlocks_address_fk FOREIGN KEY (source_addr) REFERENCES addresses(address)
-) INHERITS (public.abstract_transactions);
+)
+INHERITS (public.abstract_transactions);
 
 -- Table Triggers
 
@@ -406,6 +363,7 @@ create trigger trigger_insert_abstract_transactions_dag_token_unlocks after
 insert
     on
     public.dag_token_unlocks for each row execute function insert_into_parent_abstract_transactions();
+
 
 -- public.dag_transactions definition
 
@@ -541,7 +499,7 @@ CREATE TABLE metagraph_token_locks (
 	CONSTRAINT metagraph_token_locks_pk PRIMARY KEY (metagraph_id, hash),
 	CONSTRAINT metagraph_token_locks_unique UNIQUE (metagraph_id, ordinal),
 	CONSTRAINT metagraph_id_fk FOREIGN KEY (metagraph_id) REFERENCES metagraphs(id),
-	CONSTRAINT metagraph_token_lock_block_fk FOREIGN KEY (metagraph_id, round_id) REFERENCES metagraph_token_lock_blocks(metagraph_id, round_id),
+	CONSTRAINT metagraph_token_lock_block_fk FOREIGN KEY (metagraph_id,round_id) REFERENCES metagraph_token_lock_blocks(metagraph_id,round_id),
 	CONSTRAINT metagraph_token_locks_source_addr_fk FOREIGN KEY (source_addr) REFERENCES addresses(address)
 )
 INHERITS (public.abstract_transactions);
@@ -573,7 +531,8 @@ CREATE TABLE metagraph_token_unlocks (
 	CONSTRAINT metagraph_id_fk FOREIGN KEY (metagraph_id) REFERENCES metagraphs(id),
 	CONSTRAINT metagraph_token_unlocks_token_locks_fk FOREIGN KEY (metagraph_id,lock_reference_hash) REFERENCES metagraph_token_locks(metagraph_id,hash),
 	CONSTRAINT metagraph_token_unlocks_token_locks_ordinal_fk FOREIGN KEY (metagraph_id,lock_reference_ordinal) REFERENCES metagraph_token_locks(metagraph_id,ordinal)
-) INHERITS (public.abstract_transactions);
+)
+INHERITS (public.abstract_transactions);
 
 -- Table Triggers
 
@@ -662,39 +621,6 @@ insert
     public.metagraph_allow_spends for each row execute function insert_into_parent_abstract_transactions();
 
 
-
-
-
--- public.metagraph_spend_transactions definition
-
--- Drop table
-
--- DROP TABLE metagraph_spend_transactions;
-
-CREATE TABLE metagraph_spend_transactions (
-	metagraph_id varchar NOT NULL,
-	destination_addr varchar NOT NULL,
-	allow_spend_ref  varchar NULL,
-	CONSTRAINT metagraph_spend_transactions_pk PRIMARY KEY (hash),
-	CONSTRAINT dag_spend_transactions_metagraph_allow_spends_fk FOREIGN KEY (allow_spend_ref) REFERENCES metagraph_allow_spends(hash),
-	CONSTRAINT metagraph_spend_transactions_destination_addr_fk FOREIGN KEY (destination_addr) REFERENCES addresses(address),
-	CONSTRAINT metagraph_spend_transactions_metagraph_id_fk FOREIGN KEY (metagraph_id) REFERENCES metagraphs(id)
-)
-INHERITS (public.abstract_transactions);
-
--- Table Triggers
-
-create trigger set_updated_at_metagraph_spend_transactions before
-update
-    on
-    public.metagraph_spend_transactions for each row execute function update_updated_at_column();
-create trigger trigger_insert_abstract_transactions_metagraph_spend_transactio after
-insert
-    on
-    public.metagraph_spend_transactions for each row execute function insert_into_parent_abstract_transactions();
-
-
-
 -- public.metagraph_balance_changes definition
 
 -- Drop table
@@ -757,13 +683,12 @@ insert
 -- DROP TABLE metagraph_fee_transactions;
 
 CREATE TABLE metagraph_fee_transactions (
+	created_at timestamp DEFAULT now() NOT NULL,
 	metagraph_id varchar NOT NULL,
 	metagraph_snapshot_hash varchar NOT NULL,
 	destination_addr varchar NOT NULL,
 	data_update_ref varchar NULL,
-    metagraph_snapshot_ordinal int8,
-    created_at timestamp DEFAULT now() NOT NULL,
-
+	metagraph_snapshot_ordinal int8 NULL,
 	CONSTRAINT fee_transaction_pk PRIMARY KEY (metagraph_id, hash),
 	CONSTRAINT fee_transaction_metagraph_snapshot_fk FOREIGN KEY (metagraph_id,metagraph_snapshot_hash) REFERENCES metagraph_snapshots(metagraph_id,hash),
 	CONSTRAINT metagraph_fee_transactions_destination_addr_fk FOREIGN KEY (destination_addr) REFERENCES addresses(address),
@@ -809,6 +734,35 @@ create trigger set_updated_at_metagraph_reward_transaction before
 update
     on
     public.metagraph_reward_transactions for each row execute function update_updated_at_column();
+
+
+-- public.metagraph_spend_transactions definition
+
+-- Drop table
+
+-- DROP TABLE metagraph_spend_transactions;
+
+CREATE TABLE metagraph_spend_transactions (
+	metagraph_id varchar NOT NULL,
+	destination_addr varchar NOT NULL,
+	allow_spend_ref varchar NULL,
+	CONSTRAINT metagraph_spend_transactions_pk PRIMARY KEY (hash),
+	CONSTRAINT dag_spend_transactions_metagraph_allow_spends_fk FOREIGN KEY (allow_spend_ref) REFERENCES metagraph_allow_spends(hash),
+	CONSTRAINT metagraph_spend_transactions_destination_addr_fk FOREIGN KEY (destination_addr) REFERENCES addresses(address),
+	CONSTRAINT metagraph_spend_transactions_metagraph_id_fk FOREIGN KEY (metagraph_id) REFERENCES metagraphs(id)
+)
+INHERITS (public.abstract_transactions);
+
+-- Table Triggers
+
+create trigger set_updated_at_metagraph_spend_transactions before
+update
+    on
+    public.metagraph_spend_transactions for each row execute function update_updated_at_column();
+create trigger trigger_insert_abstract_transactions_metagraph_spend_transactio after
+insert
+    on
+    public.metagraph_spend_transactions for each row execute function insert_into_parent_abstract_transactions();
 
 
 -- public.metagraph_transactions definition
@@ -861,15 +815,61 @@ CREATE TABLE metagraph_allow_spend_approvers (
 );
 
 
-CREATE VIEW abstract_transactions_view AS
-SELECT
-  tx.hash,
-  tx.source_addr,
-  tx.amount,
-  tx.created_at,
-  tx.updated_at,
-  p.relname AS table_name
-FROM public.abstract_transactions tx
-JOIN pg_class p ON tx.tableoid = p.oid
-JOIN dag_token_locks dtl ON dtl.hash = tx.hash
-WHERE p.relname <> 'abstract_transactions';
+-- public.abstract_transactions_view source
+
+CREATE OR REPLACE VIEW abstract_transactions_view
+AS SELECT tx.hash,
+    tx.source_addr,
+    tx.amount,
+    tx.created_at,
+    tx.updated_at,
+    p.relname AS table_name
+   FROM abstract_transactions tx
+     JOIN pg_class p ON tx.tableoid = p.oid
+  WHERE p.relname <> 'abstract_transactions'::name;
+
+
+
+-- DROP FUNCTION public.insert_into_parent_abstract_blocks();
+
+CREATE OR REPLACE FUNCTION public.insert_into_parent_abstract_blocks()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+BEGIN
+    INSERT INTO abstract_blocks (hash, height, created_at)
+    VALUES (NEW.hash, NEW.height, NEW.created_at)
+    ON CONFLICT (hash) DO NOTHING;
+    RETURN NEW;
+END;
+$function$
+;
+
+-- DROP FUNCTION public.insert_into_parent_abstract_transactions();
+
+CREATE OR REPLACE FUNCTION public.insert_into_parent_abstract_transactions()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+BEGIN
+    INSERT INTO abstract_transactions (hash, source_addr, amount, created_at)
+    VALUES (NEW.hash, NEW.source_addr, NEW.amount, NEW.created_at)
+    ON CONFLICT (hash) DO NOTHING;
+
+    RETURN NEW;
+END;
+$function$
+;
+
+-- DROP FUNCTION public.update_updated_at_column();
+
+CREATE OR REPLACE FUNCTION public.update_updated_at_column()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+BEGIN
+  NEW.updated_at = NOW();
+  RETURN NEW;
+END;
+$function$
+;

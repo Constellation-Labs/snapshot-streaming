@@ -2,21 +2,12 @@ package org.constellation.snapshotstreaming.db
 
 import cats.effect.{Async, Resource}
 import cats.syntax.all._
-import org.constellation.snapshotstreaming.schema.AllowSpends.{AllowSpend, TokenLock, TokenUnlock}
+import org.constellation.snapshotstreaming.schema.AllowSpends.AllowSpend
 import org.constellation.snapshotstreaming.schema.extractors.{AddressExtractor, MetagraphExtractor}
 import org.constellation.snapshotstreaming.schema.schema.{GlobalData, MetagraphData}
-import org.constellation.snapshotstreaming.schema.{
-  AddressBalance,
-  Block,
-  BlockReference,
-  CurrencyData,
-  CurrencySnapshot,
-  FeeTransaction,
-  RewardTransaction,
-  Snapshot,
-  Transaction => STransaction
-}
+import org.constellation.snapshotstreaming.schema.{AddressBalance, Block, BlockReference, CurrencyData, CurrencySnapshot, FeeTransaction, RewardTransaction, Snapshot, Transaction => STransaction}
 import io.constellationnetwork.security.signature.signature.SignatureProof
+import org.constellation.snapshotstreaming.schema.TokenLocks.{TokenLock, TokenUnlock}
 import skunk._
 import skunk.codec.all._
 import skunk.implicits._
@@ -137,26 +128,25 @@ object SnapshotDAO {
         hash,
         source_addr,
         amount,
-        ordinal,
         unlock_epoch,
         global_snapshot_hash
-      ) VALUES ($varchar, $varchar, $int8, $int8, $int8, $varchar)
+      ) VALUES ($varchar, $varchar, $int8, $int8, ${int8.opt}, $varchar)
       ON CONFLICT (hash) DO NOTHING;
-    """.command.contramap { tx =>
+    """.command.contramap { tx: TokenLock =>
       (tx.hash, tx.source, tx.amount, tx.ordinal, tx.unlockEpoch, tx.snapshotHash)
     }
 
   private val insertDagTokenUnlockCommand: Command[TokenUnlock] =
     sql"""
       INSERT INTO dag_token_unlocks (
-        lock_reference_ordinal,
+        hash,
         lock_reference_hash,
         amount,
         source_addr
-      ) VALUES ($int8, $varchar, $int8, $varchar)
+      ) VALUES ($varchar, $varchar, $int8, $varchar)
       ON CONFLICT (lock_reference_ordinal, lock_reference_hash) DO NOTHING;
-    """.command.contramap { tx =>
-      (tx.lockReference.ordinal, tx.lockReference.hash, tx.amount, tx.address)
+    """.command.contramap { tx: TokenUnlock =>
+      (tx.hash, tx.lockReference, tx.amount, tx.address)
     }
 
   private val insertDagRewardTxCommand: Command[(String, RewardTransaction)] =
@@ -322,18 +312,19 @@ object SnapshotDAO {
       hash,
       source_addr,
       amount,
-      ordinal,
-      unlock_epoch
-    ) VALUES ($varchar, $varchar, $varchar, $int8, $int8, $int8)
+      unlock_epoch,
+      snapshot_hash
+    ) VALUES ($varchar, $varchar, $varchar, $int8, $int8, ${int8.opt}, $varchar)
     ON CONFLICT (metagraph_id, hash) DO NOTHING;
-  """.command.contramap { case CurrencyData(id, tx) =>
+  """.command.contramap { case CurrencyData(id, tx: TokenLock) =>
       (
         id,
         tx.hash,
         tx.source,
         tx.amount,
         tx.ordinal,
-        tx.unlockEpoch
+        tx.unlockEpoch,
+        tx.snapshotHash
       )
     }
 
@@ -341,17 +332,15 @@ object SnapshotDAO {
     sql"""
     INSERT INTO metagraph_token_unlocks (
       metagraph_id,
-      lock_reference_ordinal,
       lock_reference_hash,
       amount,
       source_addr
-    ) VALUES ($varchar, $int8, $varchar, $int8, $varchar)
+    ) VALUES ($varchar, $varchar, $int8, $varchar)
     ON CONFLICT (lock_reference_ordinal, lock_reference_hash) DO NOTHING;
-  """.command.contramap { case CurrencyData(id, tx) =>
+  """.command.contramap { case CurrencyData(id, tx: TokenUnlock) =>
       (
         id,
-        tx.lockReference.ordinal,
-        tx.lockReference.hash,
+        tx.lockReference,
         tx.amount,
         tx.address
       )

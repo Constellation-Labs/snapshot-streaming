@@ -3,6 +3,7 @@ package org.constellation.snapshotstreaming.mapper
 import cats.effect.Async
 import cats.syntax.all._
 import eu.timepit.refined.auto._
+import io.constellationnetwork.currency.schema.currency.{CurrencySnapshot => OriginalCurrencySnapshot}
 import io.constellationnetwork.schema.address.Address
 import io.constellationnetwork.schema.balance.Balance
 import io.constellationnetwork.schema.snapshot.{SnapshotInfo, Snapshot => OriginalSnapshot}
@@ -11,7 +12,7 @@ import io.constellationnetwork.schema.{Block => OriginalBlock}
 import io.constellationnetwork.security.{Hashed, Hasher}
 import io.constellationnetwork.security.signature.Signed
 import io.constellationnetwork.syntax.sortedCollection._
-import org.constellation.snapshotstreaming.schema.{AddressBalance, Block, BlockReference, Transaction, TransactionReference }
+import org.constellation.snapshotstreaming.schema.{AddressBalance, Block, BlockReference, Transaction, TransactionReference}
 
 import java.time.LocalDateTime
 import scala.collection.immutable.{SortedMap, SortedSet}

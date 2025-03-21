@@ -2,7 +2,8 @@ package org.constellation.snapshotstreaming.schema
 
 import io.circe.Encoder
 import io.constellationnetwork.security.signature.signature.SignatureProof
-import AllowSpends.{AllowSpend, TokenLock, TokenUnlock}
+import AllowSpends.{AllowSpend, AllowSpendExpiration, SpendTransaction}
+import org.constellation.snapshotstreaming.schema.TokenLocks.{TokenLock, TokenUnlock}
 
 import java.util.Date
 
@@ -16,7 +17,9 @@ object schema {
     proofs: Seq[SignatureProof],
     allowSpends: Seq[AllowSpend] = Seq.empty,
     tokenLocks: Seq[TokenLock] = Seq.empty,
-    tokenUnlocks: Seq[TokenUnlock] = Seq.empty
+    tokenUnlocks: Seq[TokenUnlock] = Seq.empty,
+    spendTransactions: Seq[SpendTransaction],
+    allowSpendExpirations: Seq[AllowSpendExpiration],
   )
 
   case class MetagraphData(
@@ -27,8 +30,11 @@ object schema {
     feeTxs: Seq[CurrencyData[FeeTransaction]],
     balances: Seq[CurrencyData[AddressBalance]],
     allowSpends: Seq[CurrencyData[AllowSpend]] = Seq.empty,
+    spendTransactions: Seq[CurrencyData[SpendTransaction]],
+    allowSpendExpirations: Seq[CurrencyData[AllowSpendExpiration]],
     tokenLocks: Seq[CurrencyData[TokenLock]] = Seq.empty,
-    tokenUnlocks: Seq[CurrencyData[TokenUnlock]] = Seq.empty
+    tokenUnlocks: Seq[CurrencyData[TokenUnlock]] = Seq.empty,
+
   ) {
     val allAsIncremental: Seq[CurrencyData[CurrencySnapshot]] = snapshots.map(toIncremental) ++ snapshotsInc
   }

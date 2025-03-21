@@ -20,8 +20,6 @@ import io.constellationnetwork.security._
 
 object FileBasedLastGlobalIncrementalSnapshotStorage {
 
-  TokenLockOrdinal.ordering$macro$9
-
 
   def make[F[_]: Async: HasherSelector: Files: KryoSerializer](
     path: Path

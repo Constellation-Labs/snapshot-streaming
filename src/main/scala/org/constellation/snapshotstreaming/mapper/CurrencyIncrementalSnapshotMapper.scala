@@ -6,12 +6,18 @@ import eu.timepit.refined.auto._
 import io.constellationnetwork.currency.dataApplication.{FeeTransaction => OriginalFeeTransaction}
 import io.constellationnetwork.currency.schema.currency.{CurrencyIncrementalSnapshot, CurrencySnapshotInfo}
 import io.constellationnetwork.json.{JsonSerializer, SizeCalculator}
+import org.constellation.snapshotstreaming.schema.AllowSpends.AllowSpendExpiration
+import org.constellation.snapshotstreaming.schema.TokenLocks.{TokenLock, TokenUnlock}
 import io.constellationnetwork.schema.currencyMessage.MessageType
+import io.constellationnetwork.schema.round.RoundId
+import io.constellationnetwork.schema.{artifact, swap, tokenLock}
 import io.constellationnetwork.schema.transaction.{RewardTransaction => OriginalRewardTransaction}
+import io.constellationnetwork.security.hash.Hash
 import io.constellationnetwork.security.signature.Signed
 import io.constellationnetwork.security.{Hashed, Hasher}
 import io.constellationnetwork.statechannel.StateChannelSnapshotBinary
-import org.constellation.snapshotstreaming.schema.{CurrencySnapshot, FeeTransaction, RewardTransaction}
+import org.constellation.snapshotstreaming.schema.AllowSpends.{AllowSpend, SpendTransaction}
+import org.constellation.snapshotstreaming.schema.{CurrencySnapshot, FeeTransaction, RewardTransaction, TransactionReference}
 
 import java.time.LocalDateTime
 import scala.collection.immutable.SortedSet
@@ -32,6 +38,12 @@ abstract class CurrencyIncrementalSnapshotMapper[F[_]: Async]
                           timestamp: LocalDateTime,
                           hasher: Hasher[F]
                         ): F[List[FeeTransaction]]
+
+  def mapAllowSpends(snapshot: Hashed[CurrencyIncrementalSnapshot], timestamp: LocalDateTime, hasher: Hasher[F]): F[List[AllowSpend]]
+
+  def mapTokenLocks(snapshot: Hashed[CurrencyIncrementalSnapshot], timestamp: LocalDateTime, hasher: Hasher[F]): F[List[TokenLock]]
+
+  def mapArtifacts(snapshot: Hashed[CurrencyIncrementalSnapshot], hasher: Hasher[F]): F[(List[SpendTransaction], List[TokenUnlock], List[AllowSpendExpiration])]
 
 }
 
@@ -111,6 +123,106 @@ object CurrencyIncrementalSnapshotMapper {
 
       private def getMessageAddress(messageType: MessageType, info: CurrencySnapshotInfo): Option[String] =
         info.lastMessages.flatMap(_.get(messageType)).map(_.address.value.value)
+
+      def mapAllowSpend(snapshotHash: Hash, roundId: RoundId)(
+        allowSpend: Signed[swap.AllowSpend]
+      )(implicit hasher: Hasher[F]): F[AllowSpend] =
+        allowSpend.toHashed.map { allowSpend =>
+          AllowSpend(
+            allowSpend.hash.value,
+            allowSpend.source.value,
+            allowSpend.destination.value,
+            allowSpend.amount.value,
+            allowSpend.fee.value,
+            TransactionReference(allowSpend.parent.hash.value, allowSpend.parent.ordinal.value),
+            allowSpend.lastValidEpochProgress.value,
+            roundId.value,
+            allowSpend.ordinal.value,
+            allowSpend.approvers.map(_.value),
+            snapshotHash.value
+          )
+        }
+
+      def mapAllowSpends(snapshot: Hashed[CurrencyIncrementalSnapshot], timestamp: LocalDateTime, hasher: Hasher[F]): F[List[AllowSpend]] = {
+        implicit val hs: Hasher[F] = hasher
+        snapshot.allowSpendBlocks.toList.flatTraverse(
+          _.toList.flatTraverse( alb => alb.transactions.toList.traverse(mapAllowSpend(snapshot.hash, alb.roundId)))
+        )
+      }
+
+      private def mapTokenLock(snapshotHash: Hash, roundId: RoundId)(
+        tl: Signed[tokenLock.TokenLock]
+      )(implicit hasher: Hasher[F]): F[TokenLock] =
+        tl.toHashed.map { tokenLock =>
+          TokenLock(
+            snapshotHash.value,
+            tokenLock.hash.value,
+            tokenLock.source.value,
+            tokenLock.amount.value,
+            tokenLock.unlockEpoch.map(_.value.value),
+            tokenLock.ordinal.value,
+            roundId.value
+          )
+        }
+
+      def mapTokenLocks(snapshot: Hashed[CurrencyIncrementalSnapshot], timestamp: LocalDateTime, hasher: Hasher[F]): F[List[TokenLock]] = {
+        implicit val hs: Hasher[F] = hasher
+        snapshot.tokenLockBlocks.toList.flatTraverse(
+          _.toList.flatTraverse( tlb => tlb.tokenLocks.toList.traverse(mapTokenLock(snapshot.hash, tlb.roundId)))
+        )
+      }
+
+      def mapSpendTx(snapshotHash: Hash)(
+        spendTx: artifact.SpendTransaction
+      )(implicit hasher: Hasher[F]): F[SpendTransaction] = hasher.hash(spendTx).map {
+        hash => SpendTransaction(
+          hash.value,
+          spendTx.source.value,
+          spendTx.destination.value,
+          spendTx.amount.value,
+          spendTx.allowSpendRef.map(_.value),
+          snapshotHash.value
+        )
+      }
+
+      def mapTokenUnlock( tokenUnlock:  artifact.TokenUnlock )
+                        (implicit hasher: Hasher[F]): F[TokenUnlock] = hasher.hash(tokenUnlock).map {
+        hash => TokenUnlock(
+          hash.value,
+          tokenUnlock.tokenLockRef.value,
+          tokenUnlock.amount.value,
+          tokenUnlock.address.value,
+        )
+      }
+
+      def mapExpiration(expiry:  artifact.AllowSpendExpiration)
+                       (implicit hasher: Hasher[F]): F[AllowSpendExpiration] = hasher.hash(expiry).map {
+        hash => AllowSpendExpiration(
+          hash.value,
+          expiry.allowSpendRef.value,
+        )
+      }
+
+
+      def mapArtifacts(snapshot: Hashed[CurrencyIncrementalSnapshot], hasher: Hasher[F]): F[(List[SpendTransaction], List[TokenUnlock], List[AllowSpendExpiration])] = {
+        implicit val hs: Hasher[F] = hasher
+        val events = snapshot.artifacts.toList.flatten
+        val spendTxs = events.flatTraverse {
+          case artifact.SpendAction(spendTransactions) => spendTransactions.toList.traverse(mapSpendTx(snapshot.hash))
+          case _ =>  List.empty[SpendTransaction].pure
+        }
+        val tokenUnlocks = events.flatTraverse {
+          case tu: artifact.TokenUnlock => mapTokenUnlock(tu).map(List(_))
+          case _ =>  List.empty[TokenUnlock].pure
+        }
+        val expirations = events.flatTraverse {
+          case exp: artifact.AllowSpendExpiration => mapExpiration(exp).map(List(_))
+          case _ =>  List.empty[AllowSpendExpiration].pure
+        }
+
+        (spendTxs, tokenUnlocks, expirations).tupled
+      }
+
 
     }
 

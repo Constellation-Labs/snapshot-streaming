@@ -1,6 +1,7 @@
 package org.constellation.snapshotstreaming.schema.extractors
 
-import org.constellation.snapshotstreaming.schema.AllowSpends.{AllowSpend, TokenLock, TokenUnlock}
+import org.constellation.snapshotstreaming.schema.AllowSpends.AllowSpend
+import org.constellation.snapshotstreaming.schema.TokenLocks.{TokenLock, TokenUnlock}
 import org.constellation.snapshotstreaming.schema.schema.{GlobalData, MetagraphData}
 import org.constellation.snapshotstreaming.schema._
 

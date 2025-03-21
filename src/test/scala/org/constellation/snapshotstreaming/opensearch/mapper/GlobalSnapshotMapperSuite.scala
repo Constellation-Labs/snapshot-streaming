@@ -85,8 +85,23 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
         List.empty
       )
 
-      updatedInfo = GlobalSnapshotInfo(SortedMap.empty, SortedMap.empty, updatedBalances, SortedMap.empty, SortedMap.empty, None, None, None, None, None, None)
-
+      updatedInfo = GlobalSnapshotInfo(
+        SortedMap.empty,
+        SortedMap.empty,
+        updatedBalances,
+        SortedMap.empty,
+        SortedMap.empty,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None
+      )
 
       snapshot <- incrementalGlobalSnapshot[IO](
         100L,
@@ -131,7 +146,23 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
         List.empty,
         List.empty
       )
-      updatedInfo = GlobalSnapshotInfo(SortedMap.empty, SortedMap.empty, updatedBalances, SortedMap.empty, SortedMap.empty, None, None, None, None, None, None)
+      updatedInfo = GlobalSnapshotInfo(
+        SortedMap.empty,
+        SortedMap.empty,
+        updatedBalances,
+        SortedMap.empty,
+        SortedMap.empty,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None
+      )
 
       snapshot <- incrementalGlobalSnapshot[IO](
         100L,
@@ -175,7 +206,23 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
         List.empty,
         List.empty
       )
-      updatedInfo = GlobalSnapshotInfo(SortedMap.empty, SortedMap.empty, updatedBalances, SortedMap.empty, SortedMap.empty, None, None, None, None, None, None)
+      updatedInfo = GlobalSnapshotInfo(
+        SortedMap.empty,
+        SortedMap.empty,
+        updatedBalances,
+        SortedMap.empty,
+        SortedMap.empty,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None
+      )
       snapshot <- incrementalGlobalSnapshot[IO](
         100L,
         10L,
@@ -211,7 +258,23 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
       rewards.toList,
       List.empty
     )
-    val updatedInfo = GlobalSnapshotInfo(SortedMap.empty, SortedMap.empty, updatedBalances, SortedMap.empty, SortedMap.empty, None, None, None, None, None, None)
+    val updatedInfo = GlobalSnapshotInfo(
+      SortedMap.empty,
+      SortedMap.empty,
+      updatedBalances,
+      SortedMap.empty,
+      SortedMap.empty,
+      None,
+      None,
+      None,
+      None,
+      None,
+      None,
+      None,
+      None,
+      None,
+      None
+    )
 
     for {
       snapshot <- incrementalGlobalSnapshot[IO](

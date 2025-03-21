@@ -7,6 +7,8 @@ import io.constellationnetwork.schema.address.Address
 import io.constellationnetwork.schema.balance.Balance
 import io.constellationnetwork.security.Hasher
 import org.constellation.snapshotstreaming.SnapshotProcessor.GlobalSnapshotWithState
+import org.constellation.snapshotstreaming.schema.AllowSpends.{AllowSpend, AllowSpendExpiration, SpendTransaction}
+import org.constellation.snapshotstreaming.schema.TokenLocks.{TokenLock, TokenUnlock}
 import org.constellation.snapshotstreaming.schema.schema.MetagraphData
 import org.constellation.snapshotstreaming.schema.{AddressBalance, Block, CurrencyData, FeeTransaction, Snapshot, Transaction, CurrencySnapshot => OSCurrencySnapshot}
 
@@ -46,7 +48,12 @@ object CurrencySnapshotMapper {
           Seq[CurrencyData[Transaction]],
           Seq[CurrencyData[FeeTransaction]],
           Seq[CurrencyData[AddressBalance]],
-          Map[Address, SortedMap[Address, Balance]]
+          Seq[CurrencyData[AllowSpend]],
+          Seq[CurrencyData[SpendTransaction]],
+          Seq[CurrencyData[AllowSpendExpiration]],
+          Seq[CurrencyData[TokenLock]],
+          Seq[CurrencyData[TokenUnlock]],
+          Map[Address, SortedMap[Address, Balance]],
         )
 
       type CurrencySnapshotMapperResult = MetagraphData
@@ -70,22 +77,28 @@ object CurrencySnapshotMapper {
         }.getOrElse(SortedMap.empty[Address, SortedMap[Address, Balance]])
 
         val initialAcc: Acc = (
-          Seq.empty[CurrencyData[Snapshot]],
-          Seq.empty[CurrencyData[OSCurrencySnapshot]],
-          Seq.empty[CurrencyData[Block]],
-          Seq.empty[CurrencyData[Transaction]],
-          Seq.empty[CurrencyData[FeeTransaction]],
-          Seq.empty[CurrencyData[AddressBalance]],
+          Seq.empty,
+          Seq.empty,
+          Seq.empty,
+          Seq.empty,
+          Seq.empty,
+          Seq.empty,
+          Seq.empty,
+          Seq.empty,
+          Seq.empty,
+          Seq.empty,
+          Seq.empty,
           initialAccBalances
         )
 
         currencySnapshots.toList.flatMap { case (i, s) => s.toList.map((i, _)) }
           .foldLeftM[F, Acc](initialAcc) {
             case (
-              (aggSnap, aggCurrencyIncrementalSnap, aggBlocks, aggTxs, aggFeeTxs, aggBalances, aggLastBalances),
+              (aggSnap, aggCurrencyIncrementalSnap, aggBlocks, aggTxs, aggFeeTxs, aggBalances, aggAllowSpends, aggSpendTxs, aggSpendExpirations, aggTokenLocks, aggTokenUnlocks, aggLastBalances),
               (identifier, fullOrIncremental)
               ) =>
               val identifierStr = identifier.value.value
+              def toCurrency[A](a:A) = CurrencyData(identifierStr, a)
 
               fullOrIncremental match {
                 case Left(full) =>
@@ -109,6 +122,11 @@ object CurrencySnapshotMapper {
                     aggTxs ++ transactions,
                     aggFeeTxs,
                     aggBalances ++ balances,
+                    aggAllowSpends,
+                    aggSpendTxs,
+                    aggSpendExpirations,
+                    aggTokenLocks,
+                    aggTokenUnlocks,
                     aggLastBalances + (identifier -> full.info.balances)
                   )
 
@@ -126,6 +144,12 @@ object CurrencySnapshotMapper {
                     feeTransactions <- incrementalMapper
                       .mapFeeTransactions(incremental, timestamp, hasher)
                       .map(_.map(CurrencyData(identifierStr, _)))
+                    allowSpends <- incrementalMapper
+                      .mapAllowSpends(incremental, timestamp, hasher)
+                    artifacts <- incrementalMapper.mapArtifacts(incremental, hasher)
+                    (spendsTx, tokenUnlocks, spendExpirations) = artifacts
+                    tokenLocks <- incrementalMapper
+                      .mapTokenLocks(incremental, timestamp, hasher)
                     prevBalances = aggLastBalances.get(identifier)
                     filteredBalances = incrementalMapper.balanceDiff(
                       incremental,
@@ -142,12 +166,17 @@ object CurrencySnapshotMapper {
                     aggTxs ++ transactions,
                     aggFeeTxs ++ feeTransactions,
                     aggBalances ++ balances,
+                    aggAllowSpends ++ allowSpends.map(toCurrency),
+                    aggSpendTxs ++ spendsTx.map(toCurrency),
+                    aggSpendExpirations ++ spendExpirations.map(toCurrency),
+                    aggTokenLocks ++ tokenLocks.map(toCurrency),
+                    aggTokenUnlocks ++ tokenUnlocks.map(toCurrency),
                     aggLastBalances + (identifier -> filteredBalances)
                   )
               }
           }
-          .map { case (aggSnap, aggCurrencyIncrementalSnap, aggBlocks, aggTxs, aggFeeTxs, aggBalances, _) =>
-            MetagraphData(aggSnap, aggCurrencyIncrementalSnap, aggBlocks, aggTxs, aggFeeTxs, aggBalances)
+          .map { case (aggSnap, aggCurrencyIncrementalSnap, aggBlocks, aggTxs, aggFeeTxs, aggBalances, aggAllowSpends, aggSpendTxs, aggSpendExpirations, aggTokenLocks, aggTokenUnlocks, aggLastBalances) =>
+            MetagraphData(aggSnap, aggCurrencyIncrementalSnap, aggBlocks, aggTxs, aggFeeTxs, aggBalances, aggAllowSpends, aggSpendTxs, aggSpendExpirations, aggTokenLocks, aggTokenUnlocks)
           }
       }
 

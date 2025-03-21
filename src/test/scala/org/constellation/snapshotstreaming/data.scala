@@ -80,10 +80,15 @@ object data {
             nextFacilitators = NonEmptyList.of(PeerId(Hex(""))),
             tips = SnapshotTips(SortedSet.empty, SortedSet.empty),
             stateProof = sp,
-            allowSpendBlocks = None,  //TODO populate
+            allowSpendBlocks = None,
             tokenLockBlocks = None,
             spendActions = None,
-            updateNodeParameters = None
+            updateNodeParameters = None,
+            artifacts = None,
+            activeDelegatedStakes = None,
+            delegatedStakesWithdrawals = None,
+            activeNodeCollaterals = None,
+            nodeCollateralWithdrawals = None,
           ),
           NonEmptySet.one(SignatureProof(Id(Hex("")), Signature(Hex(""))))
         ),

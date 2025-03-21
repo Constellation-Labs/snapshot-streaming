@@ -31,7 +31,7 @@ object UpdateRequestBuilder {
         mappedCurrencyData: MetagraphData
       ): UpdateRequests = {
 
-        val GlobalData(snapshot, blocks, transactions, balances, proofs, _, _, _) =
+        val GlobalData(snapshot, blocks, transactions, balances, proofs, allowSpends, tokenLocks, tokenUnlocks, spendTransactions, allowSpendExpirations) =
           mappedGlobalData
 
         val MetagraphData(currSnapshots,
@@ -40,9 +40,7 @@ object UpdateRequestBuilder {
           currTransactions,
           currFeeTransactions,
           currBalances,
-          _,
-          _,
-          _
+          currAllowSpends, currTokenLocks, currTokenUnlocks, currSpendTransactions, currAllowSpendExpirations
         ) =
           mappedCurrencyData
 
