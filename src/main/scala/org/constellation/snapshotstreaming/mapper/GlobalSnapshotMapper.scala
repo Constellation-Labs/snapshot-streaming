@@ -1,10 +1,8 @@
 package org.constellation.snapshotstreaming.mapper
 
-import cats.Functor
 import cats.effect.Async
 import cats.syntax.all._
 import eu.timepit.refined.auto._
-import io.constellationnetwork.currency.schema.currency.CurrencyIncrementalSnapshot
 import io.constellationnetwork.schema.round.RoundId
 import io.constellationnetwork.schema.{GlobalIncrementalSnapshot, GlobalSnapshotInfo, artifact, swap, tokenLock, transaction}
 import io.constellationnetwork.security.hash.Hash
@@ -126,9 +124,10 @@ abstract class GlobalSnapshotMapper[F[_]: Async]
     )
   }
 
-  def mapExpiration(expiry:  artifact.AllowSpendExpiration)
+  def mapExpiration(snapshotHash: Hash,expiry:  artifact.AllowSpendExpiration)
                    (implicit hasher: Hasher[F]): F[AllowSpendExpiration] = hasher.hash(expiry).map {
     hash => AllowSpendExpiration(
+      snapshotHash.value,
       hash.value,
       expiry.allowSpendRef.value,
     )

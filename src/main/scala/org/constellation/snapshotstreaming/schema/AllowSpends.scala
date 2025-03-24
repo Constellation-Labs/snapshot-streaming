@@ -39,6 +39,7 @@ object AllowSpends {
   }
 
   case class AllowSpendExpiration(
+    snapshotHash: String,
     hash: String,
     allowSpendRef: String,
   )

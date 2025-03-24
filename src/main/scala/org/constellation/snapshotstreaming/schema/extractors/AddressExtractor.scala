@@ -1,6 +1,6 @@
 package org.constellation.snapshotstreaming.schema.extractors
 
-import org.constellation.snapshotstreaming.schema.AllowSpends.AllowSpend
+import org.constellation.snapshotstreaming.schema.AllowSpends.{AllowSpend, SpendTransaction}
 import org.constellation.snapshotstreaming.schema.TokenLocks.{TokenLock, TokenUnlock}
 import org.constellation.snapshotstreaming.schema.schema.{GlobalData, MetagraphData}
 import org.constellation.snapshotstreaming.schema._
@@ -21,6 +21,8 @@ object AddressExtractor {
   implicit val feeTransactionExtractor: AddressExtractor[FeeTransaction] = tx => Set(tx.source, tx.destination)
 
   implicit val allowSpendExtractor: AddressExtractor[AllowSpend] = spend => Set(spend.source, spend.destination)
+
+  implicit val spendTxExtractor: AddressExtractor[SpendTransaction] = spend => Set(spend.source, spend.destination)
 
   implicit val tokenLockExtractor: AddressExtractor[TokenLock] = lock => Set(lock.source)
 

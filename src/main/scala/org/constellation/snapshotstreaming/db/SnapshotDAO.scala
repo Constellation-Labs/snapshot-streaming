@@ -145,24 +145,28 @@ object SnapshotDAO {
   private val insertDagExpiredSpendTransactionCommand: Command[AllowSpendExpiration] =
     sql"""
     INSERT INTO dag_expired_spend_transactions (
+      snapshot_hash,
       hash,
       source_addr,
       amount,
-      allow_spend_ref
+      allow_spend_ref,
     )
     SELECT
-      ${varchar},                       -- hash from AllowSpendExpiration
+      $varchar,
+      $varchar,                       -- hash from AllowSpendExpiration
       das.source_addr,
       das.amount,
-      ${varchar}                        -- allowSpendRef from AllowSpendExpiration
+      $varchar                        -- allowSpendRef from AllowSpendExpiration
     FROM dag_allow_spends das
-    WHERE das.hash = ${varchar}
+    WHERE das.hash = $varchar
     ON CONFLICT (hash) DO NOTHING;
   """.command.contramap { exp: AllowSpendExpiration =>
       (
+        exp.snapshotHash,
         exp.hash,
         exp.allowSpendRef,
         exp.allowSpendRef // used again in WHERE clause
+
       )
     }
 
@@ -378,26 +382,29 @@ object SnapshotDAO {
     sql"""
     INSERT INTO metagraph_expired_spend_transactions (
       metagraph_id,
+      metagraph_hash,
       hash,
       source_addr,
       amount,
       allow_spend_ref
     )
     SELECT
-      ${varchar},                      -- metagraphId
-      ${varchar},                      -- hash from MetagraphAllowSpendExpiration
+      $varchar,                      -- metagraphId
+      $varchar,                      -- metagraph snapshot hash
+      $varchar,                      -- hash from MetagraphAllowSpendExpiration
       mas.source_addr,
       mas.amount,
-      ${varchar}                       -- allowSpendRef
+      $varchar                       -- allowSpendRef
     FROM metagraph_allow_spends mas
-    WHERE mas.hash = ${varchar}
+    WHERE mas.hash = $varchar
     ON CONFLICT (hash) DO NOTHING;
   """.command.contramap { case CurrencyData(id, exp: AllowSpendExpiration) =>
       (
         id,
+        exp.snapshotHash,
         exp.hash,
         exp.allowSpendRef,
-        exp.allowSpendRef // again used in the WHERE clause
+        exp.allowSpendRef
       )
     }
 

@@ -195,9 +195,10 @@ object CurrencyIncrementalSnapshotMapper {
         )
       }
 
-      def mapExpiration(expiry:  artifact.AllowSpendExpiration)
+      def mapExpiration(snapshotHash: Hash, expiry:  artifact.AllowSpendExpiration)
                        (implicit hasher: Hasher[F]): F[AllowSpendExpiration] = hasher.hash(expiry).map {
         hash => AllowSpendExpiration(
+          snapshotHash.value,
           hash.value,
           expiry.allowSpendRef.value,
         )
@@ -216,7 +217,7 @@ object CurrencyIncrementalSnapshotMapper {
           case _ =>  List.empty[TokenUnlock].pure
         }
         val expirations = events.flatTraverse {
-          case exp: artifact.AllowSpendExpiration => mapExpiration(exp).map(List(_))
+          case exp: artifact.AllowSpendExpiration => mapExpiration(snapshot.hash, exp).map(List(_))
           case _ =>  List.empty[AllowSpendExpiration].pure
         }
 
