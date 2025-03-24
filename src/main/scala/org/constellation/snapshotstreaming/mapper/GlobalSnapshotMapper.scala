@@ -120,7 +120,7 @@ abstract class GlobalSnapshotMapper[F[_]: Async]
       hash.value,
       tokenUnlock.tokenLockRef.value,
       tokenUnlock.amount.value,
-      tokenUnlock.address.value,
+      tokenUnlock.source.value,
     )
   }
 
@@ -146,7 +146,7 @@ abstract class GlobalSnapshotMapper[F[_]: Async]
       case _ =>  List.empty[TokenUnlock].pure
     }
     val expirations = events.flatTraverse {
-      case exp: artifact.AllowSpendExpiration => mapExpiration(exp).map(List(_))
+      case exp: artifact.AllowSpendExpiration => mapExpiration(snapshot.hash, exp).map(List(_))
       case _ =>  List.empty[AllowSpendExpiration].pure
     }
 

@@ -20,7 +20,7 @@ object Dependencies {
     val logstash = "7.2"
     val organizeImports = "0.6.0"
     val refined = "0.10.1"
-    val tessellation = "2.12.3-122-d55e5f70-SNAPSHOT"
+    val tessellation = "2.12.3-127-71ee0cdd-dirty-SNAPSHOT"
     val weaver = "0.8.1"
   }
 

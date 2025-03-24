@@ -191,7 +191,7 @@ object CurrencyIncrementalSnapshotMapper {
           hash.value,
           tokenUnlock.tokenLockRef.value,
           tokenUnlock.amount.value,
-          tokenUnlock.address.value,
+          tokenUnlock.source.value,
         )
       }
 
