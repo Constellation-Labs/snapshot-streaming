@@ -149,7 +149,7 @@ object SnapshotDAO {
       hash,
       source_addr,
       amount,
-      allow_spend_ref,
+      allow_spend_ref
     )
     SELECT
       $varchar,
