@@ -382,7 +382,7 @@ object SnapshotDAO {
     sql"""
     INSERT INTO metagraph_expired_spend_transactions (
       metagraph_id,
-      metagraph_hash,
+      snapshot_hash,
       hash,
       source_addr,
       amount,
