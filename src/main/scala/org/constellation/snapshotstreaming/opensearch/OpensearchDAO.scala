@@ -1,8 +1,7 @@
 package org.constellation.snapshotstreaming.opensearch
 
 import cats.effect.{Async, Resource}
-import cats.syntax.flatMap._
-import cats.syntax.functor._
+import cats.syntax.all._
 import com.sksamuel.elastic4s.ElasticDsl._
 import com.sksamuel.elastic4s._
 import com.sksamuel.elastic4s.http.JavaClient
@@ -12,6 +11,7 @@ import org.typelevel.log4cats.slf4j.Slf4jLogger
 import fs2.Stream
 import org.constellation.snapshotstreaming.OpenSearchConfig
 import scala.reflect.ClassTag
+import cats.effect.implicits.clockOps
 import scala.util.{Failure, Success}
 
 trait OpensearchDAO[F[_]] {
@@ -41,6 +41,8 @@ object OpensearchDAO {
   }
 
   def make[F[_]: Async](esClient: ElasticClient, osCfg: OpenSearchConfig): OpensearchDAO[F] = new OpensearchDAO[F] {
+
+    val logger = Slf4jLogger.getLogger
 
     def sendToOpensearch(bulkRequest: BulkRequest): F[Unit] = Async[F].unit
       /*Async[F].delay(esClient.execute(bulkRequest)).flatMap { fut =>
@@ -85,7 +87,7 @@ object OpensearchDAO {
               Some((results.toSeq, cursorO))
             case _ =>
               None
-          }
+          }.timed.flatMap { case (t, result) => logger.debug(s"Opensearch query for $cursorOpt took ${t.toMillis} ms") >> result.pure }
         }
         .flatMap(Stream.emits)
     }

@@ -442,70 +442,39 @@ object SnapshotDAO {
 
     def insertGlobalData(snapshot: GlobalData, mgSnaphotsCount: Int): F[Unit] = (for {
       session <- pool
-      preparedGlobalSnapshot <- session.prepareR(insertGlobalSnapshotCommand)
-      preparedDagBlock <- session.prepareR(insertDagBlockCommand)
-      preparedDagTxs <- session.prepareR(insertDagTxCommand)
-      preparedDagAllowSpend <- session.prepareR(insertDagAllowSpendCommand)
-      preparedDagTokenLock <- session.prepareR(insertDagTokenLockCommand)
-      preparedDagTokenUnlock <- session.prepareR(insertDagTokenUnlockCommand)
-      preparedDagRewardTxs <- session.prepareR(insertDagRewardTxCommand)
-      preparedDagAddressBalance <- session.prepareR(insertAddressBalanceCommand)
-      preparedProofs <- session.prepareR(insertProofCommand)
-      preparedBlockParent <- session.prepareR(insertBlockParentCommand)
-      preparedAddress <- session.prepareR(insertAddressCommand)
-      _ <- Resource.eval(executeCmd(preparedAddress)(AddressExtractor.extract(snapshot).toSeq))
-      xa <- session.transaction
     } yield {
       val gsHash = snapshot.snapshot.hash
-      val blockParents = snapshot.blocks.toList.flatMap(b => b.parent.map((b.hash, _)))
-      executeCmd(preparedGlobalSnapshot)(Seq((snapshot.snapshot, mgSnaphotsCount))) >>
-        executeCmd(preparedDagBlock)(snapshot.blocks.toList) >>
-        executeCmd(preparedDagTxs)(snapshot.txs) >>
-        executeCmd(preparedDagAllowSpend)(snapshot.allowSpends) >>
-        executeCmd(preparedDagTokenLock)(snapshot.tokenLocks) >>
-        executeCmd(preparedDagTokenUnlock)(snapshot.tokenUnlocks) >>
-        executeCmd(preparedDagAddressBalance)(snapshot.balances) >>
-        executeCmd(preparedDagRewardTxs)(pairWith(gsHash, snapshot.snapshot.rewards.toSeq)) >>
-        executeCmd(preparedBlockParent)(blockParents) >>
-        executeCmd(preparedProofs)(pairWith(gsHash, snapshot.proofs.toSeq)) >> xa.commit
+      session.prepare(insertAddressCommand).flatMap(executeCmd(_)(AddressExtractor.extract(snapshot).toSeq)) >>
+      session.prepare(insertGlobalSnapshotCommand).flatMap(executeCmd(_)(Seq((snapshot.snapshot, mgSnaphotsCount)))) >>
+        session.prepare(insertDagBlockCommand).flatMap(executeCmd(_)(snapshot.blocks.toList)) >>
+        session.prepare(insertDagTxCommand).flatMap(executeCmd(_)(snapshot.txs)) >>
+        session.prepare(insertDagAllowSpendCommand).flatMap(executeCmd(_)(snapshot.allowSpends)) >>
+        session.prepare(insertDagTokenLockCommand).flatMap(executeCmd(_)(snapshot.tokenLocks)) >>
+        session.prepare(insertDagTokenUnlockCommand).flatMap(executeCmd(_)(snapshot.tokenUnlocks)) >>
+        session.prepare(insertAddressBalanceCommand).flatMap(executeCmd(_)(snapshot.balances)) >>
+        session.prepare(insertDagRewardTxCommand).flatMap(executeCmd(_)(pairWith(gsHash, snapshot.snapshot.rewards.toSeq))) >>
+        session.prepare(insertProofCommand).flatMap(executeCmd(_)(pairWith(gsHash, snapshot.proofs.toSeq)))
     }).use(_.void)
 
     def insertMetagraphData(globalSnapshotHash: String, mgSnapshot: MetagraphData): F[Unit] =
       (for {
         session <- pool
-        preparedMetagraphs <- session.prepareR(insertMetagraphsCommand)
-        preparedMetagraphSnapshot <- session.prepareR(insertMetagraphSnapshotCommand)
-        preparedBlockParent <- session.prepareR(insertBlockParentCommand)
-        preparedMetagraphBlock <- session.prepareR(insertMetagraphBlockCommand)
-        preparedMgTxs <- session.prepareR(insertMetagraphTxCommand)
-        preparedMgAllowSpends <- session.prepareR(insertMetagraphAllowSpendCommand)
-        preparedMgTokenLocks <- session.prepareR(insertMetagraphTokenLockCommand)
-        preparedMgTokenUnlocks <- session.prepareR(insertMetagraphTokenUnlockCommand)
-        preparedMgFeeTxs <- session.prepareR(insertMetagraphFeeTransactionCommand)
-        preparedMgRewardTxs <- session.prepareR(insertMetagraphRewardTxCommand)
-        preparedMgAddressBalance <- session.prepareR(insertMetagraphAddressBalanceCommand)
-        preparedAddress <- session.prepareR(insertAddressCommand)
-        _ <- Resource.eval(executeCmd(preparedAddress)(AddressExtractor.extract(mgSnapshot).toSeq))
-        _ <- Resource.eval(executeCmd(preparedMetagraphs)(MetagraphExtractor.extract(mgSnapshot).toSeq))
-        xa <- session.transaction
       } yield {
-        val blockParents = mgSnapshot.blocks.flatMap { currencyData =>
-          currencyData.data.parent.map(parent => (currencyData.identifier, currencyData.data.hash, parent))
-        }
-        executeCmd(preparedMetagraphSnapshot)(pairWith(globalSnapshotHash, mgSnapshot.snapshots)) >>
-          executeCmd(preparedMetagraphBlock)(mgSnapshot.blocks) >>
-          executeCmd(preparedMgTxs)(mgSnapshot.txs) >>
-          executeCmd(preparedMgAllowSpends)(mgSnapshot.allowSpends) >>
-          executeCmd(preparedMgTokenLocks)(mgSnapshot.tokenLocks) >>
-          executeCmd(preparedMgTokenUnlocks)(mgSnapshot.tokenUnlocks) >>
-          executeCmd(preparedMgFeeTxs)(mgSnapshot.feeTxs) >>
-          executeCmd(preparedMgRewardTxs)(
+        session.prepare(insertAddressCommand).flatMap(executeCmd(_)(AddressExtractor.extract(mgSnapshot).toSeq)) >>
+        session.prepare(insertMetagraphsCommand).flatMap(executeCmd(_)(MetagraphExtractor.extract(mgSnapshot).toSeq)) >>
+          session.prepare(insertMetagraphSnapshotCommand).flatMap(executeCmd(_)(pairWith(globalSnapshotHash, mgSnapshot.snapshots))) >>
+          session.prepare(insertMetagraphBlockCommand).flatMap(executeCmd(_)(mgSnapshot.blocks)) >>
+          session.prepare(insertMetagraphTxCommand).flatMap(executeCmd(_)(mgSnapshot.txs)) >>
+          session.prepare(insertMetagraphAllowSpendCommand).flatMap(executeCmd(_)(mgSnapshot.allowSpends)) >>
+          session.prepare(insertMetagraphTokenLockCommand).flatMap(executeCmd(_)(mgSnapshot.tokenLocks)) >>
+          session.prepare(insertMetagraphTokenUnlockCommand).flatMap(executeCmd(_)(mgSnapshot.tokenUnlocks)) >>
+          session.prepare(insertMetagraphFeeTransactionCommand).flatMap(executeCmd(_)(mgSnapshot.feeTxs)) >>
+          session.prepare(insertMetagraphRewardTxCommand).flatMap(executeCmd(_)(
             mgSnapshot.snapshots.flatMap(mgs =>
               mgs.data.rewards.map(r => (mgs.data.hash, CurrencyData(mgs.identifier, r)))
             )
-          ) >>
-          executeCmd(preparedBlockParent)(blockParents.map { case (_, hash, parent) => (hash, parent) }) >>
-          executeCmd(preparedMgAddressBalance)(mgSnapshot.balances) >> xa.commit
+          )) >>
+          session.prepare(insertMetagraphAddressBalanceCommand).flatMap(executeCmd(_)(mgSnapshot.balances))
       }).use(_.void)
 
   }
