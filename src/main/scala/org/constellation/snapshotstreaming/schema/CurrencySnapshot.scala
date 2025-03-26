@@ -6,6 +6,7 @@ import io.circe.generic.semiauto._
 import java.time.LocalDateTime
 
 final case class CurrencySnapshot(
+  globalSnapshotHash: String,
   hash: String,
   ordinal: Long,
   height: Long,

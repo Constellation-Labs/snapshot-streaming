@@ -13,6 +13,7 @@ import org.tessellation.statechannel.StateChannelSnapshotBinary
 import org.constellation.snapshotstreaming.schema.{CurrencySnapshot, FeeTransaction, FeeTransactionReference, RewardTransaction}
 import org.tessellation.currency.schema.feeTransaction.{FeeTransaction => OriginalFeeTransaction}
 import org.tessellation.currency.schema.feeTransaction.{FeeTransactionReference => OriginalFeeTransactionReference}
+import org.tessellation.security.hash.Hash
 
 import java.time.LocalDateTime
 import scala.collection.immutable.SortedSet
@@ -21,6 +22,7 @@ abstract class CurrencyIncrementalSnapshotMapper[F[_]: Async]
     extends SnapshotMapper[F, CurrencyIncrementalSnapshot, CurrencySnapshotInfo] {
 
   def mapSnapshot(
+                   globalSnapshotHash: Hash,
     snapshot: Hashed[CurrencyIncrementalSnapshot],
     binary: Signed[StateChannelSnapshotBinary],
     info: CurrencySnapshotInfo,
@@ -64,6 +66,7 @@ object CurrencyIncrementalSnapshotMapper {
       }
 
       def mapSnapshot(
+                       globalSnapshotHash: Hash,
         snapshot: Hashed[CurrencyIncrementalSnapshot],
         binary: Signed[StateChannelSnapshotBinary],
         info: CurrencySnapshotInfo,
@@ -73,12 +76,14 @@ object CurrencyIncrementalSnapshotMapper {
         blocksHashes <- snapshot.blocks.unsorted.map(_.block).map(hashBlock(_, hasher)).toList.sequence
         rewards = fetchRewards(snapshot).unsorted.map(reward =>
           RewardTransaction(
+            snapshot.hash.value,
             reward.destination.value,
             reward.amount.value
           )
         )
         sizeInKb <- SizeCalculator.kilobytes(binary)
       } yield CurrencySnapshot(
+        globalSnapshotHash.value,
         hash = snapshot.hash.value,
         ordinal = snapshot.ordinal.value.value,
         height = snapshot.height.value,

@@ -69,7 +69,7 @@ final case class NodeConfig(
   val l0PeersMap = NonEmptyMap.fromMapUnsafe(SortedMap.from(l0Peers.map(p => p.id -> p)))
 }
 
-final case class Reindexer( s3Parallelism: Int, s3Prefetch: Int, snapshotContextPrefetch: Int, dbParallelism: Int, checkpointEvery: Int)
+final case class Reindexer( s3Parallelism: Int, s3Prefetch: Int, snapshotContextPrefetch: Int, dbChunks: Int, dbParallelism: Int)
 
 final case class SnapshotStreamingConfig(
   lastSnapshotPath: Path,

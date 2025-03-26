@@ -7,6 +7,7 @@ import org.tessellation.currency.schema.currency.{CurrencySnapshotInfo, Currency
 import org.tessellation.schema.transaction
 import org.tessellation.security.{Hashed, Hasher}
 import org.constellation.snapshotstreaming.schema.{CurrencySnapshot, RewardTransaction}
+import org.tessellation.security.hash.Hash
 
 import java.time.LocalDateTime
 import scala.collection.immutable.SortedSet
@@ -15,6 +16,7 @@ abstract class CurrencyFullSnapshotMapper[F[_]: Async]
     extends SnapshotMapper[F, OriginalCurrencySnapshot, CurrencySnapshotInfo] {
 
   def mapSnapshot(
+    globalSnapshotHash: Hash,
     snapshot: Hashed[OriginalCurrencySnapshot],
     timestamp: LocalDateTime,
     hasher: Hasher[F]
@@ -38,6 +40,7 @@ object CurrencyFullSnapshotMapper {
       }
 
       def mapSnapshot(
+        globalSnapshotHash: Hash,
         snapshot: Hashed[OriginalCurrencySnapshot],
         timestamp: LocalDateTime,
         hasher: Hasher[F]
@@ -46,11 +49,13 @@ object CurrencyFullSnapshotMapper {
           blocksHashes <- snapshot.blocks.unsorted.map(_.block).map(hashBlock(_, hasher)).toList.sequence
           rewards = fetchRewards(snapshot).unsorted.map(reward =>
             RewardTransaction(
+              snapshot.hash.value,
               reward.destination.value,
               reward.amount.value
             )
           )
         } yield CurrencySnapshot(
+          globalSnapshotHash.value,
           hash = snapshot.hash.value,
           ordinal = snapshot.ordinal.value.value,
           height = snapshot.height.value,

@@ -4,6 +4,7 @@ import io.circe.Encoder
 import io.circe.generic.semiauto._
 
 final case class RewardTransaction(
+  snapshotHash: String,
   destination: String,
   amount: Long
 )

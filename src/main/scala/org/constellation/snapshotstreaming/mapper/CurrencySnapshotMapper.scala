@@ -17,7 +17,6 @@ trait CurrencySnapshotMapper[F[_]] {
 
   def mapCurrencySnapshots(
     globalSnapshotWithState: GlobalSnapshotWithState,
-    timestamp: LocalDateTime,
     txHasher: Hasher[F],
     hasher: Hasher[F]
   ): F[
@@ -51,12 +50,11 @@ object CurrencySnapshotMapper {
 
       def mapCurrencySnapshots(
         globalSnapshotWithState: GlobalSnapshotWithState,
-        timestamp: LocalDateTime,
         txHasher: Hasher[F],
         hasher: Hasher[F]
       ): F[CurrencySnapshotMapperResult] = {
 
-        val GlobalSnapshotWithState(_, maybePrevLastSnapshots, _, currencySnapshots, _) =
+        val GlobalSnapshotWithState(globalSnapshot, maybePrevLastSnapshots, _, currencySnapshots, timestamp) =
           globalSnapshotWithState
 
         val maybeLastSnapshots = maybePrevLastSnapshots.map(_.lastCurrencySnapshots)
@@ -88,7 +86,7 @@ object CurrencySnapshotMapper {
                 case Left(full) =>
                   for {
                     snapshot <- fullMapper
-                      .mapSnapshot(full, timestamp, hasher)
+                      .mapSnapshot(globalSnapshot.hash,full, timestamp, hasher)
                       .map(CurrencyData(identifierStr, _))
                     blocks <- fullMapper
                       .mapBlocks(full, timestamp, txHasher, hasher)
@@ -111,7 +109,7 @@ object CurrencySnapshotMapper {
                 case Right((incremental, info, binary)) =>
                   for {
                     snapshot <- incrementalMapper
-                      .mapSnapshot(incremental, binary, info, timestamp, hasher)
+                      .mapSnapshot(globalSnapshot.hash, incremental, binary, info, timestamp, hasher)
                       .map(CurrencyData(identifierStr, _))
                     blocks <- incrementalMapper
                       .mapBlocks(incremental, timestamp, txHasher, hasher)
@@ -142,7 +140,7 @@ object CurrencySnapshotMapper {
               }
           }
           .map { case (aggSnap, aggBlocks, aggTxs, aggFeeTxs, aggBalances, _) =>
-            MetagraphData(aggSnap, aggBlocks, aggTxs, aggFeeTxs, aggBalances)
+            MetagraphData(globalSnapshot.hash.value, aggSnap, aggBlocks, aggTxs, aggFeeTxs, aggBalances)
           }
       }
 

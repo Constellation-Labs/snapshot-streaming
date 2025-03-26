@@ -6,7 +6,7 @@ import eu.timepit.refined.auto._
 import org.tessellation.schema.{GlobalIncrementalSnapshot, GlobalSnapshotInfo, transaction}
 import org.tessellation.security.{Hashed, Hasher}
 import org.constellation.snapshotstreaming.SnapshotProcessor.GlobalSnapshotWithState
-import org.constellation.snapshotstreaming.schema.schema.GlobalData
+import org.constellation.snapshotstreaming.schema.schema.{GlobalData, SignatureProof}
 import org.constellation.snapshotstreaming.schema.{RewardTransaction, Snapshot}
 
 import java.time.LocalDateTime
@@ -19,11 +19,10 @@ abstract class GlobalSnapshotMapper[F[_]: Async]
 
   def mapGlobalSnapshot(
     globalSnapshotWithState: GlobalSnapshotWithState,
-    timestamp: LocalDateTime,
     txHasher: Hasher[F],
     hasher: Hasher[F]
   ): F[GlobalData] = {
-    val GlobalSnapshotWithState(globalSnapshot, maybePrevSnapshotInfo, snapshotInfo, _, ts) =
+    val GlobalSnapshotWithState(globalSnapshot, maybePrevSnapshotInfo, snapshotInfo, currencySnapshots, timestamp) =
       globalSnapshotWithState
     for {
       snapshot <- mapSnapshot(globalSnapshot, timestamp, hasher)
@@ -35,7 +34,8 @@ abstract class GlobalSnapshotMapper[F[_]: Async]
         snapshotInfo
       )
       balances = mapBalances(globalSnapshot, filteredBalances, timestamp)
-    } yield GlobalData(snapshot, blocks, transactions, balances, globalSnapshot.signed.proofs.toSortedSet.toSeq)
+      signatures = globalSnapshot.signed.proofs.toSortedSet.toSeq.map(SignatureProof.from(globalSnapshot.hash,_))
+    } yield GlobalData(snapshot, blocks, transactions, balances, signatures, currencySnapshots.size)
   }
 
 }
@@ -64,6 +64,7 @@ object GlobalSnapshotMapper {
           blockHashes <- snapshot.blocks.unsorted.map(_.block).map(hashBlock(_, hasher)).toList.sequence
           rewards = fetchRewards(snapshot).unsorted.map(reward =>
             RewardTransaction(
+              snapshot.hash.value,
               reward.destination.value,
               reward.amount.value
             )
@@ -78,6 +79,7 @@ object GlobalSnapshotMapper {
           blocks = blockHashes.toSet,
           rewards = rewards,
           version = snapshot.version.version,
+          metagraphSnapshotsCount = snapshot.stateChannelSnapshots.size,
           timestamp = timestamp
         )
 

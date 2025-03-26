@@ -4,44 +4,34 @@ import cats.effect.{Async, Resource}
 import cats.syntax.all._
 import org.constellation.snapshotstreaming.schema.AllowSpends.{AllowSpend, TokenLock, TokenUnlock}
 import org.constellation.snapshotstreaming.schema.extractors.{AddressExtractor, MetagraphExtractor}
-import org.constellation.snapshotstreaming.schema.schema.{GlobalData, MetagraphData}
-import org.constellation.snapshotstreaming.schema.{
-  AddressBalance,
-  Block,
-  BlockReference,
-  CurrencyData,
-  CurrencySnapshot,
-  FeeTransaction,
-  RewardTransaction,
-  Snapshot,
-  Transaction => STransaction
-}
-import org.tessellation.security.signature.signature.SignatureProof
-import skunk._
+import org.constellation.snapshotstreaming.schema.schema.{GlobalData, MetagraphData, SignatureProof}
+import org.constellation.snapshotstreaming.schema.{AddressBalance, Block, BlockReference, CurrencyData, CurrencySnapshot, FeeTransaction, RewardTransaction, Snapshot, Transaction => STransaction}
+import org.typelevel.log4cats.slf4j.Slf4jLogger
+import skunk.{*:, _}
 import skunk.codec.all._
 import skunk.implicits._
 
 trait SnapshotDAO[F[_]] {
-  def insertGlobalData(snapshot: GlobalData, mgSnaphotsCount: Int): F[Unit]
-  def insertMetagraphData(globalSnapshotHash: String, mgSnapshot: MetagraphData): F[Unit]
+  def insertGlobalData(snapshots: Seq[GlobalData]): F[Unit]
+  def insertMetagraphData(mgSnapshotz: Seq[MetagraphData]): F[Unit]
 }
 
 object SnapshotDAO {
 
-  private val insertGlobalSnapshotCommand: Command[(Snapshot, Long)] =
+  private val insertGlobalSnapshotCommand: Command[Snapshot] =
     sql"""
     INSERT INTO global_snapshots (
       ordinal, hash, height, subheight, last_snapshot_hash, metagraph_snapshot_count, epoch_progress, version, created_at
     ) VALUES ($int8, $varchar, $int8, $int8, $varchar, $int8, $int8, $varchar, $timestamp)
     ON CONFLICT (hash) DO NOTHING;
-  """.command.contramap { case (s, snapshotCount) =>
+  """.command.contramap { s =>
       (
         s.ordinal,
         s.hash,
         s.height,
         s.subHeight,
         s.lastSnapshotHash,
-        snapshotCount,
+        s.metagraphSnapshotsCount,
         s.epochProgress,
         s.version,
         s.timestamp
@@ -58,16 +48,6 @@ object SnapshotDAO {
       ) VALUES ($varchar, $int8, $varchar, $timestamp)
       ON CONFLICT (hash) DO NOTHING;
     """.command.contramap(block => (block.hash, block.height, block.snapshotHash, block.timestamp))
-
-  private val insertBlockParentCommand: Command[(String, BlockReference)] =
-    sql"""
-      INSERT INTO block_parents (
-        hash,
-        parent_proof_hash,
-        parent_height
-      ) VALUES ($varchar, $varchar, $int8)
-      ON CONFLICT (hash, parent_proof_hash) DO NOTHING;
-    """.command.contramap { case (hash, BlockReference(snapshotHash, height)) => (hash, snapshotHash, height) }
 
   private val insertDagTxCommand: Command[STransaction] =
     sql"""
@@ -159,7 +139,7 @@ object SnapshotDAO {
       (tx.lockReference.ordinal, tx.lockReference.hash, tx.amount, tx.address)
     }
 
-  private val insertDagRewardTxCommand: Command[(String, RewardTransaction)] =
+  private val insertDagRewardTxCommand: Command[RewardTransaction] =
     sql"""
       INSERT INTO dag_reward_transactions (
         global_snapshot_hash,
@@ -167,8 +147,8 @@ object SnapshotDAO {
         amount
       ) VALUES ($varchar, $varchar, $int8)
       ON CONFLICT (global_snapshot_hash, destination_addr) DO NOTHING;
-    """.command.contramap { case (gsHash, reward) =>
-      (gsHash, reward.destination, reward.amount)
+    """.command.contramap { reward =>
+      (reward.snapshotHash, reward.destination, reward.amount)
     }
 
   private val insertAddressBalanceCommand: Command[AddressBalance] =
@@ -185,7 +165,7 @@ object SnapshotDAO {
       (ab.snapshotOrdinal, ab.snapshotHash, ab.address, ab.balance, ab.timestamp)
     }
 
-  private val insertProofCommand: Command[(String, SignatureProof)] =
+  private val insertProofCommand: Command[SignatureProof] =
     sql"""
       INSERT INTO global_snapshot_proofs (
         id,
@@ -193,17 +173,17 @@ object SnapshotDAO {
         snapshot_hash
       ) VALUES ($varchar, $varchar, $varchar)
       ON CONFLICT (snapshot_hash, id) DO NOTHING;
-    """.command.contramap { case (snapshotHash, SignatureProof(id, signature)) =>
-      (id.hex.value, signature.value.value, snapshotHash)
+    """.command.contramap { case SignatureProof(snapshotHash, id, signature) =>
+      (id, signature, snapshotHash)
     }
 
-  private val insertMetagraphSnapshotCommand: Command[(String, CurrencyData[CurrencySnapshot])] =
+  private val insertMetagraphSnapshotCommand: Command[CurrencyData[CurrencySnapshot]] =
     sql"""
     INSERT INTO metagraph_snapshots (
       metagraph_id,
-      ordinal,
       global_snapshot_hash,
       hash,
+      ordinal,
       height,
       subheight,
       last_snapshot_hash,
@@ -214,15 +194,15 @@ object SnapshotDAO {
       version,
       created_at
     ) VALUES (
-      $varchar, $int8, $varchar, $varchar, $int8, $int8, $varchar, ${int8.opt}, ${varchar.opt}, ${varchar.opt}, $int8, $varchar, $timestamp
+      $varchar, $varchar, $varchar, $int8, $int8, $int8, $varchar, ${int8.opt}, ${varchar.opt}, ${varchar.opt}, $int8, $varchar, $timestamp
     )
     ON CONFLICT (metagraph_id, hash) DO NOTHING;
-  """.command.contramap { case (gsHash, CurrencyData(id, cs)) =>
+  """.command.contramap { case CurrencyData(id, cs) =>
       (
         id,
-        cs.ordinal,
-        gsHash,
+        cs.globalSnapshotHash,
         cs.hash,
+        cs.ordinal,
         cs.height,
         cs.subHeight,
         cs.lastSnapshotHash,
@@ -385,7 +365,30 @@ object SnapshotDAO {
       )
     }
 
-  private val insertMetagraphRewardTxCommand: Command[(String, CurrencyData[RewardTransaction])] =
+  def insertMany(n: Int): Command[List[(String, Short)]] = {
+    val enc = (varchar ~ int2).values.list(n)
+    sql"INSERT INTO pets VALUES $enc".command
+  }
+
+  private def insertMetagraphRewardTxMany( txs: Seq[CurrencyData[RewardTransaction]]) = {
+
+    val enc = (varchar *: varchar *: varchar *: int8).values.contramap({ t: CurrencyData[RewardTransaction] =>
+      (
+        t.identifier ,t.data.snapshotHash, t.data.destination, t.data.amount
+      )}).list(txs.toList)
+
+    sql"""
+      INSERT INTO metagraph_reward_transactions (
+        metagraph_id,
+        metagraph_snapshot_hash,
+        destination_addr,
+        amount
+      ) VALUES $enc
+      ON CONFLICT (metagraph_id, metagraph_snapshot_hash, destination_addr) DO NOTHING;
+    """.command
+  }
+
+  private val insertMetagraphRewardTxCommand: Command[CurrencyData[RewardTransaction]] =
     sql"""
       INSERT INTO metagraph_reward_transactions (
         metagraph_id,
@@ -394,10 +397,10 @@ object SnapshotDAO {
         amount
       ) VALUES ($varchar, $varchar, $varchar, $int8)
       ON CONFLICT (metagraph_id, metagraph_snapshot_hash, destination_addr) DO NOTHING;
-    """.command.contramap { case (mgHash, CurrencyData(id, reward)) =>
+    """.command.contramap { case CurrencyData(id, reward) =>
       (
         id,
-        mgHash,
+        reward.snapshotHash,
         reward.destination,
         reward.amount
       )
@@ -423,9 +426,20 @@ object SnapshotDAO {
       INSERT INTO addresses (
         address
       ) VALUES ($varchar)
-      ON CONFLICT (address) DO UPDATE SET
-        updated_at = now();
+      ON CONFLICT (address) DO NOTHING;
     """.command
+
+  private def insertAddressMany(addrs: List[String]): Command[addrs.type] = {
+    val enc = varchar.values.list(addrs)
+    sql"""
+      INSERT INTO addresses (
+        address
+      ) VALUES $enc
+      ON CONFLICT (address) DO NOTHING;
+    """.command
+  }
+
+
 
   private val insertMetagraphsCommand: Command[String] =
     sql"""
@@ -436,46 +450,69 @@ object SnapshotDAO {
         updated_at = now();
     """.command
 
-  private def pairWith[V, T](elem: V, elements: Seq[T]) = elements.map((elem, _))
-
   def make[F[_]: Async](pool: Resource[F, Session[F]]): SnapshotDAO[F] = new SnapshotDAO[F] {
 
-    def insertGlobalData(snapshot: GlobalData, mgSnaphotsCount: Int): F[Unit] = (for {
-      session <- pool
-    } yield {
-      val gsHash = snapshot.snapshot.hash
-      session.prepare(insertAddressCommand).flatMap(executeCmd(_)(AddressExtractor.extract(snapshot).toSeq)) >>
-      session.prepare(insertGlobalSnapshotCommand).flatMap(executeCmd(_)(Seq((snapshot.snapshot, mgSnaphotsCount)))) >>
-        session.prepare(insertDagBlockCommand).flatMap(executeCmd(_)(snapshot.blocks.toList)) >>
-        session.prepare(insertDagTxCommand).flatMap(executeCmd(_)(snapshot.txs)) >>
-        session.prepare(insertDagAllowSpendCommand).flatMap(executeCmd(_)(snapshot.allowSpends)) >>
-        session.prepare(insertDagTokenLockCommand).flatMap(executeCmd(_)(snapshot.tokenLocks)) >>
-        session.prepare(insertDagTokenUnlockCommand).flatMap(executeCmd(_)(snapshot.tokenUnlocks)) >>
-        session.prepare(insertAddressBalanceCommand).flatMap(executeCmd(_)(snapshot.balances)) >>
-        session.prepare(insertDagRewardTxCommand).flatMap(executeCmd(_)(pairWith(gsHash, snapshot.snapshot.rewards.toSeq))) >>
-        session.prepare(insertProofCommand).flatMap(executeCmd(_)(pairWith(gsHash, snapshot.proofs.toSeq)))
-    }).use(_.void)
+    private val logger = Slf4jLogger.getLogger[F]
 
-    def insertMetagraphData(globalSnapshotHash: String, mgSnapshot: MetagraphData): F[Unit] =
-      (for {
-        session <- pool
-      } yield {
-        session.prepare(insertAddressCommand).flatMap(executeCmd(_)(AddressExtractor.extract(mgSnapshot).toSeq)) >>
-        session.prepare(insertMetagraphsCommand).flatMap(executeCmd(_)(MetagraphExtractor.extract(mgSnapshot).toSeq)) >>
-          session.prepare(insertMetagraphSnapshotCommand).flatMap(executeCmd(_)(pairWith(globalSnapshotHash, mgSnapshot.snapshots))) >>
-          session.prepare(insertMetagraphBlockCommand).flatMap(executeCmd(_)(mgSnapshot.blocks)) >>
-          session.prepare(insertMetagraphTxCommand).flatMap(executeCmd(_)(mgSnapshot.txs)) >>
-          session.prepare(insertMetagraphAllowSpendCommand).flatMap(executeCmd(_)(mgSnapshot.allowSpends)) >>
-          session.prepare(insertMetagraphTokenLockCommand).flatMap(executeCmd(_)(mgSnapshot.tokenLocks)) >>
-          session.prepare(insertMetagraphTokenUnlockCommand).flatMap(executeCmd(_)(mgSnapshot.tokenUnlocks)) >>
-          session.prepare(insertMetagraphFeeTransactionCommand).flatMap(executeCmd(_)(mgSnapshot.feeTxs)) >>
+    def insertGlobalData(globalSnapshots: Seq[GlobalData]): F[Unit] =
+      pool.flatMap( session => session.transaction.map( (_, session))).use { case (xa, session) =>
+        val addresses = globalSnapshots.flatMap(AddressExtractor.extract(_)).toList
+        logger.debug(s"insert gs addresses ${globalSnapshots.flatMap(AddressExtractor.extract(_).toSeq)}") >>
+          executeMany(session, addresses)(insertAddressMany(addresses)) >>
+          logger.debug(s"insert gs1 snapshots ${globalSnapshots.map(_.snapshot)}") >>
+          session.prepare(insertGlobalSnapshotCommand).flatMap(executeCmd(_)(globalSnapshots.map(_.snapshot))) >>
+          logger.debug("insert gs2") >>
+          session.prepare(insertDagBlockCommand).flatMap(executeCmd(_)(globalSnapshots.flatMap(_.blocks.toList))) >>
+          logger.debug("insert gs3") >>
+          session.prepare(insertDagTxCommand).flatMap(executeCmd(_)(globalSnapshots.flatMap(_.txs))) >>
+          logger.debug("insert gs4") >>
+          session.prepare(insertDagAllowSpendCommand).flatMap(executeCmd(_)(globalSnapshots.flatMap(_.allowSpends))) >>
+          logger.debug("insert gs 2") >>
+        session.prepare(insertDagTokenLockCommand).flatMap(executeCmd(_)(globalSnapshots.flatMap(_.tokenLocks))) >>
+          logger.debug("insert gs 21") >>
+          session.prepare(insertDagTokenUnlockCommand).flatMap(executeCmd(_)(globalSnapshots.flatMap(_.tokenUnlocks))) >>
+          logger.debug("insert gs 211") >>
+          session.prepare(insertAddressBalanceCommand).flatMap(executeCmd(_)(globalSnapshots.flatMap(_.balances))) >>
+          logger.debug("insert gs 2111") >>
+          session.prepare(insertDagRewardTxCommand).flatMap(executeCmd(_)(globalSnapshots.flatMap(_.snapshot.rewards.toSeq))) >>
+          logger.debug("insert gs 21111") >>
+          session.prepare(insertProofCommand).flatMap(executeCmd(_)(globalSnapshots.flatMap(_.proofs.toSeq))) >>
+          logger.debug("insert gs finish") >>
+      xa.commit.void
+    }
+
+    def insertMetagraphData(metagraphSnapshotss: Seq[MetagraphData]): F[Unit] =
+      pool.flatMap( session => session.transaction.map( (_, session))).use { case (xa, session) =>
+        val addresses = metagraphSnapshotss.flatMap(AddressExtractor.extract(_)).toList
+        logger.debug("insert mg") >>
+        //session.prepare(insertAddressCommand).flatMap(executeCmd(_)(metagraphSnapshotss.flatMap(AddressExtractor.extract(_).toSeq))) >>
+          executeMany(session, addresses)(insertAddressMany(addresses)) >>
+          logger.debug("insert mg 1") >>
+          session.prepare(insertMetagraphSnapshotCommand).flatMap(executeCmd(_)(metagraphSnapshotss.flatMap(_.snapshots))) >>
+          logger.debug("insert mg 11") >>
+          session.prepare(insertMetagraphBlockCommand).flatMap(executeCmd(_)(metagraphSnapshotss.flatMap(_.blocks))) >>
+          logger.debug("insert mg 111") >>
+          session.prepare(insertMetagraphsCommand).flatMap(executeCmd(_)(metagraphSnapshotss.flatMap(MetagraphExtractor.extract(_).toSeq))) >>
+          logger.debug("insert mg 1111") >>
+          session.prepare(insertMetagraphTxCommand).flatMap(executeCmd(_)(metagraphSnapshotss.flatMap(_.txs))) >>
+          logger.debug("insert mg 11111") >>
+          session.prepare(insertMetagraphAllowSpendCommand).flatMap(executeCmd(_)(metagraphSnapshotss.flatMap(_.allowSpends))) >>
+          logger.debug("insert mg 2") >>
+          session.prepare(insertMetagraphTokenLockCommand).flatMap(executeCmd(_)(metagraphSnapshotss.flatMap(_.tokenLocks))) >>
+          logger.debug("insert mg 22") >>
+          session.prepare(insertMetagraphTokenUnlockCommand).flatMap(executeCmd(_)(metagraphSnapshotss.flatMap(_.tokenUnlocks))) >>
+          logger.debug("insert mg 222") >>
+          session.prepare(insertMetagraphFeeTransactionCommand).flatMap(executeCmd(_)(metagraphSnapshotss.flatMap(_.feeTxs))) >>
+          logger.debug("insert mg 2222") >>
           session.prepare(insertMetagraphRewardTxCommand).flatMap(executeCmd(_)(
-            mgSnapshot.snapshots.flatMap(mgs =>
-              mgs.data.rewards.map(r => (mgs.data.hash, CurrencyData(mgs.identifier, r)))
-            )
+            metagraphSnapshotss.flatMap(_.snapshots.flatMap(mgs =>
+              mgs.data.rewards.map(r => CurrencyData(mgs.identifier, r))
+            ))
           )) >>
-          session.prepare(insertMetagraphAddressBalanceCommand).flatMap(executeCmd(_)(mgSnapshot.balances))
-      }).use(_.void)
+          session.prepare(insertMetagraphAddressBalanceCommand).flatMap(executeCmd(_)(metagraphSnapshotss.flatMap(_.balances))) >>
+          logger.debug("insert mg finish") >>
+          xa.commit.void
+      }
 
   }
 

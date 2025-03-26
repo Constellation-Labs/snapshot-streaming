@@ -166,30 +166,28 @@ object SnapshotProcessor {
         }
         .void
 
-    private def storeInPostgres(global: GlobalData, metagraph: MetagraphData) =
+    private def storeInPostgres(globalSnapshots: Seq[GlobalData], metagraphs: Seq[MetagraphData]) =
       snapshotDAO.traverse(dao =>
-        dao.insertGlobalData(global, metagraph.snapshots.size) >> dao
-          .insertMetagraphData(global.snapshot.hash, metagraph)
-          .whenA(metagraph.snapshots.nonEmpty)
+        dao.insertGlobalData(globalSnapshots) >> dao
+          .insertMetagraphData(metagraphs)
+          .whenA(metagraphs.nonEmpty)
       ) >>
         logger
-          .info(s"Snapshot ${global.snapshot.ordinal} (hash: ${global.snapshot.hash.show}) sent to postgres.")
+          .debug(s"${globalSnapshots.size} sent to postgres.")
           .handleErrorWith(s => logger.error(s)("Error in database layer") >> s.raiseError[F, Unit])
 
     private def storeInS3(globalSnapshotWithState: GlobalSnapshotWithState) =
       s3DAO.traverse(_.uploadSnapshot(globalSnapshotWithState.snapshot)).void
 
-    private def splitData(globalSnapshotWithState: GlobalSnapshotWithState, d: LocalDateTime, hasher: Hasher[F]) = (
-      globalMapper.mapGlobalSnapshot(globalSnapshotWithState, d, hasher, txHasher),
-      currencyMapper.mapCurrencySnapshots(globalSnapshotWithState, d, hasher, txHasher)
+    private def splitData(globalSnapshotWithState: GlobalSnapshotWithState, hasher: Hasher[F]) = (
+      globalMapper.mapGlobalSnapshot(globalSnapshotWithState,hasher, txHasher),
+      currencyMapper.mapCurrencySnapshots(globalSnapshotWithState, hasher, txHasher)
     ).tupled
 
     private def store(globalSnapshotWithState: GlobalSnapshotWithState, hasher: Hasher[F]): F[Unit] =
-      storeInS3(globalSnapshotWithState) >> Clock[F].realTime.map { d =>
-        val instant = Instant.ofEpochMilli(d.toMillis)
-        LocalDateTime.ofInstant(instant, ZoneId.systemDefault())
-      }.flatMap(splitData(globalSnapshotWithState, _, hasher)).flatMap { case (globalData, metagraphData) =>
-        storeInPostgres(globalData, metagraphData) >> uploadToOpenSearch(globalData, metagraphData)
+      storeInS3(globalSnapshotWithState) >>
+        splitData(globalSnapshotWithState, hasher).flatMap { case (globalData, metagraphData) =>
+        storeInPostgres(Seq(globalData), Seq(metagraphData)) >> uploadToOpenSearch(globalData, metagraphData)
       }.void
 
     private def process(globalSnapshotWithState: GlobalSnapshotWithState, hasher: Hasher[F]): F[Unit] = {

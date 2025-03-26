@@ -15,6 +15,7 @@ final case class Snapshot(
   blocks: Set[String],
   rewards: Set[RewardTransaction],
   version: String,
+  metagraphSnapshotsCount: Long,
   timestamp: LocalDateTime
 )
 

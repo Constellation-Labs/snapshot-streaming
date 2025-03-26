@@ -97,29 +97,32 @@ object SnapshotProcessorS3 {
     private val logger = Slf4jLogger.getLogger[F]
 
 
-    private def storeInPostgres(global: GlobalData, metagraph: MetagraphData) =
+    private def storeInPostgres(globalSnapshots: Seq[GlobalData], metagraphs: Seq[MetagraphData]) =
       snapshotDAO.traverse(dao =>
-        dao.insertGlobalData(global, metagraph.snapshots.size) >> dao
-          .insertMetagraphData(global.snapshot.hash, metagraph)
-          .whenA(metagraph.snapshots.nonEmpty)
-      ).timed.flatMap{ t =>
+        dao.insertGlobalData(globalSnapshots) >> dao
+          .insertMetagraphData(metagraphs)
+          .whenA(metagraphs.nonEmpty)
+      ) >>
         logger
-          .info(s"Snapshot ${global.snapshot.ordinal} (hash: ${global.snapshot.hash.show}) sent to postgres in ${t._1.toMillis} ms.") }
+          .debug(s"${globalSnapshots.size} sent to postgres.")
           .handleErrorWith(s => logger.error(s)("Error in database layer") >> s.raiseError[F, Unit])
 
-    private def splitData(globalSnapshotWithState: GlobalSnapshotWithState, d: LocalDateTime, hasher: Hasher[F]) = (
-      globalMapper.mapGlobalSnapshot(globalSnapshotWithState, d, hasher, txHasher).timed.flatMap { case (t, gs) => logger.debug(s"Global snapshot mapped for ${globalSnapshotWithState.snapshot.hash} in ${t.toMillis} ms").map { _ => gs }},
-      currencyMapper.mapCurrencySnapshots(globalSnapshotWithState, d, hasher, txHasher).timed.flatMap { case (t, gs) => logger.debug(s"Currency snapshot mapped for ${globalSnapshotWithState.snapshot.hash} in ${t.toMillis} ms").map { _ => gs }}
-    ).tupled
+    private def splitData(globalSnapshotWithState: GlobalSnapshotWithState) = {
+      val hasher = HasherSelector[F].getForOrdinal(globalSnapshotWithState.snapshot.ordinal)
+      (
+        globalMapper.mapGlobalSnapshot(globalSnapshotWithState, hasher, txHasher).timed.flatMap { case (t, gs) => logger.debug(s"Global snapshot mapped for ${globalSnapshotWithState.snapshot.hash} in ${t.toMillis} ms").map { _ => gs } },
+        currencyMapper.mapCurrencySnapshots(globalSnapshotWithState, hasher, txHasher).timed.flatMap { case (t, gs) => logger.debug(s"Currency snapshot mapped for ${globalSnapshotWithState.snapshot.hash} in ${t.toMillis} ms").map { _ => gs } }
+      ).tupled
+    }
 
-    private def store(globalSnapshotWithState: GlobalSnapshotWithState, ts: LocalDateTime, hasher: Hasher[F]): F[Unit] =
-      splitData(globalSnapshotWithState, ts, hasher).flatMap { case (globalData, metagraphData) =>
-        storeInPostgres(globalData, metagraphData)
+    private def store(globalSnapshotsWithState: Seq[GlobalSnapshotWithState]): F[Unit] =
+      globalSnapshotsWithState.traverse(splitData).map(_.unzip).flatMap { case (globalDataSeq, metagraphDataSeq) =>
+        storeInPostgres(globalDataSeq, metagraphDataSeq)
       }.void
 
-    private def process(globalSnapshotWithState: GlobalSnapshotWithState, hasher: Hasher[F]): F[Unit] = {
-      val GlobalSnapshotWithState(snapshot, _, snapshotInfo, _, dt) = globalSnapshotWithState
-      store(globalSnapshotWithState, dt, hasher)
+//    private def process(globalSnapshotsWithState: Seq[GlobalSnapshotWithState], hasher: Hasher[F]): F[Unit] = {
+//      //val GlobalSnapshotWithState(snapshot, _, snapshotInfo, _, dt) = globalSnapshotWithState
+//       store(globalSnapshotsWithState, hasher)
 //      HasherSelector[F]
 //        .forOrdinal(snapshot.ordinal) { implicit hasher =>
 //          logger.info(
@@ -140,7 +143,7 @@ object SnapshotProcessorS3 {
 //              s"Calculated stateProof does not match state from snapshot: ${e}."
 //            )
 //        }
-    }
+//    }
 
     val searchGlobalSnapshots =
       search(configuration.opensearch.get.indexes.snapshots)
@@ -207,10 +210,10 @@ object SnapshotProcessorS3 {
             .evalTap { case GlobalSnapshotWithState(snapshot, _, _, _, _) =>
               logger.info(s"Pulled following global snapshot: ${getSnapshotReference(snapshot).show}")
             }
-            .parEvalMap(reindexerConf.dbParallelism) { case state@GlobalSnapshotWithState(snapshot, _, _, _, _) =>
-              val hasher = HasherSelector[F].getForOrdinal(snapshot.ordinal)
-              process(state, hasher).timed.flatMap { case (t, _) => logger.debug(s"Processed snapshot hash ${snapshot.hash} ordinal ${snapshot.ordinal} in ${t.toMillis} ms").map( _ => state)}
-            }.chunkMin(reindexerConf.checkpointEvery)
+            .chunkMin(reindexerConf.dbChunks)
+            .parEvalMap(reindexerConf.dbParallelism) { states  =>
+              store(states.asSeq).timed.flatMap { case (t, _) => logger.debug(s"Processed ${states.size} snapshots  in ${t.toMillis} ms").map( _ => states)}
+            }
             .evalMap { snapshots =>
               snapshots.last.traverse { last =>
                 logger.info(s"Checkpoint at snapshot ordinal ${last.snapshot.ordinal} hash ${last.snapshot.hash} ") >>
