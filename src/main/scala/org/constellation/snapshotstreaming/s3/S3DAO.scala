@@ -29,7 +29,7 @@ trait S3DAO[F[_]] {
 
 object S3DAO {
 
-  def make[F[_]: Async : KryoSerializer](config: S3Config): Resource[F, S3DAO[F]] =
+  def make[F[_]: Async: KryoSerializer](config: S3Config): Resource[F, S3DAO[F]] =
     Resource.make {
       Applicative[F].pure {
         val emptyBuilder = AmazonS3ClientBuilder
@@ -52,7 +52,7 @@ object S3DAO {
 
     def uploadSnapshot(snapshot: Hashed[GlobalIncrementalSnapshot]): F[Unit] =
       Async[F].unit
-      /*for {
+    /*for {
         arr <- snapshot.signed.toBinaryF
         is = new ByteArrayInputStream(arr)
         keyName = s"${config.bucketDir}/${snapshot.hash}"
@@ -73,13 +73,12 @@ object S3DAO {
         .flatMap(inputStream => io.readInputStream(Async[F].delay(inputStream.getDelegateStream), chunkSize = 4096))
         .compile
         .to(Array)
-        .flatMap( _.fromBinaryF[Signed[GlobalIncrementalSnapshot]])
+        .flatMap(_.fromBinaryF[Signed[GlobalIncrementalSnapshot]])
 
     }
 
-    private def safeProofSet(proofs : NonEmptySet[SignatureProof]): NonEmptySet[SignatureProof] ={
+    private def safeProofSet(proofs: NonEmptySet[SignatureProof]): NonEmptySet[SignatureProof] =
       NonEmptySet.fromSetUnsafe(SortedSet.from(proofs.toSortedSet)(SignatureProof.OrderingInstance))
-    }
 
     def metadata(hash: Hash) =
       Async[F].delay(s3Client.getObjectMetadata(config.bucketName, s"${config.bucketDir}/${hash}"))

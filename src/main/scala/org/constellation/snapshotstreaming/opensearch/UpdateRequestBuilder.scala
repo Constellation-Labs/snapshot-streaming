@@ -7,7 +7,15 @@ import com.sksamuel.elastic4s.ElasticApi.updateById
 import com.sksamuel.elastic4s.circe._
 import com.sksamuel.elastic4s.requests.update.UpdateRequest
 import org.constellation.snapshotstreaming.OpenSearchConfig
-import org.constellation.snapshotstreaming.schema.{AddressBalance, Block, CurrencyData, CurrencySnapshot, FeeTransaction, Snapshot, Transaction}
+import org.constellation.snapshotstreaming.schema.{
+  AddressBalance,
+  Block,
+  CurrencyData,
+  CurrencySnapshot,
+  FeeTransaction,
+  Snapshot,
+  Transaction
+}
 import org.constellation.snapshotstreaming.schema.schema.{GlobalData, MetagraphData}
 
 case class UpdateRequests(

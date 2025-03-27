@@ -3,7 +3,7 @@ package org.constellation.snapshotstreaming.mapper
 import cats.effect.Async
 import cats.syntax.all._
 import eu.timepit.refined.auto._
-import org.tessellation.currency.schema.currency.{CurrencySnapshotInfo, CurrencySnapshot => OriginalCurrencySnapshot}
+import org.tessellation.currency.schema.currency.{CurrencySnapshot => OriginalCurrencySnapshot, CurrencySnapshotInfo}
 import org.tessellation.schema.transaction
 import org.tessellation.security.{Hashed, Hasher}
 import org.constellation.snapshotstreaming.schema.{CurrencySnapshot, RewardTransaction}

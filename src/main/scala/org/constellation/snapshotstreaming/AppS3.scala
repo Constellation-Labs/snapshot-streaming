@@ -13,7 +13,7 @@ import org.tessellation.node.shared.ext.pureconfig._
 import org.tessellation.schema.SnapshotOrdinal
 import org.tessellation.security._
 import eu.timepit.refined.pureconfig._
-import org.constellation.snapshotstreaming.schema.{kryoRegistrar}
+import org.constellation.snapshotstreaming.schema.kryoRegistrar
 import org.typelevel.log4cats.slf4j.Slf4jLogger
 import org.typelevel.otel4s.trace.Tracer.Implicits.noop
 import pureconfig.ConfigSource
@@ -33,7 +33,7 @@ object AppS3 extends IOApp {
       .flatMap { appConfig =>
         ConfigSource.default.loadF[IO, SharedConfigReader]().flatMap { sharedCfg =>
           Random.scalaUtilRandom[IO].flatMap { implicit random =>
-            val cryOs =  sharedKryoRegistrar.union(kryoRegistrar)
+            val cryOs = sharedKryoRegistrar.union(kryoRegistrar)
             KryoSerializer.forAsync[IO](cryOs).use { implicit ks =>
               JsonSerializer.forSync[IO].asResource.use { implicit jsonSerializer =>
                 val hashSelect = makeHashSelect(appConfig, sharedCfg)

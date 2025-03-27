@@ -23,10 +23,12 @@ package object db {
     )
   }
 
-  def executeCmd[T, F[_]: Applicative](cmd: PreparedCommand[F, T])(entities: Seq[T]): F[Unit] =
-    entities.traverse(e => cmd.execute(e)).whenA(entities.nonEmpty)
+  def executeMany[T, F[_]: Monad](s: Session[F], entities: List[T])(insertMany: Command[entities.type]): F[Unit] =
+    s.prepare(insertMany).flatMap(_.execute(entities)).void.whenA(entities.nonEmpty)
 
-  def executeMany[T, F[_]: Monad](s: Session[F], xs: List[T])(insertMany: Command[xs.type]): F[Unit] =
-    s.prepare(insertMany).flatMap { pc => pc.execute(xs).void }
+  private val dbChunkSize = 5000
+
+  def executeMany[T, F[_]: Monad](s: Session[F], entities: List[T], insertMany: Int => Command[List[T]]): F[Unit] =
+    entities.grouped(dbChunkSize).toList.traverse(es => s.prepare(insertMany(es.size)).flatMap(_.execute(es))).void
 
 }

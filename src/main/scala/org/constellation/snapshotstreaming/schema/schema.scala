@@ -20,7 +20,7 @@ object schema {
     metagraphSnapshotCount: Int,
     allowSpends: Seq[AllowSpend] = Seq.empty,
     tokenLocks: Seq[TokenLock] = Seq.empty,
-    tokenUnlocks: Seq[TokenUnlock] = Seq.empty,
+    tokenUnlocks: Seq[TokenUnlock] = Seq.empty
   )
 
   case class MetagraphData(
@@ -39,7 +39,12 @@ object schema {
     Encoder.encodeString.contramap(date => date.toInstant.toString)
 
   case class SignatureProof(snapshotHash: String, id: String, signature: String)
+
   object SignatureProof {
-    def from(snapshotHash: Hash, sp: signature.SignatureProof): SignatureProof = SignatureProof(snapshotHash.value, sp.id.hex.value, sp.signature.value.value)
+
+    def from(snapshotHash: Hash, sp: signature.SignatureProof): SignatureProof =
+      SignatureProof(snapshotHash.value, sp.id.hex.value, sp.signature.value.value)
+
   }
+
 }

@@ -43,8 +43,6 @@ object TessellationServices {
       txHasher
     )
 
-
-
     for {
       stateChannelManager <- GlobalSnapshotStateChannelAcceptanceManager.make(None)
       jsonBrotliBinarySerializer <- JsonBrotliBinarySerializer.forSync[F]
@@ -55,7 +53,7 @@ object TessellationServices {
           CurrencySnapshotAcceptanceManager.make(
             BlockAcceptanceManager.make[F](validators.currencyBlockValidator, txHasher),
             Amount(0L),
-            validators.currencyMessageValidator,
+            validators.currencyMessageValidator
           )
 
         val currencyEventsCutter = CurrencyEventsCutter.make[F](None)
@@ -82,8 +80,6 @@ object TessellationServices {
         globalSnapshotStateChannelEventsProcessor,
         nodeConfig.collateral.amount
       )
-
-
 
       val globalSnapshotContextFns = GlobalSnapshotContextFunctions.make[F](globalSnapshotAcceptanceManager)
       val globalSnapshotContextService =

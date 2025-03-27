@@ -8,7 +8,14 @@ import org.tessellation.schema.balance.Balance
 import org.tessellation.security.Hasher
 import org.constellation.snapshotstreaming.SnapshotProcessor.GlobalSnapshotWithState
 import org.constellation.snapshotstreaming.schema.schema.MetagraphData
-import org.constellation.snapshotstreaming.schema.{AddressBalance, Block, CurrencyData, FeeTransaction, Transaction, CurrencySnapshot => OSCurrencySnapshot}
+import org.constellation.snapshotstreaming.schema.{
+  AddressBalance,
+  Block,
+  CurrencyData,
+  CurrencySnapshot => OSCurrencySnapshot,
+  FeeTransaction,
+  Transaction
+}
 
 import java.time.LocalDateTime
 import scala.collection.immutable.SortedMap
@@ -86,7 +93,7 @@ object CurrencySnapshotMapper {
                 case Left(full) =>
                   for {
                     snapshot <- fullMapper
-                      .mapSnapshot(globalSnapshot.hash,full, timestamp, hasher)
+                      .mapSnapshot(globalSnapshot.hash, full, timestamp, hasher)
                       .map(CurrencyData(identifierStr, _))
                     blocks <- fullMapper
                       .mapBlocks(full, timestamp, txHasher, hasher)

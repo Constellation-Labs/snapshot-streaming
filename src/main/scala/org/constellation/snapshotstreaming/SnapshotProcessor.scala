@@ -168,8 +168,8 @@ object SnapshotProcessor {
 
     private def storeInPostgres(globalSnapshots: Seq[GlobalData], metagraphs: Seq[MetagraphData]) =
       snapshotDAO.traverse(dao =>
-        dao.insertGlobalData(globalSnapshots) >> dao
-          .insertMetagraphData(metagraphs)
+        dao.insertGlobalData(globalSnapshots.toList) >> dao
+          .insertMetagraphData(metagraphs.toList)
           .whenA(metagraphs.nonEmpty)
       ) >>
         logger
@@ -180,15 +180,15 @@ object SnapshotProcessor {
       s3DAO.traverse(_.uploadSnapshot(globalSnapshotWithState.snapshot)).void
 
     private def splitData(globalSnapshotWithState: GlobalSnapshotWithState, hasher: Hasher[F]) = (
-      globalMapper.mapGlobalSnapshot(globalSnapshotWithState,hasher, txHasher),
+      globalMapper.mapGlobalSnapshot(globalSnapshotWithState, hasher, txHasher),
       currencyMapper.mapCurrencySnapshots(globalSnapshotWithState, hasher, txHasher)
     ).tupled
 
     private def store(globalSnapshotWithState: GlobalSnapshotWithState, hasher: Hasher[F]): F[Unit] =
       storeInS3(globalSnapshotWithState) >>
         splitData(globalSnapshotWithState, hasher).flatMap { case (globalData, metagraphData) =>
-        storeInPostgres(Seq(globalData), Seq(metagraphData)) >> uploadToOpenSearch(globalData, metagraphData)
-      }.void
+          storeInPostgres(Seq(globalData), Seq(metagraphData)) >> uploadToOpenSearch(globalData, metagraphData)
+        }.void
 
     private def process(globalSnapshotWithState: GlobalSnapshotWithState, hasher: Hasher[F]): F[Unit] = {
       val GlobalSnapshotWithState(snapshot, _, snapshotInfo, _, _) = globalSnapshotWithState
@@ -280,7 +280,13 @@ object SnapshotProcessor {
                     .pullGlobalSnapshot(signedFullGlobalSnapshot.value.ordinal.next)
                     .map(
                       _.map(nextSnapshot =>
-                        GlobalSnapshotWithState(nextSnapshot, None, signedFullGlobalSnapshot.value.info, Map.empty, LocalDateTime.now())
+                        GlobalSnapshotWithState(
+                          nextSnapshot,
+                          None,
+                          signedFullGlobalSnapshot.value.info,
+                          Map.empty,
+                          LocalDateTime.now()
+                        )
                       )
                     )
                     .map(_.toList)
@@ -299,7 +305,7 @@ object SnapshotProcessor {
         }
         .evalMap {
           _.tailRecM {
-            case (state @ GlobalSnapshotWithState(snapshot, _, _, _,_)) :: nextSnapshots
+            case (state @ GlobalSnapshotWithState(snapshot, _, _, _, _)) :: nextSnapshots
                 if configuration.node.terminalSnapshotOrdinal.forall(snapshot.ordinal <= _) =>
               val hasher = HasherSelector[F].getForOrdinal(snapshot.ordinal)
               process(state, hasher).as {

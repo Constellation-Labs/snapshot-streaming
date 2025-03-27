@@ -5,13 +5,23 @@ import cats.syntax.all._
 import eu.timepit.refined.auto._
 import org.tessellation.schema.address.Address
 import org.tessellation.schema.balance.Balance
-import org.tessellation.schema.snapshot.{SnapshotInfo, Snapshot => OriginalSnapshot}
-import org.tessellation.schema.transaction.{RewardTransaction => OriginalRewardTransaction, Transaction => OriginalTransaction, TransactionReference => OriginalTransactionReference}
+import org.tessellation.schema.snapshot.{Snapshot => OriginalSnapshot, SnapshotInfo}
+import org.tessellation.schema.transaction.{
+  RewardTransaction => OriginalRewardTransaction,
+  Transaction => OriginalTransaction,
+  TransactionReference => OriginalTransactionReference
+}
 import org.tessellation.schema.{Block => OriginalBlock}
 import org.tessellation.security.{Hashed, Hasher}
 import org.tessellation.security.signature.Signed
 import org.tessellation.syntax.sortedCollection._
-import org.constellation.snapshotstreaming.schema.{AddressBalance, Block, BlockReference, Transaction, TransactionReference }
+import org.constellation.snapshotstreaming.schema.{
+  AddressBalance,
+  Block,
+  BlockReference,
+  Transaction,
+  TransactionReference
+}
 
 import java.time.LocalDateTime
 import scala.collection.immutable.{SortedMap, SortedSet}

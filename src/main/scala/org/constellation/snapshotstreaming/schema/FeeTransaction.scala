@@ -13,13 +13,12 @@ final case class FeeTransaction(
   dataUpdateRef: String,
   snapshotHash: String,
   snapshotOrdinal: Long,
-  timestamp: LocalDateTime,
+  timestamp: LocalDateTime
 )
 
 object FeeTransaction {
   implicit def feeTransactionEncoder: Encoder[FeeTransaction] = deriveEncoder
 }
-
 
 case class FeeTransactionReference(hash: String, ordinal: Long)
 

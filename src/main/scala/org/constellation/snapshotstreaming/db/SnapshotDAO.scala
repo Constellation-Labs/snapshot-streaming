@@ -1,30 +1,38 @@
 package org.constellation.snapshotstreaming.db
 
+import cats.Parallel
 import cats.effect.{Async, Resource}
 import cats.syntax.all._
 import org.constellation.snapshotstreaming.schema.AllowSpends.{AllowSpend, TokenLock, TokenUnlock}
 import org.constellation.snapshotstreaming.schema.extractors.{AddressExtractor, MetagraphExtractor}
 import org.constellation.snapshotstreaming.schema.schema.{GlobalData, MetagraphData, SignatureProof}
-import org.constellation.snapshotstreaming.schema.{AddressBalance, Block, BlockReference, CurrencyData, CurrencySnapshot, FeeTransaction, RewardTransaction, Snapshot, Transaction => STransaction}
+import org.constellation.snapshotstreaming.schema.{
+  AddressBalance,
+  Block,
+  BlockReference,
+  CurrencyData,
+  CurrencySnapshot,
+  FeeTransaction,
+  RewardTransaction,
+  Snapshot,
+  Transaction => STransaction
+}
 import org.typelevel.log4cats.slf4j.Slf4jLogger
-import skunk.{*:, _}
+import skunk._
 import skunk.codec.all._
 import skunk.implicits._
 
 trait SnapshotDAO[F[_]] {
-  def insertGlobalData(snapshots: Seq[GlobalData]): F[Unit]
-  def insertMetagraphData(mgSnapshotz: Seq[MetagraphData]): F[Unit]
+  def insertGlobalData(snapshots: List[GlobalData]): F[Unit]
+  def insertMetagraphData(mgSnapshotz: List[MetagraphData]): F[Unit]
 }
 
 object SnapshotDAO {
 
-  private val insertGlobalSnapshotCommand: Command[Snapshot] =
-    sql"""
-    INSERT INTO global_snapshots (
-      ordinal, hash, height, subheight, last_snapshot_hash, metagraph_snapshot_count, epoch_progress, version, created_at
-    ) VALUES ($int8, $varchar, $int8, $int8, $varchar, $int8, $int8, $varchar, $timestamp)
-    ON CONFLICT (hash) DO NOTHING;
-  """.command.contramap { s =>
+  private def insertGlobalSnapshotsMany(size: Int): Command[List[Snapshot]] = {
+    val enc = (
+      int8 *: varchar *: int8 *: int8 *: varchar *: int8 *: int8 *: varchar *: timestamp
+    ).values.contramap { s: Snapshot =>
       (
         s.ordinal,
         s.hash,
@@ -36,36 +44,65 @@ object SnapshotDAO {
         s.version,
         s.timestamp
       )
-    }
+    }.list(size)
 
-  private val insertDagBlockCommand: Command[Block] =
+    sql"""
+      INSERT INTO global_snapshots (
+        ordinal, hash, height, subheight, last_snapshot_hash, metagraph_snapshot_count, epoch_progress, version, created_at
+      ) VALUES $enc
+      ON CONFLICT (hash) DO NOTHING;
+    """.command
+  }
+
+  private def insertDagBlocksMany(size: Int): Command[List[Block]] = {
+    val enc = (
+      varchar *: int8 *: varchar *: timestamp
+    ).values.contramap { block: Block =>
+      (
+        block.hash,
+        block.height,
+        block.snapshotHash,
+        block.timestamp
+      )
+    }.list(size)
+
     sql"""
       INSERT INTO dag_blocks (
         hash,
         height,
         snapshot_hash,
         created_at
-      ) VALUES ($varchar, $int8, $varchar, $timestamp)
+      ) VALUES $enc
       ON CONFLICT (hash) DO NOTHING;
-    """.command.contramap(block => (block.hash, block.height, block.snapshotHash, block.timestamp))
+    """.command
+  }
 
-  private val insertDagTxCommand: Command[STransaction] =
-    sql"""
-      INSERT INTO dag_transactions (
+  private def insertBlockParentsMany(size: Int): Command[List[(String, BlockReference)]] = {
+    val enc = (
+      varchar *: varchar *: int8
+    ).values.contramap { sbr: (String, BlockReference) =>
+      val (hash, BlockReference(snapshotHash, height)) = sbr
+      (
         hash,
-        source_addr,
-        destination_addr,
-        amount,
-        fee,
-        salt,
-        parent_ordinal,
-        parent_hash,
-        ordinal,
-        block_hash,
-        created_at
-      ) VALUES ($varchar, $varchar, $varchar, $int8, $int8, $int8, $int8, $varchar, $int8, $varchar, $timestamp)
-      ON CONFLICT (hash) DO NOTHING;
-    """.command.contramap { tx: STransaction =>
+        snapshotHash,
+        height
+      )
+    }.list(size)
+
+    sql"""
+      INSERT INTO block_parents (
+        hash,
+        parent_proof_hash,
+        parent_height
+      ) VALUES $enc
+      ON CONFLICT (hash, parent_proof_hash) DO NOTHING;
+    """.command
+  }
+
+  private def insertDagTransactionsMany(size: Int): Command[List[STransaction]] = {
+    val enc = (
+      varchar *: varchar *: varchar *: int8 *: int8 *: int8 *: int8 *: varchar *: int8 *: varchar *: timestamp
+    ).values.contramap { tx: STransaction =>
       (
         tx.hash,
         tx.source,
@@ -79,24 +116,30 @@ object SnapshotDAO {
         tx.blockHash,
         tx.timestamp
       )
-    }
+    }.list(size)
 
-  private val insertDagAllowSpendCommand: Command[AllowSpend] =
     sql"""
-      INSERT INTO dag_allow_spends (
+      INSERT INTO dag_transactions (
         hash,
         source_addr,
         destination_addr,
         amount,
         fee,
+        salt,
         parent_ordinal,
         parent_hash,
-        last_valid_epoch_progress,
-        round_id,
-        ordinal
-      ) VALUES ($varchar, $varchar, $varchar, $int8, $int8, $int8, $varchar, $int8, $uuid, $int8)
+        ordinal,
+        block_hash,
+        created_at
+      ) VALUES $enc
       ON CONFLICT (hash) DO NOTHING;
-    """.command.contramap { tx: AllowSpend =>
+    """.command
+  }
+
+  private def insertDagAllowSpendsMany(size: Int): Command[List[AllowSpend]] = {
+    val enc = (
+      varchar *: varchar *: varchar *: int8 *: int8 *: int8 *: varchar *: int8 *: uuid *: int8
+    ).values.contramap { tx: AllowSpend =>
       (
         tx.hash,
         tx.source,
@@ -109,9 +152,39 @@ object SnapshotDAO {
         tx.roundId,
         tx.ordinal
       )
-    }
+    }.list(size)
 
-  private val insertDagTokenLockCommand: Command[TokenLock] =
+    sql"""
+      INSERT INTO dag_allow_spends (
+        hash,
+        source_addr,
+        destination_addr,
+        amount,
+        fee,
+        parent_ordinal,
+        parent_hash,
+        last_valid_epoch_progress,
+        round_id,
+        ordinal
+      ) VALUES $enc
+      ON CONFLICT (hash) DO NOTHING;
+    """.command
+  }
+
+  private def insertDagTokenLocksMany(size: Int): Command[List[TokenLock]] = {
+    val enc = (
+      varchar *: varchar *: int8 *: int8 *: int8 *: varchar
+    ).values.contramap { tx: TokenLock =>
+      (
+        tx.hash,
+        tx.source,
+        tx.amount,
+        tx.ordinal,
+        tx.unlockEpoch,
+        tx.snapshotHash
+      )
+    }.list(size)
+
     sql"""
       INSERT INTO dag_token_locks (
         hash,
@@ -120,38 +193,68 @@ object SnapshotDAO {
         ordinal,
         unlock_epoch,
         global_snapshot_hash
-      ) VALUES ($varchar, $varchar, $int8, $int8, $int8, $varchar)
+      ) VALUES $enc
       ON CONFLICT (hash) DO NOTHING;
-    """.command.contramap { tx =>
-      (tx.hash, tx.source, tx.amount, tx.ordinal, tx.unlockEpoch, tx.snapshotHash)
-    }
+    """.command
+  }
 
-  private val insertDagTokenUnlockCommand: Command[TokenUnlock] =
+  private def insertDagTokenUnlocksMany(size: Int): Command[List[TokenUnlock]] = {
+    val enc = (
+      int8 *: varchar *: int8 *: varchar
+    ).values.contramap { tx: TokenUnlock =>
+      (
+        tx.lockReference.ordinal,
+        tx.lockReference.hash,
+        tx.amount,
+        tx.address
+      )
+    }.list(size)
+
     sql"""
       INSERT INTO dag_token_unlocks (
         lock_reference_ordinal,
         lock_reference_hash,
         amount,
         source_addr
-      ) VALUES ($int8, $varchar, $int8, $varchar)
+      ) VALUES $enc
       ON CONFLICT (lock_reference_ordinal, lock_reference_hash) DO NOTHING;
-    """.command.contramap { tx =>
-      (tx.lockReference.ordinal, tx.lockReference.hash, tx.amount, tx.address)
-    }
+    """.command
+  }
 
-  private val insertDagRewardTxCommand: Command[RewardTransaction] =
+  private def insertDagRewardTransactionsMany(size: Int): Command[List[RewardTransaction]] = {
+    val enc = (
+      varchar *: varchar *: int8
+    ).values.contramap { reward: RewardTransaction =>
+      (
+        reward.snapshotHash,
+        reward.destination,
+        reward.amount
+      )
+    }.list(size)
+
     sql"""
       INSERT INTO dag_reward_transactions (
         global_snapshot_hash,
         destination_addr,
         amount
-      ) VALUES ($varchar, $varchar, $int8)
+      ) VALUES $enc
       ON CONFLICT (global_snapshot_hash, destination_addr) DO NOTHING;
-    """.command.contramap { reward =>
-      (reward.snapshotHash, reward.destination, reward.amount)
-    }
+    """.command
+  }
 
-  private val insertAddressBalanceCommand: Command[AddressBalance] =
+  private def insertAddressBalancesMany(size: Int): Command[List[AddressBalance]] = {
+    val enc = (
+      int8 *: varchar *: varchar *: int8 *: timestamp
+    ).values.contramap { ab: AddressBalance =>
+      (
+        ab.snapshotOrdinal,
+        ab.snapshotHash,
+        ab.address,
+        ab.balance,
+        ab.timestamp
+      )
+    }.list(size)
+
     sql"""
       INSERT INTO dag_balance_changes (
         snapshot_ordinal,
@@ -159,63 +262,86 @@ object SnapshotDAO {
         address,
         balance,
         created_at
-      ) VALUES ($int8, $varchar, $varchar, $int8, $timestamp )
+      ) VALUES $enc
       ON CONFLICT (snapshot_ordinal, address) DO NOTHING;
-    """.command.contramap { ab =>
-      (ab.snapshotOrdinal, ab.snapshotHash, ab.address, ab.balance, ab.timestamp)
-    }
+    """.command
+  }
 
-  private val insertProofCommand: Command[SignatureProof] =
+  private def insertGlobalSnapshotProofsMany(size: Int): Command[List[SignatureProof]] = {
+    val enc = (
+      varchar *: varchar *: varchar
+    ).values.contramap { (sp: SignatureProof) =>
+      (
+        sp.id,
+        sp.signature,
+        sp.snapshotHash
+      )
+    }.list(size)
+
     sql"""
       INSERT INTO global_snapshot_proofs (
         id,
         signature,
         snapshot_hash
-      ) VALUES ($varchar, $varchar, $varchar)
+      ) VALUES $enc
       ON CONFLICT (snapshot_hash, id) DO NOTHING;
-    """.command.contramap { case SignatureProof(snapshotHash, id, signature) =>
-      (id, signature, snapshotHash)
-    }
+    """.command
+  }
 
-  private val insertMetagraphSnapshotCommand: Command[CurrencyData[CurrencySnapshot]] =
-    sql"""
-    INSERT INTO metagraph_snapshots (
-      metagraph_id,
-      global_snapshot_hash,
-      hash,
-      ordinal,
-      height,
-      subheight,
-      last_snapshot_hash,
-      fee,
-      owner_address,
-      staking_address,
-      epoch_progress,
-      version,
-      created_at
-    ) VALUES (
-      $varchar, $varchar, $varchar, $int8, $int8, $int8, $varchar, ${int8.opt}, ${varchar.opt}, ${varchar.opt}, $int8, $varchar, $timestamp
-    )
-    ON CONFLICT (metagraph_id, hash) DO NOTHING;
-  """.command.contramap { case CurrencyData(id, cs) =>
+  private def insertMetagraphSnapshotsMany(size: Int): Command[List[CurrencyData[CurrencySnapshot]]] = {
+    val enc = (
+      varchar *: varchar *: varchar *: int8 *: int8 *: int8 *: varchar *: int8.opt *: varchar.opt *: varchar.opt *: int8 *: varchar *: timestamp
+    ).values.contramap { cd: CurrencyData[CurrencySnapshot] =>
       (
-        id,
-        cs.globalSnapshotHash,
-        cs.hash,
-        cs.ordinal,
-        cs.height,
-        cs.subHeight,
-        cs.lastSnapshotHash,
-        cs.fee,
-        cs.ownerAddress,
-        cs.stakingAddress,
-        cs.epochProgress,
-        cs.version,
-        cs.timestamp
+        cd.identifier,
+        cd.data.globalSnapshotHash,
+        cd.data.hash,
+        cd.data.ordinal,
+        cd.data.height,
+        cd.data.subHeight,
+        cd.data.lastSnapshotHash,
+        cd.data.fee,
+        cd.data.ownerAddress,
+        cd.data.stakingAddress,
+        cd.data.epochProgress,
+        cd.data.version,
+        cd.data.timestamp
       )
-    }
+    }.list(size)
 
-  private val insertMetagraphBlockCommand: Command[CurrencyData[Block]] =
+    sql"""
+      INSERT INTO metagraph_snapshots (
+        metagraph_id,
+        global_snapshot_hash,
+        hash,
+        ordinal,
+        height,
+        subheight,
+        last_snapshot_hash,
+        fee,
+        owner_address,
+        staking_address,
+        epoch_progress,
+        version,
+        created_at
+      ) VALUES $enc
+      ON CONFLICT (metagraph_id, hash) DO NOTHING;
+    """.command
+  }
+
+  private def insertMetagraphBlocksMany(size: Int): Command[List[CurrencyData[Block]]] = {
+    val enc = (
+      varchar *: varchar *: int8 *: varchar *: timestamp
+    ).values.contramap { cd: CurrencyData[Block] =>
+      (
+        cd.identifier,
+        cd.data.hash,
+        cd.data.height,
+        cd.data.snapshotHash,
+        cd.data.timestamp
+      )
+    }.list(size)
+
     sql"""
       INSERT INTO metagraph_blocks (
         metagraph_id,
@@ -223,13 +349,31 @@ object SnapshotDAO {
         height,
         metagraph_snapshot_hash,
         created_at
-      ) VALUES ($varchar, $varchar, $int8, $varchar, $timestamp)
+      ) VALUES $enc
       ON CONFLICT (metagraph_id, hash) DO NOTHING;
-    """.command.contramap { case CurrencyData(identifier, b) =>
-      (identifier, b.hash, b.height, b.snapshotHash, b.timestamp)
-    }
+    """.command
+  }
 
-  private val insertMetagraphTxCommand: Command[CurrencyData[STransaction]] =
+  private def insertMetagraphTransactionsMany(size: Int): Command[List[CurrencyData[STransaction]]] = {
+    val enc = (
+      varchar *: varchar *: varchar *: varchar *: int8 *: int8 *: int8 *: int8 *: varchar *: int8 *: varchar *: timestamp
+    ).values.contramap { cdTx: CurrencyData[STransaction] =>
+      (
+        cdTx.identifier,
+        cdTx.data.hash,
+        cdTx.data.source,
+        cdTx.data.destination,
+        cdTx.data.amount,
+        cdTx.data.fee,
+        cdTx.data.salt,
+        cdTx.data.parent.ordinal,
+        cdTx.data.parent.hash,
+        cdTx.data.ordinal,
+        cdTx.data.blockHash,
+        cdTx.data.timestamp
+      )
+    }.list(size)
+
     sql"""
       INSERT INTO metagraph_transactions (
         metagraph_id,
@@ -244,100 +388,117 @@ object SnapshotDAO {
         ordinal,
         block_hash,
         created_at
-      ) VALUES ($varchar, $varchar, $varchar, $varchar, $int8, $int8, $int8, $int8, $varchar, $int8, $varchar, $timestamp)
+      ) VALUES $enc
       ON CONFLICT (metagraph_id, hash) DO NOTHING;
-    """.command.contramap { case CurrencyData(id, tx) =>
-      (
-        id,
-        tx.hash,
-        tx.source,
-        tx.destination,
-        tx.amount,
-        tx.fee,
-        tx.salt,
-        tx.parent.ordinal,
-        tx.parent.hash,
-        tx.ordinal,
-        tx.blockHash,
-        tx.timestamp
-      )
-    }
+    """.command
+  }
 
-  private val insertMetagraphAllowSpendCommand: Command[CurrencyData[AllowSpend]] =
+  private def insertMetagraphAllowSpendsMany(size: Int): Command[List[CurrencyData[AllowSpend]]] = {
+    val enc = (
+      varchar *: varchar *: varchar *: varchar *: int8 *: int8 *: int8 *: varchar *: int8 *: uuid *: int8
+    ).values.contramap { cdAs: CurrencyData[AllowSpend] =>
+      (
+        cdAs.identifier,
+        cdAs.data.hash,
+        cdAs.data.source,
+        cdAs.data.destination,
+        cdAs.data.amount,
+        cdAs.data.fee,
+        cdAs.data.parent.ordinal,
+        cdAs.data.parent.hash,
+        cdAs.data.lastValidEpochProgress,
+        cdAs.data.roundId,
+        cdAs.data.ordinal
+      )
+    }.list(size)
+
     sql"""
-    INSERT INTO metagraph_allow_spends (
-      metagraph_id,
-      hash,
-      source_addr,
-      destination_addr,
-      amount,
-      fee,
-      parent_ordinal,
-      parent_hash,
-      last_valid_epoch_progress,
-      round_id,
-      ordinal
-    ) VALUES ($varchar, $varchar, $varchar, $varchar, $int8, $int8, $int8, $varchar, $int8, $uuid, $int8)
-    ON CONFLICT (hash) DO NOTHING;
-  """.command.contramap { case CurrencyData(id, tx) =>
-      (
-        id,
-        tx.hash,
-        tx.source,
-        tx.destination,
-        tx.amount,
-        tx.fee,
-        tx.parent.ordinal,
-        tx.parent.hash,
-        tx.lastValidEpochProgress,
-        tx.roundId,
-        tx.ordinal
-      )
-    }
+      INSERT INTO metagraph_allow_spends (
+        metagraph_id,
+        hash,
+        source_addr,
+        destination_addr,
+        amount,
+        fee,
+        parent_ordinal,
+        parent_hash,
+        last_valid_epoch_progress,
+        round_id,
+        ordinal
+      ) VALUES $enc
+      ON CONFLICT (hash) DO NOTHING;
+    """.command
+  }
 
-  private val insertMetagraphTokenLockCommand: Command[CurrencyData[TokenLock]] =
+  private def insertMetagraphTokenLocksMany(size: Int): Command[List[CurrencyData[TokenLock]]] = {
+    val enc = (
+      varchar *: varchar *: varchar *: int8 *: int8 *: int8
+    ).values.contramap { cdTl: CurrencyData[TokenLock] =>
+      (
+        cdTl.identifier,
+        cdTl.data.hash,
+        cdTl.data.source,
+        cdTl.data.amount,
+        cdTl.data.ordinal,
+        cdTl.data.unlockEpoch
+      )
+    }.list(size)
+
     sql"""
-    INSERT INTO metagraph_token_locks (
-      metagraph_id,
-      hash,
-      source_addr,
-      amount,
-      ordinal,
-      unlock_epoch
-    ) VALUES ($varchar, $varchar, $varchar, $int8, $int8, $int8)
-    ON CONFLICT (metagraph_id, hash) DO NOTHING;
-  """.command.contramap { case CurrencyData(id, tx) =>
-      (
-        id,
-        tx.hash,
-        tx.source,
-        tx.amount,
-        tx.ordinal,
-        tx.unlockEpoch
-      )
-    }
+      INSERT INTO metagraph_token_locks (
+        metagraph_id,
+        hash,
+        source_addr,
+        amount,
+        ordinal,
+        unlock_epoch
+      ) VALUES $enc
+      ON CONFLICT (metagraph_id, hash) DO NOTHING;
+    """.command
+  }
 
-  private val insertMetagraphTokenUnlockCommand: Command[CurrencyData[TokenUnlock]] =
+  private def insertMetagraphTokenUnlocksMany(size: Int): Command[List[CurrencyData[TokenUnlock]]] = {
+    val enc = (
+      varchar *: int8 *: varchar *: int8 *: varchar
+    ).values.contramap { cdTu: CurrencyData[TokenUnlock] =>
+      (
+        cdTu.identifier,
+        cdTu.data.lockReference.ordinal,
+        cdTu.data.lockReference.hash,
+        cdTu.data.amount,
+        cdTu.data.address
+      )
+    }.list(size)
+
     sql"""
-    INSERT INTO metagraph_token_unlocks (
-      metagraph_id,
-      lock_reference_ordinal,
-      lock_reference_hash,
-      amount,
-      source_addr
-    ) VALUES ($varchar, $int8, $varchar, $int8, $varchar)
-    ON CONFLICT (lock_reference_ordinal, lock_reference_hash) DO NOTHING;
-  """.command.contramap { case CurrencyData(id, tx) =>
-      (
-        id,
-        tx.lockReference.ordinal,
-        tx.lockReference.hash,
-        tx.amount,
-        tx.address
-      )
-    }
+      INSERT INTO metagraph_token_unlocks (
+        metagraph_id,
+        lock_reference_ordinal,
+        lock_reference_hash,
+        amount,
+        source_addr
+      ) VALUES $enc
+      ON CONFLICT (lock_reference_ordinal, lock_reference_hash) DO NOTHING;
+    """.command
+  }
 
-  private val insertMetagraphFeeTransactionCommand: Command[CurrencyData[FeeTransaction]] =
+  private def insertMetagraphFeeTransactionsMany(size: Int): Command[List[CurrencyData[FeeTransaction]]] = {
+    val enc = (
+      varchar *: varchar *: varchar *: varchar *: int8 *: varchar *: varchar *: int8 *: timestamp
+    ).values.contramap { cdFtx: CurrencyData[FeeTransaction] =>
+      (
+        cdFtx.identifier,
+        cdFtx.data.hash,
+        cdFtx.data.source,
+        cdFtx.data.destination,
+        cdFtx.data.amount,
+        cdFtx.data.dataUpdateRef,
+        cdFtx.data.snapshotHash,
+        cdFtx.data.snapshotOrdinal,
+        cdFtx.data.timestamp
+      )
+    }.list(size)
+
     sql"""
       INSERT INTO metagraph_fee_transactions (
         metagraph_id,
@@ -349,33 +510,22 @@ object SnapshotDAO {
         metagraph_snapshot_hash,
         metagraph_snapshot_ordinal,
         created_at
-      ) VALUES ($varchar, $varchar, $varchar, $varchar, $int8, $varchar, $varchar, $int8, $timestamp)
+      ) VALUES $enc
       ON CONFLICT (metagraph_id, hash) DO NOTHING;
-    """.command.contramap { case CurrencyData(id, tx: FeeTransaction) =>
-      (
-        id,
-        tx.hash,
-        tx.source,
-        tx.destination,
-        tx.amount,
-        tx.dataUpdateRef,
-        tx.snapshotHash,
-        tx.snapshotOrdinal,
-        tx.timestamp
-      )
-    }
-
-  def insertMany(n: Int): Command[List[(String, Short)]] = {
-    val enc = (varchar ~ int2).values.list(n)
-    sql"INSERT INTO pets VALUES $enc".command
+    """.command
   }
 
-  private def insertMetagraphRewardTxMany( txs: Seq[CurrencyData[RewardTransaction]]) = {
-
-    val enc = (varchar *: varchar *: varchar *: int8).values.contramap({ t: CurrencyData[RewardTransaction] =>
+  private def insertMetagraphRewardTransactionsMany(size: Int): Command[List[CurrencyData[RewardTransaction]]] = {
+    val enc = (
+      varchar *: varchar *: varchar *: int8
+    ).values.contramap { cdRtx: CurrencyData[RewardTransaction] =>
       (
-        t.identifier ,t.data.snapshotHash, t.data.destination, t.data.amount
-      )}).list(txs.toList)
+        cdRtx.identifier,
+        cdRtx.data.snapshotHash,
+        cdRtx.data.destination,
+        cdRtx.data.amount
+      )
+    }.list(size)
 
     sql"""
       INSERT INTO metagraph_reward_transactions (
@@ -388,25 +538,20 @@ object SnapshotDAO {
     """.command
   }
 
-  private val insertMetagraphRewardTxCommand: Command[CurrencyData[RewardTransaction]] =
-    sql"""
-      INSERT INTO metagraph_reward_transactions (
-        metagraph_id,
-        metagraph_snapshot_hash,
-        destination_addr,
-        amount
-      ) VALUES ($varchar, $varchar, $varchar, $int8)
-      ON CONFLICT (metagraph_id, metagraph_snapshot_hash, destination_addr) DO NOTHING;
-    """.command.contramap { case CurrencyData(id, reward) =>
+  private def insertMetagraphAddressBalancesMany(size: Int): Command[List[CurrencyData[AddressBalance]]] = {
+    val enc = (
+      varchar *: varchar *: int8 *: varchar *: int8 *: timestamp
+    ).values.contramap { cdAb: CurrencyData[AddressBalance] =>
       (
-        id,
-        reward.snapshotHash,
-        reward.destination,
-        reward.amount
+        cdAb.identifier,
+        cdAb.data.snapshotHash,
+        cdAb.data.snapshotOrdinal,
+        cdAb.data.address,
+        cdAb.data.balance,
+        cdAb.data.timestamp
       )
-    }
+    }.list(size)
 
-  private val insertMetagraphAddressBalanceCommand: Command[CurrencyData[AddressBalance]] =
     sql"""
       INSERT INTO metagraph_balance_changes (
         metagraph_id,
@@ -415,22 +560,13 @@ object SnapshotDAO {
         address,
         balance,
         created_at
-      ) VALUES ($varchar, $varchar, $int8, $varchar, $int8, $timestamp)
+      ) VALUES $enc
       ON CONFLICT (metagraph_id, address, metagraph_snapshot_ordinal) DO NOTHING;
-    """.command.contramap { case CurrencyData(id, ab) =>
-      (id, ab.snapshotHash, ab.snapshotOrdinal, ab.address, ab.balance, ab.timestamp)
-    }
-
-  private val insertAddressCommand: Command[String] =
-    sql"""
-      INSERT INTO addresses (
-        address
-      ) VALUES ($varchar)
-      ON CONFLICT (address) DO NOTHING;
     """.command
+  }
 
-  private def insertAddressMany(addrs: List[String]): Command[addrs.type] = {
-    val enc = varchar.values.list(addrs)
+  private def insertAddressMany(size: Int): Command[List[String]] = {
+    val enc = varchar.values.list(size)
     sql"""
       INSERT INTO addresses (
         address
@@ -439,78 +575,94 @@ object SnapshotDAO {
     """.command
   }
 
+  private def insertMetagraphsMany(size: Int): Command[List[String]] = {
+    val enc = varchar.values.list(size)
 
-
-  private val insertMetagraphsCommand: Command[String] =
     sql"""
       INSERT INTO metagraphs (
         id
-      ) VALUES ($varchar)
-      ON CONFLICT (id) DO UPDATE SET
-        updated_at = now();
+      ) VALUES $enc
+      ON CONFLICT (id) DO NOTHING;
     """.command
+  }
 
-  def make[F[_]: Async](pool: Resource[F, Session[F]]): SnapshotDAO[F] = new SnapshotDAO[F] {
+  def make[F[_]: Async: Parallel](pool: Resource[F, Session[F]]): SnapshotDAO[F] = new SnapshotDAO[F] {
 
     private val logger = Slf4jLogger.getLogger[F]
 
-    def insertGlobalData(globalSnapshots: Seq[GlobalData]): F[Unit] =
-      pool.flatMap( session => session.transaction.map( (_, session))).use { case (xa, session) =>
-        val addresses = globalSnapshots.flatMap(AddressExtractor.extract(_)).toList
-        logger.debug(s"insert gs addresses ${globalSnapshots.flatMap(AddressExtractor.extract(_).toSeq)}") >>
-          executeMany(session, addresses)(insertAddressMany(addresses)) >>
-          logger.debug(s"insert gs1 snapshots ${globalSnapshots.map(_.snapshot)}") >>
-          session.prepare(insertGlobalSnapshotCommand).flatMap(executeCmd(_)(globalSnapshots.map(_.snapshot))) >>
-          logger.debug("insert gs2") >>
-          session.prepare(insertDagBlockCommand).flatMap(executeCmd(_)(globalSnapshots.flatMap(_.blocks.toList))) >>
-          logger.debug("insert gs3") >>
-          session.prepare(insertDagTxCommand).flatMap(executeCmd(_)(globalSnapshots.flatMap(_.txs))) >>
-          logger.debug("insert gs4") >>
-          session.prepare(insertDagAllowSpendCommand).flatMap(executeCmd(_)(globalSnapshots.flatMap(_.allowSpends))) >>
-          logger.debug("insert gs 2") >>
-        session.prepare(insertDagTokenLockCommand).flatMap(executeCmd(_)(globalSnapshots.flatMap(_.tokenLocks))) >>
-          logger.debug("insert gs 21") >>
-          session.prepare(insertDagTokenUnlockCommand).flatMap(executeCmd(_)(globalSnapshots.flatMap(_.tokenUnlocks))) >>
-          logger.debug("insert gs 211") >>
-          session.prepare(insertAddressBalanceCommand).flatMap(executeCmd(_)(globalSnapshots.flatMap(_.balances))) >>
-          logger.debug("insert gs 2111") >>
-          session.prepare(insertDagRewardTxCommand).flatMap(executeCmd(_)(globalSnapshots.flatMap(_.snapshot.rewards.toSeq))) >>
-          logger.debug("insert gs 21111") >>
-          session.prepare(insertProofCommand).flatMap(executeCmd(_)(globalSnapshots.flatMap(_.proofs.toSeq))) >>
-          logger.debug("insert gs finish") >>
-      xa.commit.void
-    }
+    def insertGlobalData(globalSnapshots: List[GlobalData]): F[Unit] =
+      pool.flatMap(session => session.transaction.map((_, session))).use { case (xa, session) =>
+        val addresses = globalSnapshots.flatMap(AddressExtractor.extract(_))
+        val snapshots = globalSnapshots.map(_.snapshot)
+        val blocks = globalSnapshots.flatMap(_.blocks)
+        val transactions = globalSnapshots.flatMap(_.txs)
+        val allowSpends = globalSnapshots.flatMap(_.allowSpends)
+        val tokenLocks = globalSnapshots.flatMap(_.tokenLocks)
+        val tokenUnlocks = globalSnapshots.flatMap(_.tokenUnlocks)
+        val balances = globalSnapshots.flatMap(_.balances)
+        val rewards = globalSnapshots.flatMap(_.snapshot.rewards.toList)
+        val blockParents = globalSnapshots.flatMap(_.blocks.flatMap { block =>
+          block.parent.map(parent => (block.hash, parent))
+        })
+        val proofs = globalSnapshots.flatMap(_.proofs.toList)
+        logger.debug("insert dag addresses") >>
+          executeMany(session, addresses, insertAddressMany) >>
+          logger.debug("insert gs") >>
+          executeMany(session, snapshots, insertGlobalSnapshotsMany) >>
+          logger.debug("insert dag blocks") >>
+          executeMany(session, blocks, insertDagBlocksMany) >>
+          logger.debug("insert dag parallels ") >>
+          (
+            executeMany(session, transactions, insertDagTransactionsMany),
+            executeMany(session, allowSpends, insertDagAllowSpendsMany),
+            executeMany(session, tokenLocks, insertDagTokenLocksMany),
+            executeMany(session, tokenUnlocks, insertDagTokenUnlocksMany),
+            executeMany(session, balances, insertAddressBalancesMany),
+            executeMany(session, rewards, insertDagRewardTransactionsMany),
+            executeMany(session, blockParents, insertBlockParentsMany),
+            executeMany(session, proofs, insertGlobalSnapshotProofsMany)
+          ).parTupled >>
+          logger.debug("dag commit") >>
+          xa.commit.void
+      }
 
-    def insertMetagraphData(metagraphSnapshotss: Seq[MetagraphData]): F[Unit] =
-      pool.flatMap( session => session.transaction.map( (_, session))).use { case (xa, session) =>
-        val addresses = metagraphSnapshotss.flatMap(AddressExtractor.extract(_)).toList
-        logger.debug("insert mg") >>
-        //session.prepare(insertAddressCommand).flatMap(executeCmd(_)(metagraphSnapshotss.flatMap(AddressExtractor.extract(_).toSeq))) >>
-          executeMany(session, addresses)(insertAddressMany(addresses)) >>
-          logger.debug("insert mg 1") >>
-          session.prepare(insertMetagraphSnapshotCommand).flatMap(executeCmd(_)(metagraphSnapshotss.flatMap(_.snapshots))) >>
-          logger.debug("insert mg 11") >>
-          session.prepare(insertMetagraphBlockCommand).flatMap(executeCmd(_)(metagraphSnapshotss.flatMap(_.blocks))) >>
-          logger.debug("insert mg 111") >>
-          session.prepare(insertMetagraphsCommand).flatMap(executeCmd(_)(metagraphSnapshotss.flatMap(MetagraphExtractor.extract(_).toSeq))) >>
-          logger.debug("insert mg 1111") >>
-          session.prepare(insertMetagraphTxCommand).flatMap(executeCmd(_)(metagraphSnapshotss.flatMap(_.txs))) >>
-          logger.debug("insert mg 11111") >>
-          session.prepare(insertMetagraphAllowSpendCommand).flatMap(executeCmd(_)(metagraphSnapshotss.flatMap(_.allowSpends))) >>
-          logger.debug("insert mg 2") >>
-          session.prepare(insertMetagraphTokenLockCommand).flatMap(executeCmd(_)(metagraphSnapshotss.flatMap(_.tokenLocks))) >>
-          logger.debug("insert mg 22") >>
-          session.prepare(insertMetagraphTokenUnlockCommand).flatMap(executeCmd(_)(metagraphSnapshotss.flatMap(_.tokenUnlocks))) >>
-          logger.debug("insert mg 222") >>
-          session.prepare(insertMetagraphFeeTransactionCommand).flatMap(executeCmd(_)(metagraphSnapshotss.flatMap(_.feeTxs))) >>
-          logger.debug("insert mg 2222") >>
-          session.prepare(insertMetagraphRewardTxCommand).flatMap(executeCmd(_)(
-            metagraphSnapshotss.flatMap(_.snapshots.flatMap(mgs =>
-              mgs.data.rewards.map(r => CurrencyData(mgs.identifier, r))
-            ))
-          )) >>
-          session.prepare(insertMetagraphAddressBalanceCommand).flatMap(executeCmd(_)(metagraphSnapshotss.flatMap(_.balances))) >>
-          logger.debug("insert mg finish") >>
+    def insertMetagraphData(metagraphSnapshots: List[MetagraphData]): F[Unit] =
+      pool.flatMap(session => session.transaction.map((_, session))).use { case (xa, session) =>
+        val addresses = metagraphSnapshots.flatMap(AddressExtractor.extract(_))
+        val snapshots = metagraphSnapshots.flatMap(_.snapshots)
+        val blocks = metagraphSnapshots.flatMap(_.blocks)
+        val metagraphs = metagraphSnapshots.flatMap(MetagraphExtractor.extract(_).toList)
+        val transactions = metagraphSnapshots.flatMap(_.txs)
+        val allowSpends = metagraphSnapshots.flatMap(_.allowSpends)
+        val tokenLocks = metagraphSnapshots.flatMap(_.tokenLocks)
+        val tokenUnlocks = metagraphSnapshots.flatMap(_.tokenUnlocks)
+        val feeTransactions = metagraphSnapshots.flatMap(_.feeTxs)
+        val rewards = metagraphSnapshots
+          .flatMap(_.snapshots.flatMap(mgs => mgs.data.rewards.map(r => CurrencyData(mgs.identifier, r))))
+        val balances = metagraphSnapshots.flatMap(_.balances)
+        val blockParents = metagraphSnapshots.flatMap(_.blocks.flatMap { currencyData =>
+          currencyData.data.parent.map(parent => (currencyData.data.hash, parent))
+        })
+        logger.debug("insert mg addresses") >>
+          executeMany(session, addresses, insertAddressMany) >>
+          logger.debug("insert mg metagraphs") >>
+          executeMany(session, metagraphs, insertMetagraphsMany) >>
+          logger.debug("insert mg snapshots") >>
+          executeMany(session, snapshots, insertMetagraphSnapshotsMany) >>
+          logger.debug("insert mg blocks") >>
+          executeMany(session, blocks, insertMetagraphBlocksMany) >>
+          logger.debug("insert mg parallels") >>
+          (
+            executeMany(session, transactions, insertMetagraphTransactionsMany),
+            executeMany(session, allowSpends, insertMetagraphAllowSpendsMany),
+            executeMany(session, tokenLocks, insertMetagraphTokenLocksMany),
+            executeMany(session, tokenUnlocks, insertMetagraphTokenUnlocksMany),
+            executeMany(session, feeTransactions, insertMetagraphFeeTransactionsMany),
+            executeMany(session, rewards, insertMetagraphRewardTransactionsMany),
+            executeMany(session, balances, insertMetagraphAddressBalancesMany),
+            executeMany(session, blockParents, insertBlockParentsMany)
+          ).parTupled >>
+          logger.debug("mg commit") >>
           xa.commit.void
       }
 

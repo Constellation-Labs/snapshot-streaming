@@ -34,7 +34,7 @@ abstract class GlobalSnapshotMapper[F[_]: Async]
         snapshotInfo
       )
       balances = mapBalances(globalSnapshot, filteredBalances, timestamp)
-      signatures = globalSnapshot.signed.proofs.toSortedSet.toSeq.map(SignatureProof.from(globalSnapshot.hash,_))
+      signatures = globalSnapshot.signed.proofs.toSortedSet.toSeq.map(SignatureProof.from(globalSnapshot.hash, _))
     } yield GlobalData(snapshot, blocks, transactions, balances, signatures, currencySnapshots.size)
   }
 

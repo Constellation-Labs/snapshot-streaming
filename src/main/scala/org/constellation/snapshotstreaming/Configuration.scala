@@ -69,7 +69,13 @@ final case class NodeConfig(
   val l0PeersMap = NonEmptyMap.fromMapUnsafe(SortedMap.from(l0Peers.map(p => p.id -> p)))
 }
 
-final case class Reindexer( s3Parallelism: Int, s3Prefetch: Int, snapshotContextPrefetch: Int, dbChunks: Int, dbParallelism: Int)
+final case class Reindexer(
+  s3Parallelism: Int,
+  s3Prefetch: Int,
+  snapshotContextPrefetch: Int,
+  dbChunks: Int,
+  dbParallelism: Int
+)
 
 final case class SnapshotStreamingConfig(
   lastSnapshotPath: Path,
@@ -100,13 +106,11 @@ object Configuration {
 
   implicit def hint[A]: ProductHint[A] = ProductHint[A](ConfigFieldMapping(CamelCase, CamelCase))
 
-
   ConfigSource.default.load[PosLong]
   ConfigSource.default.load[L0Peer]
   ConfigSource.default.load[FiniteDuration]
   ConfigSource.default.load[SnapshotOrdinal]
   ConfigSource.default.load[NodeConfig]
-
 
   def load[F[_]: Sync]: F[AppConfig] = ConfigSource.default
     .loadF[F, AppConfig]()
@@ -124,8 +128,7 @@ object Configuration {
       c.snapshot.size,
       c.feeConfigs.get(env).map(SortedMap.from(_)).getOrElse(SortedMap.empty),
       c.forkInfoStorage,
-      c.lastKryoHashOrdinal,
+      c.lastKryoHashOrdinal
     )
-
 
 }

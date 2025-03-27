@@ -10,7 +10,12 @@ import org.tessellation.schema.transaction.{RewardTransaction => OriginalRewardT
 import org.tessellation.security.signature.Signed
 import org.tessellation.security.{Hashed, Hasher}
 import org.tessellation.statechannel.StateChannelSnapshotBinary
-import org.constellation.snapshotstreaming.schema.{CurrencySnapshot, FeeTransaction, FeeTransactionReference, RewardTransaction}
+import org.constellation.snapshotstreaming.schema.{
+  CurrencySnapshot,
+  FeeTransaction,
+  FeeTransactionReference,
+  RewardTransaction
+}
 import org.tessellation.currency.schema.feeTransaction.{FeeTransaction => OriginalFeeTransaction}
 import org.tessellation.currency.schema.feeTransaction.{FeeTransactionReference => OriginalFeeTransactionReference}
 import org.tessellation.security.hash.Hash
@@ -22,7 +27,7 @@ abstract class CurrencyIncrementalSnapshotMapper[F[_]: Async]
     extends SnapshotMapper[F, CurrencyIncrementalSnapshot, CurrencySnapshotInfo] {
 
   def mapSnapshot(
-                   globalSnapshotHash: Hash,
+    globalSnapshotHash: Hash,
     snapshot: Hashed[CurrencyIncrementalSnapshot],
     binary: Signed[StateChannelSnapshotBinary],
     info: CurrencySnapshotInfo,
@@ -66,7 +71,7 @@ object CurrencyIncrementalSnapshotMapper {
       }
 
       def mapSnapshot(
-                       globalSnapshotHash: Hash,
+        globalSnapshotHash: Hash,
         snapshot: Hashed[CurrencyIncrementalSnapshot],
         binary: Signed[StateChannelSnapshotBinary],
         info: CurrencySnapshotInfo,
@@ -104,7 +109,6 @@ object CurrencyIncrementalSnapshotMapper {
         feeTransaction: Signed[OriginalFeeTransaction]
       )(implicit hasher: Hasher[F]): F[FeeTransaction] =
         feeTransaction.toHashed.map { feeTx =>
-
           FeeTransaction(
             feeTx.hash.value,
             feeTx.amount.value,

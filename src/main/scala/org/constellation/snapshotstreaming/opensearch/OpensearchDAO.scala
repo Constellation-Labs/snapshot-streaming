@@ -45,7 +45,7 @@ object OpensearchDAO {
     val logger = Slf4jLogger.getLogger
 
     def sendToOpensearch(bulkRequest: BulkRequest): F[Unit] = Async[F].unit
-      /*Async[F].delay(esClient.execute(bulkRequest)).flatMap { fut =>
+    /*Async[F].delay(esClient.execute(bulkRequest)).flatMap { fut =>
         Async[F].executionContext.flatMap { implicit ec =>
           Async[F].async_[Response[BulkResponse]] { cb =>
             fut.onComplete {
@@ -87,7 +87,9 @@ object OpensearchDAO {
               Some((results.toSeq, cursorO))
             case _ =>
               None
-          }.timed.flatMap { case (t, result) => logger.debug(s"Opensearch query for $cursorOpt took ${t.toMillis} ms") >> result.pure }
+          }.timed.flatMap { case (t, result) =>
+            logger.debug(s"Opensearch query for $cursorOpt took ${t.toMillis} ms") >> result.pure
+          }
         }
         .flatMap(Stream.emits)
     }

@@ -36,7 +36,8 @@ object GlobalSnapshotContextService {
   ): GlobalSnapshotContextService[F] =
     new GlobalSnapshotContextService[F] {
 
-      def noOp(s: SnapshotOrdinal): F[Option[Hashed[GlobalIncrementalSnapshot]]] = none[Hashed[GlobalIncrementalSnapshot]].pure
+      def noOp(s: SnapshotOrdinal): F[Option[Hashed[GlobalIncrementalSnapshot]]] =
+        none[Hashed[GlobalIncrementalSnapshot]].pure
 
       def createContext(
         context: GlobalSnapshotInfo,
@@ -57,11 +58,12 @@ object GlobalSnapshotContextService {
               val snapshotOrdinal = artifact.ordinal
               val lastGlobalSnapshotInfo = context
               val scSnapshots = reversedStateChannelSnapshots
-              globalSnapshotStateChannelEventsProcessor.processCurrencySnapshots(
-                snapshotOrdinal,
-                lastGlobalSnapshotInfo,
-                scSnapshots
-              )
+              globalSnapshotStateChannelEventsProcessor
+                .processCurrencySnapshots(
+                  snapshotOrdinal,
+                  lastGlobalSnapshotInfo,
+                  scSnapshots
+                )
                 .flatMap {
                   _.mapFilter { case (snapshots, _) =>
                     snapshots.collect { case (binary, Some(currencySnapshotWithState)) =>

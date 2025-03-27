@@ -25,10 +25,7 @@ import org.tessellation.security._
 import org.tessellation.ext.kryo._
 import fs2.compression.Compression
 
-
 object FileBasedLastGlobalIncrementalSnapshotStorage {
-
-
 
   def make[F[_]: Async: HasherSelector: Files: KryoSerializer](
     path: Path
