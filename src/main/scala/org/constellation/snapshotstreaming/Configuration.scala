@@ -74,7 +74,8 @@ final case class Reindexer(
   s3Prefetch: Int,
   snapshotContextPrefetch: Int,
   dbChunks: Int,
-  dbParallelism: Int
+  dbParallelism: Int,
+  checkpointEvery: Int
 )
 
 final case class SnapshotStreamingConfig(

@@ -135,31 +135,6 @@ object SnapshotProcessorS3 {
         }
         .void
 
-//    private def process(globalSnapshotsWithState: Seq[GlobalSnapshotWithState], hasher: Hasher[F]): F[Unit] = {
-//      //val GlobalSnapshotWithState(snapshot, _, snapshotInfo, _, dt) = globalSnapshotWithState
-//       store(globalSnapshotsWithState, hasher)
-//      HasherSelector[F]
-//        .forOrdinal(snapshot.ordinal) { implicit hasher =>
-//          logger.info(
-//            s"Global Snapshot ${snapshot.ordinal.value.value} with logic=${hasher.getLogic(snapshot.ordinal)}"
-//          ) >>
-//            (hasher.getLogic(snapshot.ordinal) match {
-//              case JsonHash => StateProofValidator.validate(snapshot, snapshotInfo)
-//              case KryoHash =>
-//                StateProofValidator.validate(snapshot, GlobalSnapshotInfoV2.fromGlobalSnapshotInfo(snapshotInfo))
-//            })
-//        }
-//        .flatMap {
-//          case Validated.Valid(()) =>
-//            store(globalSnapshotWithState, dt, hasher) //>>
-//
-//          case Validated.Invalid(e) =>
-//            logger.warn(
-//              s"Calculated stateProof does not match state from snapshot: ${e}."
-//            )
-//        }
-//    }
-
     val searchGlobalSnapshots =
       search(configuration.opensearch.get.indexes.snapshots)
         .query(matchAllQuery())
@@ -240,15 +215,14 @@ object SnapshotProcessorS3 {
                     (Option(updatedPprocessoStatus), newContext)
                   }
             }
-            .prefetchN(reindexerConf.snapshotContextPrefetch)
             .map(_._2)
             .evalTap { case GlobalSnapshotWithState(snapshot, _, _, _, _) =>
               logger.info(s"Pulled following global snapshot: ${getSnapshotReference(snapshot).show}")
             }
             .chunkMin(reindexerConf.dbChunks)
-            .parEvalMap(reindexerConf.dbParallelism) { states =>
+            .parEvalMapUnordered(reindexerConf.dbParallelism) { states =>
               store(states.asSeq).timed.flatMap { case (t, _) =>
-                logger.debug(s"Processed ${states.size} snapshots in ${t.toMillis} ms").map(_ => states)
+                logger.debug(s"Stored ${states.size} snapshots in ${t.toMillis} ms").map(_ => states)
               }
             }
             .evalMap { snapshots =>

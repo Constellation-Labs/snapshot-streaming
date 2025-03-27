@@ -605,13 +605,9 @@ object SnapshotDAO {
           block.parent.map(parent => (block.hash, parent))
         })
         val proofs = globalSnapshots.flatMap(_.proofs.toList)
-        logger.debug("insert dag addresses") >>
           executeMany(session, addresses, insertAddressMany) >>
-          logger.debug("insert gs") >>
           executeMany(session, snapshots, insertGlobalSnapshotsMany) >>
-          logger.debug("insert dag blocks") >>
           executeMany(session, blocks, insertDagBlocksMany) >>
-          logger.debug("insert dag parallels ") >>
           (
             executeMany(session, transactions, insertDagTransactionsMany),
             executeMany(session, allowSpends, insertDagAllowSpendsMany),
@@ -622,7 +618,6 @@ object SnapshotDAO {
             executeMany(session, blockParents, insertBlockParentsMany),
             executeMany(session, proofs, insertGlobalSnapshotProofsMany)
           ).parTupled >>
-          logger.debug("dag commit") >>
           xa.commit.void
       }
 
@@ -643,15 +638,10 @@ object SnapshotDAO {
         val blockParents = metagraphSnapshots.flatMap(_.blocks.flatMap { currencyData =>
           currencyData.data.parent.map(parent => (currencyData.data.hash, parent))
         })
-        logger.debug("insert mg addresses") >>
           executeMany(session, addresses, insertAddressMany) >>
-          logger.debug("insert mg metagraphs") >>
           executeMany(session, metagraphs, insertMetagraphsMany) >>
-          logger.debug("insert mg snapshots") >>
           executeMany(session, snapshots, insertMetagraphSnapshotsMany) >>
-          logger.debug("insert mg blocks") >>
           executeMany(session, blocks, insertMetagraphBlocksMany) >>
-          logger.debug("insert mg parallels") >>
           (
             executeMany(session, transactions, insertMetagraphTransactionsMany),
             executeMany(session, allowSpends, insertMetagraphAllowSpendsMany),
@@ -662,7 +652,6 @@ object SnapshotDAO {
             executeMany(session, balances, insertMetagraphAddressBalancesMany),
             executeMany(session, blockParents, insertBlockParentsMany)
           ).parTupled >>
-          logger.debug("mg commit") >>
           xa.commit.void
       }
 
