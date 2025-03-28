@@ -56,7 +56,6 @@ object GlobalSnapshotContextService {
                 getGlobalSnapshotByOrdinal
               )
             }
-            //globalSnapshotContextFns.createContext(context, lastArtifact, artifact.signed, None, noOp)
           }
           .flatMap { newContext =>
             HasherSelector[F].forOrdinal(artifact.ordinal) { implicit hasher =>

@@ -29,27 +29,26 @@ import io.constellationnetwork.schema.SnapshotOrdinal
 object TessellationServices {
 
   def make[F[_] : Async : JsonSerializer : KryoSerializer : SecurityProvider](
-
                                                                                env: AppEnvironment,
                                                                                configuration: SharedConfigReader
-  )(implicit hasherSelector: HasherSelector[F]): F[TessellationServices[F]] = {
-    val txHasher = Hasher.forKryo
-    val nodeConfig = Configuration.nodeSharedConfig(env, configuration)
-    val tokenLocksAddedToGl0Ordinal = configuration.fieldsAddedOrdinals.globalTokenLocks.getOrElse(env, SnapshotOrdinal.MinValue)
-    val x = nodeConfig.fieldsAddedOrdinals.globalTokenLocks
-    val validators = hasherSelector.withCurrent { implicit hasher =>
-      SharedValidators.make[F](
-        nodeConfig.addresses,
-        None,
-        None,
-        None,
-        nodeConfig.feeConfigs,
-        nodeConfig.snapshotSize.maxStateChannelSnapshotBinarySizeInBytes,
-        txHasher,
-        DelegatedStakingConfig(RewardFraction.MinValue, RewardFraction.MinValue, configuration.delegatedStaking.withdrawalTimeLimit)
-      )
-    }
+  )(implicit hasherSelector: HasherSelector[F]): F[TessellationServices[F]] =
     for {
+      _ <- Async[F].unit
+      nodeConfig = Configuration.nodeSharedConfig(env, configuration)
+      tokenLocksAddedToGl0Ordinal = configuration.fieldsAddedOrdinals.globalTokenLocks.getOrElse(env, SnapshotOrdinal.MinValue)
+      txHasher = Hasher.forKryo
+      validators = hasherSelector.withCurrent { implicit hasher =>
+        SharedValidators.make[F](
+          AddressesConfig(Set.empty),
+          None,
+          None,
+          None,
+          nodeConfig.feeConfigs,
+          nodeConfig.snapshotSize.maxStateChannelSnapshotBinarySizeInBytes,
+          txHasher,
+          DelegatedStakingConfig(RewardFraction.MinValue, RewardFraction.MinValue, configuration.delegatedStaking.withdrawalTimeLimit)
+        )
+      }
 
       stateChannelManager <- GlobalSnapshotStateChannelAcceptanceManager.make(None)
       jsonBrotliBinarySerializer <- JsonBrotliBinarySerializer.forSync[F]
@@ -58,7 +57,7 @@ object TessellationServices {
       currencySnapshotContextFns <- {
         val currencySnapshotAcceptanceManager: CurrencySnapshotAcceptanceManager[F] =
           CurrencySnapshotAcceptanceManager.make(
-            configuration.lastGlobalSnapshotsSync,
+            LastGlobalSnapshotsSyncConfig(NonNegLong(2L), PosInt(10)),
             BlockAcceptanceManager.make[F](validators.currencyBlockValidator, txHasher),
             TokenLockBlockAcceptanceManager.make(validators.tokenLockBlockValidator),
             AllowSpendBlockAcceptanceManager.make(validators.allowSpendBlockValidator),
@@ -85,7 +84,7 @@ object TessellationServices {
         }
       }
 
-      globalSnapshotContextService = hasherSelector.withCurrent { implicit hasher =>
+      globalSnapshotContextService = hasherSelector.withCurrent { implicit hasher => {
         val globalSnapshotStateChannelEventsProcessor =
           GlobalSnapshotStateChannelEventsProcessor.make[F](
             validators.stateChannelValidator,
@@ -112,8 +111,9 @@ object TessellationServices {
         val globalSnapshotContextFns = GlobalSnapshotContextFunctions.make[F](globalSnapshotAcceptanceManager)
         GlobalSnapshotContextService.make(globalSnapshotStateChannelEventsProcessor, globalSnapshotContextFns)
       }
+      }
     } yield new TessellationServices[F](globalSnapshotContextService) {}
-  }
+
 }
 
 sealed abstract class TessellationServices[F[_]] private(

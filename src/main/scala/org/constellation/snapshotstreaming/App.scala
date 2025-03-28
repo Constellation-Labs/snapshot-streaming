@@ -29,7 +29,7 @@ object App extends IOApp {
       .flatMap { appConfig =>
         ConfigSource.default.loadF[IO, SharedConfigReader]().flatMap { sharedCfg =>
           Random.scalaUtilRandom[IO].flatMap { implicit random =>
-            KryoSerializer.forAsync[IO](shared.sharedKryoRegistrar ++ kryoRegistrar).use { implicit ks =>
+            KryoSerializer.forAsync[IO](shared.sharedKryoRegistrar).use { implicit ks =>
               JsonSerializer.forSync[IO].asResource.use { implicit jsonSerializer =>
                 val hashSelect = makeHashSelect(appConfig, sharedCfg)
                 implicit val hasherSelector =
