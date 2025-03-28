@@ -25,6 +25,7 @@ import io.constellationnetwork.env.AppEnvironment
 import io.constellationnetwork.node.shared.domain.delegatedStake.UpdateDelegatedStakeAcceptanceManager
 import io.constellationnetwork.node.shared.domain.nodeCollateral.UpdateNodeCollateralAcceptanceManager
 import io.constellationnetwork.schema.SnapshotOrdinal
+import io.constellationnetwork.schema.epoch.EpochProgress
 
 object TessellationServices {
 
@@ -46,7 +47,7 @@ object TessellationServices {
           nodeConfig.feeConfigs,
           nodeConfig.snapshotSize.maxStateChannelSnapshotBinarySizeInBytes,
           txHasher,
-          DelegatedStakingConfig(RewardFraction.MinValue, RewardFraction.MinValue, configuration.delegatedStaking.withdrawalTimeLimit)
+          DelegatedStakingConfig(nodeConfig.delegatedStaking.minRewardFraction, nodeConfig.delegatedStaking.maxRewardFraction, configuration.delegatedStaking.withdrawalTimeLimit)
         )
       }
 
@@ -106,7 +107,7 @@ object TessellationServices {
           UpdateNodeCollateralAcceptanceManager.make[F](validators.updateNodeCollateralValidator),
           SpendActionValidator.make[F],
           configuration.collateral.get.amount,
-          configuration.delegatedStaking.withdrawalTimeLimit
+          configuration.delegatedStaking.withdrawalTimeLimit.getOrElse(env, EpochProgress.MinValue)
         )
         val globalSnapshotContextFns = GlobalSnapshotContextFunctions.make[F](globalSnapshotAcceptanceManager)
         GlobalSnapshotContextService.make(globalSnapshotStateChannelEventsProcessor, globalSnapshotContextFns)
