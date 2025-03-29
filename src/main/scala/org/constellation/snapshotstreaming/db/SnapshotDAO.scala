@@ -195,7 +195,7 @@ object SnapshotDAO {
         amount,
         source_addr
       ) VALUES ($varchar, $varchar, $int8, $varchar)
-      ON CONFLICT (lock_reference_ordinal, lock_reference_hash) DO NOTHING;
+      ON CONFLICT (hash) DO NOTHING;
     """.command.contramap { tx: TokenUnlock =>
       (tx.hash, tx.lockReference, tx.amount, tx.address)
     }
@@ -443,7 +443,7 @@ object SnapshotDAO {
       amount,
       source_addr
     ) VALUES ($varchar, $varchar, $varchar, $int8, $varchar)
-    ON CONFLICT (lock_reference_ordinal, lock_reference_hash) DO NOTHING;
+    ON CONFLICT (metagraph_id, hash) DO NOTHING;
   """.command.contramap { case CurrencyData(id, tx: TokenUnlock) =>
       (
         id,

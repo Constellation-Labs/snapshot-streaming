@@ -212,7 +212,7 @@ object SnapshotProcessorS3 {
         .parEvalMap(reindexerConf.dbParallelism) { case state@GlobalSnapshotWithState(snapshot, _, _, _, _) =>
             val hasher = HasherSelector[F].getForOrdinal(snapshot.ordinal)
             process(state, hasher).map(_ => state)
-        }.chunkMin(reindexerConf.checkpointEvery)
+        }.chunkMin(configuration.checkpointEvery)
         .evalMap { snapshots =>
           snapshots.last.traverse { last =>
             logger.info(s"Checkpoint at snapshot ordinal ${last.snapshot.ordinal} hash ${last.snapshot.hash} ") >>

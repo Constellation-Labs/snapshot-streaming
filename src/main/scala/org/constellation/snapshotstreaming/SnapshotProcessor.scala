@@ -9,7 +9,7 @@ import cats.{Applicative, Parallel}
 import com.sksamuel.elastic4s.ElasticDsl.bulk
 import com.sksamuel.elastic4s.requests.update.UpdateRequest
 import fs2.Stream
-import fs2.io.file.Files
+import fs2.io.file.{Files, Flag, Flags, Path}
 import fs2.io.net.Network
 import io.constellationnetwork.currency.schema.currency.{CurrencyIncrementalSnapshot, CurrencySnapshot, CurrencySnapshotInfo}
 import io.constellationnetwork.ext.cats.syntax.next._
@@ -33,7 +33,7 @@ import org.constellation.snapshotstreaming.mapper.{CurrencySnapshotMapper, Globa
 import org.constellation.snapshotstreaming.opensearch.{OpensearchDAO, UpdateRequestBuilder}
 import org.constellation.snapshotstreaming.schema.schema.{GlobalData, MetagraphData}
 import org.constellation.snapshotstreaming.s3.S3DAO
-import org.constellation.snapshotstreaming.storage.{FileBasedLastGlobalFullSnapshotStorage, FileBasedLastGlobalIncrementalSnapshotStorage}
+import org.constellation.snapshotstreaming.storage.{FileBasedLastGlobalFullSnapshotStorage, FileBasedLastGlobalIncrementalSnapshotStorage, SnapshotWithState}
 import org.http4s.ember.client.EmberClientBuilder
 import org.typelevel.log4cats.slf4j.Slf4jLogger
 import org.typelevel.otel4s.trace.Tracer
@@ -291,7 +291,14 @@ object SnapshotProcessor {
             case (state @ GlobalSnapshotWithState(snapshot, _, _, _,_)) :: nextSnapshots
                 if configuration.node.terminalSnapshotOrdinal.forall(snapshot.ordinal <= _) =>
               val hasher = HasherSelector[F].getForOrdinal(snapshot.ordinal)
-              process(state, hasher).as {
+              process(state, hasher) >> {
+                val snapshotWithState = SnapshotWithState(state.snapshot, state.snapshotInfo)
+                val snapshotOrdinal = state.snapshot.ordinal.value.value
+                FileBasedLastGlobalIncrementalSnapshotStorage.
+                  saveSnapshotWithStateJson(Path(s"snapshotWithState.$snapshotOrdinal.json.gz"), snapshotWithState, Flags.Write).
+                  whenA(snapshotOrdinal % configuration.checkpointEvery == 0)
+              }
+                .as{
                 if (configuration.node.terminalSnapshotOrdinal.forall(snapshot.ordinal < _))
                   nextSnapshots.asLeft[Boolean]
                 else
