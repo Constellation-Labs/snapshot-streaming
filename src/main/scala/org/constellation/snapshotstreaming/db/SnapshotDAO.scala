@@ -104,8 +104,9 @@ object SnapshotDAO {
         parent_hash,
         last_valid_epoch_progress,
         round_id,
-        ordinal
-      ) VALUES ($varchar, $varchar, $varchar, $int8, $int8, $int8, $varchar, $int8, $uuid, $int8)
+        ordinal,
+        snapshot_hash
+      ) VALUES ($varchar, $varchar, $varchar, $int8, $int8, $int8, $varchar, $int8, $uuid, $int8, $varchar)
       ON CONFLICT (hash) DO NOTHING;
     """.command.contramap { tx: AllowSpend =>
       (
@@ -118,7 +119,8 @@ object SnapshotDAO {
         tx.parent.hash,
         tx.lastValidEpochProgress,
         tx.roundId,
-        tx.ordinal
+        tx.ordinal,
+        tx.snapshotHash
       )
     }
 
