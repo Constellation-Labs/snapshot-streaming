@@ -591,7 +591,7 @@ object SnapshotDAO {
     private val logger = Slf4jLogger.getLogger[F]
 
     def insertGlobalData(globalSnapshots: List[GlobalData]): F[Unit] =
-      pool.flatMap(session => session.transaction.map((_, session))).use { case (xa, session) =>
+      pool.use(session => session.transaction.use { xa =>
         val addresses = globalSnapshots.flatMap(AddressExtractor.extract(_))
         val snapshots = globalSnapshots.map(_.snapshot)
         val blocks = globalSnapshots.flatMap(_.blocks)
@@ -619,10 +619,11 @@ object SnapshotDAO {
             executeMany(session, proofs, insertGlobalSnapshotProofsMany)
           ).parTupled >>
           xa.commit.void
-      }
+        }
+      )
 
     def insertMetagraphData(metagraphSnapshots: List[MetagraphData]): F[Unit] =
-      pool.flatMap(session => session.transaction.map((_, session))).use { case (xa, session) =>
+      pool.use(session => session.transaction.use { xa =>
         val addresses = metagraphSnapshots.flatMap(AddressExtractor.extract(_))
         val snapshots = metagraphSnapshots.flatMap(_.snapshots)
         val blocks = metagraphSnapshots.flatMap(_.blocks)
@@ -654,7 +655,7 @@ object SnapshotDAO {
           ).parTupled >>
           xa.commit.void
       }
-
+    )
   }
 
 }
