@@ -10,14 +10,15 @@ object TokenLocks {
                         amount: Long,
                         unlockEpoch: Option[Long],
                         ordinal: Long,
-                        roundId: UUID
+                        roundId: UUID,
                       )
 
   case class TokenUnlock(
+                          snapshotHash: String,
                           hash: String,
                           lockReference: String,
                           amount: Long,
-                          address: String
+                          address: String,
                         )
 
 }

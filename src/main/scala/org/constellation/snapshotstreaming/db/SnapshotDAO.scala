@@ -195,11 +195,12 @@ object SnapshotDAO {
         hash,
         lock_reference_hash,
         amount,
-        source_addr
-      ) VALUES ($varchar, $varchar, $int8, $varchar)
+        source_addr,
+        snapshot_hash
+      ) VALUES ($varchar, $varchar, $int8, $varchar, $varchar)
       ON CONFLICT (hash) DO NOTHING;
     """.command.contramap { tx: TokenUnlock =>
-      (tx.hash, tx.lockReference, tx.amount, tx.address)
+      (tx.hash, tx.lockReference, tx.amount, tx.address, tx.snapshotHash)
     }
 
   private val insertDagRewardTxCommand: Command[(String, RewardTransaction)] =
@@ -443,8 +444,9 @@ object SnapshotDAO {
       hash,
       lock_reference_hash,
       amount,
-      source_addr
-    ) VALUES ($varchar, $varchar, $varchar, $int8, $varchar)
+      source_addr,
+      snapshot_hash
+    ) VALUES ($varchar, $varchar, $varchar, $int8, $varchar, $varchar)
     ON CONFLICT (metagraph_id, hash) DO NOTHING;
   """.command.contramap { case CurrencyData(id, tx: TokenUnlock) =>
       (
@@ -452,7 +454,8 @@ object SnapshotDAO {
         tx.hash,
         tx.lockReference,
         tx.amount,
-        tx.address
+        tx.address,
+        tx.snapshotHash
       )
     }
 

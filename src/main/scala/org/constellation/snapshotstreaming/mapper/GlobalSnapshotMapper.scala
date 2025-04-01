@@ -114,9 +114,10 @@ abstract class GlobalSnapshotMapper[F[_]: Async]
     )
   }
 
-  def mapTokenUnlock( tokenUnlock:  artifact.TokenUnlock )
+  def mapTokenUnlock( snapshotHash: Hash, tokenUnlock:  artifact.TokenUnlock )
                     (implicit hasher: Hasher[F]): F[TokenUnlock] = hasher.hash(tokenUnlock).map {
     hash => TokenUnlock(
+      snapshotHash.value,
       hash.value,
       tokenUnlock.tokenLockRef.value,
       tokenUnlock.amount.value,
@@ -142,7 +143,7 @@ abstract class GlobalSnapshotMapper[F[_]: Async]
       case _ =>  List.empty[SpendTransaction].pure
     }
     val tokenUnlocks = events.flatTraverse {
-      case tu: artifact.TokenUnlock => mapTokenUnlock(tu).map(List(_))
+      case tu: artifact.TokenUnlock => mapTokenUnlock(snapshot.hash, tu).map(List(_))
       case _ =>  List.empty[TokenUnlock].pure
     }
     val expirations = events.flatTraverse {
