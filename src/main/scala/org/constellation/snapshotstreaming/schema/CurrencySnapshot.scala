@@ -2,8 +2,6 @@ package org.constellation.snapshotstreaming.schema
 
 import io.circe.Encoder
 import io.circe.generic.semiauto._
-import org.constellation.snapshotstreaming.schema.AllowSpends.{AllowSpend, AllowSpendExpiration, SpendTransaction}
-import org.constellation.snapshotstreaming.schema.TokenLocks.{TokenLock, TokenUnlock}
 
 import java.time.LocalDateTime
 

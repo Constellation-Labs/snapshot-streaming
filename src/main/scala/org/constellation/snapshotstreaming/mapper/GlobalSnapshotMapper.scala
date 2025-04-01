@@ -90,7 +90,8 @@ abstract class GlobalSnapshotMapper[F[_]: Async]
         tokenLock.amount.value,
         tokenLock.unlockEpoch.map(_.value.value),
         tokenLock.ordinal.value,
-        roundId.value
+        roundId.value,
+        tokenLock.parent.hash.value
       )
     }
 
