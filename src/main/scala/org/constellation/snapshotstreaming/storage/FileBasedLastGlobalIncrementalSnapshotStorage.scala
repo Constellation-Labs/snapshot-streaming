@@ -38,12 +38,6 @@ object FileBasedLastGlobalIncrementalSnapshotStorage {
 
     def deserializeWithJson(data: Array[Byte]) = jawn.decode[SnapshotWithState](new String(data, "UTF-8"))
 
-    def deserializeWithKryoOrJson(data: Array[Byte]) =
-      data.fromBinary[SnapshotWithState].handleErrorWith { e =>
-        println(s"Failed to deserialize with kryo: ${e.getMessage}")
-        jawn.decode[SnapshotWithState](new String(data, "UTF-8"))
-      }
-
     val readSnapshotWithState: F[Option[SnapshotWithState]] =
       Files[F]
         .readAll(path)
@@ -86,41 +80,8 @@ object FileBasedLastGlobalIncrementalSnapshotStorage {
             }.getOrElse(setInitial(snapshot, state))
           }
         }
-//          get.flatMap {
-//            case Some(last) if isNextSnapshot(last, snapshot.signed.value) =>
-//              val snapshotWithState = SnapshotWithState(snapshot, state)
-//              writeSnapshotWithStateKryo(snapshotWithState) >> cachedSnapshot.set(Some(snapshotWithState))
-//            case Some(last) =>
-//              MonadThrow[F].raiseError[Unit](
-//                new IllegalStateException(
-//                  s"Snapshot is not the next one! last: ${SnapshotReference
-//                      .fromHashedSnapshot(last)}, lastHash: ${last.hash}, next: ${SnapshotReference
-//                      .fromHashedSnapshot(snapshot)}, prevHash: ${snapshot.signed.value.lastSnapshotHash}"
-//                )
-//              )
-//            case None =>
-//              MonadThrow[F].raiseError[Unit](
-//                new IllegalStateException("Previous snapshot not found when setting next global snapshot!")
-//              )
-//          }
 
 
-      def writeCompressedSnapshotWithStateJson(
-        snapshotWithState: SnapshotWithState,
-        flags: Flags = Flags(Flag.Write, Flag.Truncate)
-      ): F[Unit] =
-        saveSnapshotWithStateJson(path, snapshotWithState, flags)
-
-      private def writeSnapshotWithStateKryo(
-        snapshotWithState: SnapshotWithState,
-        flags: Flags = Flags(Flag.Write, Flag.Truncate)
-      ) =
-        Stream
-          .evalSeq(snapshotWithState.toBinaryF.map(_.toSeq))
-          .through(Compression[F].gzip())
-          .through(Files[F].writeAll(path, flags))
-          .compile
-          .drain
 
       def setInitial(snapshot: Hashed[GlobalIncrementalSnapshot], state: GlobalSnapshotInfo): F[Unit] = {
         val snapshotWithState = SnapshotWithState(snapshot, state)
