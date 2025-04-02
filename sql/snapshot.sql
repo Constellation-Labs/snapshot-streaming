@@ -294,6 +294,7 @@ insert
 
 CREATE TABLE dag_expired_spend_transactions (
 	allow_spend_ref varchar NULL,
+	snapshot_hash varchar NOT NULL,
 	CONSTRAINT dag_expired_spend_transactions_pk PRIMARY KEY (hash),
 	CONSTRAINT dag_expired_spend_transactions_dag_allow_spends_fk FOREIGN KEY (allow_spend_ref) REFERENCES dag_allow_spends(hash) ON DELETE CASCADE,
 )

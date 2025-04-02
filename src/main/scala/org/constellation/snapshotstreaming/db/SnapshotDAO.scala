@@ -131,8 +131,9 @@ object SnapshotDAO {
       source_addr,
       amount,
       destination_addr,
-      allow_spend_ref
-    ) VALUES ($varchar, $varchar, $int8, $varchar, ${varchar.opt})
+      allow_spend_ref,
+      snapshot_hash
+    ) VALUES ($varchar, $varchar, $int8, $varchar, ${varchar.opt}, $varchar)
     ON CONFLICT (hash) DO NOTHING;
   """.command.contramap { tx: SpendTransaction =>
       (
@@ -140,7 +141,8 @@ object SnapshotDAO {
         tx.source,
         tx.amount,
         tx.destination,
-        tx.allowSpendRef
+        tx.allowSpendRef,
+        tx.snapshotHash
       )
     }
 
@@ -176,7 +178,7 @@ object SnapshotDAO {
   private val insertDagTokenLockCommand: Command[TokenLock] =
     sql"""
       INSERT INTO dag_token_locks (
-        global_snapshot_hash,
+        snapshot_hash,
         hash,
         source_addr,
         amount,
@@ -341,8 +343,9 @@ object SnapshotDAO {
       parent_hash,
       last_valid_epoch_progress,
       round_id,
-      ordinal
-    ) VALUES ($varchar, $varchar, $varchar, $varchar, $int8, $int8, $int8, $varchar, $int8, $uuid, $int8)
+      ordinal,
+      snapshot_hash
+    ) VALUES ($varchar, $varchar, $varchar, $varchar, $int8, $int8, $int8, $varchar, $int8, $uuid, $int8, $varchar)
     ON CONFLICT (hash) DO NOTHING;
   """.command.contramap { case CurrencyData(id, tx) =>
       (
@@ -356,7 +359,8 @@ object SnapshotDAO {
         tx.parent.hash,
         tx.lastValidEpochProgress,
         tx.roundId,
-        tx.ordinal
+        tx.ordinal,
+        tx.snapshotHash
       )
     }
 
@@ -368,8 +372,9 @@ object SnapshotDAO {
       source_addr,
       amount,
       destination_addr,
-      allow_spend_ref
-    ) VALUES ($varchar, $varchar, $varchar, $int8, $varchar, ${varchar.opt})
+      allow_spend_ref,
+      snapshot_hash
+    ) VALUES ($varchar, $varchar, $varchar, $int8, $varchar, ${varchar.opt}, $varchar)
     ON CONFLICT (hash) DO NOTHING;
   """.command.contramap { case CurrencyData(id, tx: SpendTransaction) =>
       (
@@ -378,7 +383,8 @@ object SnapshotDAO {
         tx.source,
         tx.amount,
         tx.destination,
-        tx.allowSpendRef
+        tx.allowSpendRef,
+        tx.snapshotHash
       )
     }
 
