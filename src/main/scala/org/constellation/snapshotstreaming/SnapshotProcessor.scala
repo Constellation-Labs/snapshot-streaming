@@ -156,10 +156,12 @@ object SnapshotProcessor {
       snapshotDAO.traverse(dao =>
         dao.insertGlobalData(global, metagraph.snapshots.size) >> dao
           .insertMetagraphData(global.snapshot.hash, metagraph)
-          .whenA(metagraph.snapshots.nonEmpty)
+          .whenA(metagraph.allAsIncremental.nonEmpty)
       ) >>
         logger
-          .info(s"Snapshot ${global.snapshot.ordinal} (hash: ${global.snapshot.hash.show}) sent to postgres.")
+          .info(s"Snapshot ${global.snapshot.ordinal} (hash: ${global.snapshot.hash.show}) sent to postgres.") >>
+        logger
+          .info(s"Metagraph Snapshots for currencies ${metagraph.allAsIncremental.map(_.identifier) }  sent to postgres.")
           .handleErrorWith(s => logger.error(s)("Error in database layer") >> s.raiseError[F, Unit])
 
     private def storeInS3(globalSnapshotWithState: GlobalSnapshotWithState) =
@@ -175,6 +177,7 @@ object SnapshotProcessor {
         val instant = Instant.ofEpochMilli(d.toMillis)
         LocalDateTime.ofInstant(instant, ZoneId.systemDefault())
       }.flatMap(splitData(globalSnapshotWithState, _, hasher)).flatMap { case (globalData, metagraphData) =>
+        Async[F].delay { if (metagraphData.allAsIncremental.isEmpty && globalSnapshotWithState.currencySnapshots.nonEmpty) throw new Exception(s"No MG snapshots for ${globalSnapshotWithState.currencySnapshots}") else () } >>
         storeInPostgres(globalData, metagraphData) >> uploadToOpenSearch(globalData, metagraphData)
       }.void
 
