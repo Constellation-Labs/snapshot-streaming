@@ -41,10 +41,10 @@ abstract class GlobalSnapshotMapper[F[_]: Async]
       )
       balances = mapBalances(globalSnapshot, filteredBalances, timestamp)
 
-      allowSpends <- mapAllowSpends(globalSnapshot, timestamp, hasher)
+      allowSpends <- mapAllowSpends(globalSnapshot, hasher)
       artifacts <- mapArtifacts(globalSnapshot, hasher)
       (spendTransactions, tokenUnlocks, allowSpendExpirations) = artifacts
-      tokenLocks <- mapTokenLocks(globalSnapshot, timestamp, hasher)
+      tokenLocks <- mapTokenLocks(globalSnapshot, hasher)
 
     } yield GlobalData(snapshot, blocks, transactions, balances, globalSnapshot.signed.proofs.toSortedSet.toSeq, allowSpends,
       tokenLocks,
@@ -72,16 +72,17 @@ abstract class GlobalSnapshotMapper[F[_]: Async]
       )
     }
 
-  def mapAllowSpends(snapshot: Hashed[GlobalIncrementalSnapshot], timestamp: LocalDateTime, hasher: Hasher[F]): F[List[AllowSpend]] = {
+  def mapAllowSpends(snapshot: Hashed[GlobalIncrementalSnapshot], hasher: Hasher[F]): F[List[AllowSpend]] = {
     implicit val hs: Hasher[F] = hasher
     snapshot.allowSpendBlocks.toList.flatTraverse(
       _.toList.flatTraverse( alb => alb.transactions.toList.traverse(mapAllowSpend(snapshot.hash, alb.roundId)))
     )
   }
 
-  private def mapTokenLock(snapshotHash: Hash, roundId: RoundId)(
+  private def mapTokenLock(snapshotHash: Hash, roundId: RoundId, hasher: Hasher[F])(
     tl: Signed[tokenLock.TokenLock]
-  )(implicit hasher: Hasher[F]): F[TokenLock] =
+  ): F[TokenLock] = {
+    implicit val hs: Hasher[F] = hasher
     tl.toHashed.map { tokenLock =>
       TokenLock(
         snapshotHash.value,
@@ -94,11 +95,12 @@ abstract class GlobalSnapshotMapper[F[_]: Async]
         tokenLock.parent.hash.value
       )
     }
+  }
 
-  def mapTokenLocks(snapshot: Hashed[GlobalIncrementalSnapshot], timestamp: LocalDateTime, hasher: Hasher[F]): F[List[TokenLock]] = {
-    implicit val hs: Hasher[F] = hasher
+  def mapTokenLocks(snapshot: Hashed[GlobalIncrementalSnapshot], hasher: Hasher[F]): F[List[TokenLock]] = {
+
     snapshot.tokenLockBlocks.toList.flatTraverse(
-      _.toList.flatTraverse( tlb => tlb.tokenLocks.toList.traverse(mapTokenLock(snapshot.hash, tlb.roundId)))
+      _.toList.flatTraverse( tlb => tlb.tokenLocks.toList.traverse(mapTokenLock(snapshot.hash, tlb.roundId, hasher)))
     )
   }
 
