@@ -2,7 +2,7 @@ package org.constellation.snapshotstreaming.schema
 
 import io.circe.Encoder
 import org.tessellation.security.signature.signature.SignatureProof
-import AllowSpends.{AllowSpend, TokenLock, TokenUnlock}
+//import AllowSpends.{AllowSpend, TokenLock, TokenUnlock}
 import org.tessellation.sdk.security
 import org.tessellation.security.hash.Hash
 import org.tessellation.security.signature.signature
@@ -18,9 +18,9 @@ object schema {
     balances: Seq[AddressBalance],
     proofs: Seq[SignatureProof],
     metagraphSnapshotCount: Int,
-    allowSpends: Seq[AllowSpend] = Seq.empty,
-    tokenLocks: Seq[TokenLock] = Seq.empty,
-    tokenUnlocks: Seq[TokenUnlock] = Seq.empty
+//    allowSpends: Seq[AllowSpend] = Seq.empty,
+//    tokenLocks: Seq[TokenLock] = Seq.empty,
+//    tokenUnlocks: Seq[TokenUnlock] = Seq.empty
   )
 
   case class MetagraphData(
@@ -30,9 +30,9 @@ object schema {
     txs: Seq[CurrencyData[Transaction]],
     feeTxs: Seq[CurrencyData[FeeTransaction]],
     balances: Seq[CurrencyData[AddressBalance]],
-    allowSpends: Seq[CurrencyData[AllowSpend]] = Seq.empty,
-    tokenLocks: Seq[CurrencyData[TokenLock]] = Seq.empty,
-    tokenUnlocks: Seq[CurrencyData[TokenUnlock]] = Seq.empty
+//    allowSpends: Seq[CurrencyData[AllowSpend]] = Seq.empty,
+//    tokenLocks: Seq[CurrencyData[TokenLock]] = Seq.empty,
+//    tokenUnlocks: Seq[CurrencyData[TokenUnlock]] = Seq.empty
   )
 
   implicit val dateEncoder: Encoder[Date] =

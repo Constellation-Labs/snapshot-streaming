@@ -3,7 +3,6 @@ package org.constellation.snapshotstreaming.db
 import cats.Parallel
 import cats.effect.{Async, Resource}
 import cats.syntax.all._
-import org.constellation.snapshotstreaming.schema.AllowSpends.{AllowSpend, TokenLock, TokenUnlock}
 import org.constellation.snapshotstreaming.schema.extractors.{AddressExtractor, MetagraphExtractor}
 import org.constellation.snapshotstreaming.schema.schema.{GlobalData, MetagraphData, SignatureProof}
 import org.constellation.snapshotstreaming.schema.{
@@ -170,56 +169,56 @@ object SnapshotDAO {
       ON CONFLICT (hash) DO NOTHING;
     """.command
   }
-
-  private def insertDagTokenLocksMany(size: Int): Command[List[TokenLock]] = {
-    val enc = (
-      varchar *: varchar *: int8 *: int8 *: int8 *: varchar
-    ).values.contramap { tx: TokenLock =>
-      (
-        tx.hash,
-        tx.source,
-        tx.amount,
-        tx.ordinal,
-        tx.unlockEpoch,
-        tx.snapshotHash
-      )
-    }.list(size)
-
-    sql"""
-      INSERT INTO dag_token_locks (
-        hash,
-        source_addr,
-        amount,
-        ordinal,
-        unlock_epoch,
-        global_snapshot_hash
-      ) VALUES $enc
-      ON CONFLICT (hash) DO NOTHING;
-    """.command
-  }
-
-  private def insertDagTokenUnlocksMany(size: Int): Command[List[TokenUnlock]] = {
-    val enc = (
-      int8 *: varchar *: int8 *: varchar
-    ).values.contramap { tx: TokenUnlock =>
-      (
-        tx.lockReference.ordinal,
-        tx.lockReference.hash,
-        tx.amount,
-        tx.address
-      )
-    }.list(size)
-
-    sql"""
-      INSERT INTO dag_token_unlocks (
-        lock_reference_ordinal,
-        lock_reference_hash,
-        amount,
-        source_addr
-      ) VALUES $enc
-      ON CONFLICT (lock_reference_ordinal, lock_reference_hash) DO NOTHING;
-    """.command
-  }
+//
+//  private def insertDagTokenLocksMany(size: Int): Command[List[TokenLock]] = {
+//    val enc = (
+//      varchar *: varchar *: int8 *: int8 *: int8 *: varchar
+//    ).values.contramap { tx: TokenLock =>
+//      (
+//        tx.hash,
+//        tx.source,
+//        tx.amount,
+//        tx.ordinal,
+//        tx.unlockEpoch,
+//        tx.snapshotHash
+//      )
+//    }.list(size)
+//
+//    sql"""
+//      INSERT INTO dag_token_locks (
+//        hash,
+//        source_addr,
+//        amount,
+//        ordinal,
+//        unlock_epoch,
+//        global_snapshot_hash
+//      ) VALUES $enc
+//      ON CONFLICT (hash) DO NOTHING;
+//    """.command
+//  }
+//
+//  private def insertDagTokenUnlocksMany(size: Int): Command[List[TokenUnlock]] = {
+//    val enc = (
+//      int8 *: varchar *: int8 *: varchar
+//    ).values.contramap { tx: TokenUnlock1 =>
+//      (
+//        tx.lockReference.ordinal,
+//        tx.lockReference.hash,
+//        tx.amount,
+//        tx.address
+//      )
+//    }.list(size)
+//
+//    sql"""
+//      INSERT INTO dag_token_unlocks (
+//        lock_reference_ordinal,
+//        lock_reference_hash,
+//        amount,
+//        source_addr
+//      ) VALUES $enc
+//      ON CONFLICT (lock_reference_ordinal, lock_reference_hash) DO NOTHING;
+//    """.command
+//  }
 
   private def insertDagRewardTransactionsMany(size: Int): Command[List[RewardTransaction]] = {
     val enc = (
@@ -290,7 +289,7 @@ object SnapshotDAO {
 
   private def insertMetagraphSnapshotsMany(size: Int): Command[List[CurrencyData[CurrencySnapshot]]] = {
     val enc = (
-      varchar *: varchar *: varchar *: int8 *: int8 *: int8 *: varchar *: int8.opt *: varchar.opt *: varchar.opt *: int8 *: varchar *: timestamp
+      varchar *: varchar *: varchar *: int8 *: int8 *: int8 *: varchar *: int8.opt *: varchar.opt *: varchar.opt *: int8 *: int8 *: varchar *: timestamp
     ).values.contramap { cd: CurrencyData[CurrencySnapshot] =>
       (
         cd.identifier,
@@ -304,6 +303,7 @@ object SnapshotDAO {
         cd.data.ownerAddress,
         cd.data.stakingAddress,
         cd.data.epochProgress,
+        cd.data.sizeInKB,
         cd.data.version,
         cd.data.timestamp
       )
@@ -322,6 +322,7 @@ object SnapshotDAO {
         owner_address,
         staking_address,
         epoch_progress,
+        size,
         version,
         created_at
       ) VALUES $enc
@@ -392,95 +393,97 @@ object SnapshotDAO {
       ON CONFLICT (metagraph_id, hash) DO NOTHING;
     """.command
   }
-
-  private def insertMetagraphAllowSpendsMany(size: Int): Command[List[CurrencyData[AllowSpend]]] = {
-    val enc = (
-      varchar *: varchar *: varchar *: varchar *: int8 *: int8 *: int8 *: varchar *: int8 *: uuid *: int8
-    ).values.contramap { cdAs: CurrencyData[AllowSpend] =>
-      (
-        cdAs.identifier,
-        cdAs.data.hash,
-        cdAs.data.source,
-        cdAs.data.destination,
-        cdAs.data.amount,
-        cdAs.data.fee,
-        cdAs.data.parent.ordinal,
-        cdAs.data.parent.hash,
-        cdAs.data.lastValidEpochProgress,
-        cdAs.data.roundId,
-        cdAs.data.ordinal
-      )
-    }.list(size)
-
-    sql"""
-      INSERT INTO metagraph_allow_spends (
-        metagraph_id,
-        hash,
-        source_addr,
-        destination_addr,
-        amount,
-        fee,
-        parent_ordinal,
-        parent_hash,
-        last_valid_epoch_progress,
-        round_id,
-        ordinal
-      ) VALUES $enc
-      ON CONFLICT (hash) DO NOTHING;
-    """.command
-  }
-
-  private def insertMetagraphTokenLocksMany(size: Int): Command[List[CurrencyData[TokenLock]]] = {
-    val enc = (
-      varchar *: varchar *: varchar *: int8 *: int8 *: int8
-    ).values.contramap { cdTl: CurrencyData[TokenLock] =>
-      (
-        cdTl.identifier,
-        cdTl.data.hash,
-        cdTl.data.source,
-        cdTl.data.amount,
-        cdTl.data.ordinal,
-        cdTl.data.unlockEpoch
-      )
-    }.list(size)
-
-    sql"""
-      INSERT INTO metagraph_token_locks (
-        metagraph_id,
-        hash,
-        source_addr,
-        amount,
-        ordinal,
-        unlock_epoch
-      ) VALUES $enc
-      ON CONFLICT (metagraph_id, hash) DO NOTHING;
-    """.command
-  }
-
-  private def insertMetagraphTokenUnlocksMany(size: Int): Command[List[CurrencyData[TokenUnlock]]] = {
-    val enc = (
-      varchar *: int8 *: varchar *: int8 *: varchar
-    ).values.contramap { cdTu: CurrencyData[TokenUnlock] =>
-      (
-        cdTu.identifier,
-        cdTu.data.lockReference.ordinal,
-        cdTu.data.lockReference.hash,
-        cdTu.data.amount,
-        cdTu.data.address
-      )
-    }.list(size)
-
-    sql"""
-      INSERT INTO metagraph_token_unlocks (
-        metagraph_id,
-        lock_reference_ordinal,
-        lock_reference_hash,
-        amount,
-        source_addr
-      ) VALUES $enc
-      ON CONFLICT (lock_reference_ordinal, lock_reference_hash) DO NOTHING;
-    """.command
-  }
+//
+//  private def insertMetagraphAllowSpendsMany(size: Int): Command[List[CurrencyData[AllowSpend]]] = {
+//    val enc = (
+//      varchar *: varchar *: varchar *: varchar *: int8 *: int8 *: int8 *: varchar *: int8 *: uuid *: int8 *: varchar
+//    ).values.contramap { cdAs: CurrencyData[AllowSpend] =>
+//      (
+//        cdAs.identifier,
+//        cdAs.data.hash,
+//        cdAs.data.source,
+//        cdAs.data.destination,
+//        cdAs.data.amount,
+//        cdAs.data.fee,
+//        cdAs.data.parent.ordinal,
+//        cdAs.data.parent.hash,
+//        cdAs.data.lastValidEpochProgress,
+//        cdAs.data.roundId,
+//        cdAs.data.ordinal,
+//        cdAs.data.snapshotHash
+//      )
+//    }.list(size)
+//
+//    sql"""
+//      INSERT INTO metagraph_allow_spends (
+//        metagraph_id,
+//        hash,
+//        source_addr,
+//        destination_addr,
+//        amount,
+//        fee,
+//        parent_ordinal,
+//        parent_hash,
+//        last_valid_epoch_progress,
+//        round_id,
+//        ordinal,
+//        snapshotHash
+//      ) VALUES $enc
+//      ON CONFLICT (hash) DO NOTHING;
+//    """.command
+//  }
+//
+//  private def insertMetagraphTokenLocksMany(size: Int): Command[List[CurrencyData[TokenLock]]] = {
+//    val enc = (
+//      varchar *: varchar *: varchar *: int8 *: int8 *: int8
+//    ).values.contramap { cdTl: CurrencyData[TokenLock] =>
+//      (
+//        cdTl.identifier,
+//        cdTl.data.hash,
+//        cdTl.data.source,
+//        cdTl.data.amount,
+//        cdTl.data.ordinal,
+//        cdTl.data.unlockEpoch
+//      )
+//    }.list(size)
+//
+//    sql"""
+//      INSERT INTO metagraph_token_locks (
+//        metagraph_id,
+//        hash,
+//        source_addr,
+//        amount,
+//        ordinal,
+//        unlock_epoch
+//      ) VALUES $enc
+//      ON CONFLICT (metagraph_id, hash) DO NOTHING;
+//    """.command
+//  }
+//
+//  private def insertMetagraphTokenUnlocksMany(size: Int): Command[List[CurrencyData[TokenUnlock]]] = {
+//    val enc = (
+//      varchar *: int8 *: varchar *: int8 *: varchar
+//    ).values.contramap { cdTu: CurrencyData[TokenUnlock] =>
+//      (
+//        cdTu.identifier,
+//        cdTu.data.lockReference.ordinal,
+//        cdTu.data.lockReference.hash,
+//        cdTu.data.amount,
+//        cdTu.data.address
+//      )
+//    }.list(size)
+//
+//    sql"""
+//      INSERT INTO metagraph_token_unlocks (
+//        metagraph_id,
+//        lock_reference_ordinal,
+//        lock_reference_hash,
+//        amount,
+//        source_addr
+//      ) VALUES $enc
+//      ON CONFLICT (lock_reference_ordinal, lock_reference_hash) DO NOTHING;
+//    """.command
+//  }
 
   private def insertMetagraphFeeTransactionsMany(size: Int): Command[List[CurrencyData[FeeTransaction]]] = {
     val enc = (
@@ -596,9 +599,9 @@ object SnapshotDAO {
         val snapshots = globalSnapshots.map(_.snapshot)
         val blocks = globalSnapshots.flatMap(_.blocks)
         val transactions = globalSnapshots.flatMap(_.txs)
-        val allowSpends = globalSnapshots.flatMap(_.allowSpends)
-        val tokenLocks = globalSnapshots.flatMap(_.tokenLocks)
-        val tokenUnlocks = globalSnapshots.flatMap(_.tokenUnlocks)
+//        val allowSpends = globalSnapshots.flatMap(_.allowSpends)
+//        val tokenLocks = globalSnapshots.flatMap(_.tokenLocks)
+//        val tokenUnlocks = globalSnapshots.flatMap(_.tokenUnlocks)
         val balances = globalSnapshots.flatMap(_.balances)
         val rewards = globalSnapshots.flatMap(_.snapshot.rewards.toList)
         val blockParents = globalSnapshots.flatMap(_.blocks.flatMap { block =>
@@ -610,9 +613,9 @@ object SnapshotDAO {
           executeMany(session, blocks, insertDagBlocksMany) >>
           (
             executeMany(session, transactions, insertDagTransactionsMany),
-            executeMany(session, allowSpends, insertDagAllowSpendsMany),
-            executeMany(session, tokenLocks, insertDagTokenLocksMany),
-            executeMany(session, tokenUnlocks, insertDagTokenUnlocksMany),
+//            executeMany(session, allowSpends, insertDagAllowSpendsMany),
+//            executeMany(session, tokenLocks, insertDagTokenLocksMany),
+//            executeMany(session, tokenUnlocks, insertDagTokenUnlocksMany),
             executeMany(session, balances, insertAddressBalancesMany),
             executeMany(session, rewards, insertDagRewardTransactionsMany),
             executeMany(session, blockParents, insertBlockParentsMany),
@@ -628,9 +631,9 @@ object SnapshotDAO {
         val blocks = metagraphSnapshots.flatMap(_.blocks)
         val metagraphs = metagraphSnapshots.flatMap(MetagraphExtractor.extract(_).toList)
         val transactions = metagraphSnapshots.flatMap(_.txs)
-        val allowSpends = metagraphSnapshots.flatMap(_.allowSpends)
-        val tokenLocks = metagraphSnapshots.flatMap(_.tokenLocks)
-        val tokenUnlocks = metagraphSnapshots.flatMap(_.tokenUnlocks)
+//        val allowSpends = metagraphSnapshots.flatMap(_.allowSpends)
+//        val tokenLocks = metagraphSnapshots.flatMap(_.tokenLocks)
+//        val tokenUnlocks = metagraphSnapshots.flatMap(_.tokenUnlocks)
         val feeTransactions = metagraphSnapshots.flatMap(_.feeTxs)
         val rewards = metagraphSnapshots
           .flatMap(_.snapshots.flatMap(mgs => mgs.data.rewards.map(r => CurrencyData(mgs.identifier, r))))
@@ -644,9 +647,9 @@ object SnapshotDAO {
           executeMany(session, blocks, insertMetagraphBlocksMany) >>
           (
             executeMany(session, transactions, insertMetagraphTransactionsMany),
-            executeMany(session, allowSpends, insertMetagraphAllowSpendsMany),
-            executeMany(session, tokenLocks, insertMetagraphTokenLocksMany),
-            executeMany(session, tokenUnlocks, insertMetagraphTokenUnlocksMany),
+//            executeMany(session, allowSpends, insertMetagraphAllowSpendsMany),
+//            executeMany(session, tokenLocks, insertMetagraphTokenLocksMany),
+//            executeMany(session, tokenUnlocks, insertMetagraphTokenUnlocksMany),
             executeMany(session, feeTransactions, insertMetagraphFeeTransactionsMany),
             executeMany(session, rewards, insertMetagraphRewardTransactionsMany),
             executeMany(session, balances, insertMetagraphAddressBalancesMany),

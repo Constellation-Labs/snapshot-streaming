@@ -44,25 +44,6 @@ object OpensearchDAO {
 
     val logger = Slf4jLogger.getLogger
 
-    def sendToOpensearch(bulkRequest: BulkRequest): F[Unit] = Async[F].unit
-    /*Async[F].delay(esClient.execute(bulkRequest)).flatMap { fut =>
-        Async[F].executionContext.flatMap { implicit ec =>
-          Async[F].async_[Response[BulkResponse]] { cb =>
-            fut.onComplete {
-              case Success(a) =>
-                a match {
-                  case RequestSuccess(_, _, _, result) if result.errors =>
-                    cb(Left(new Throwable(s"Bulk request failed: ${result.failures}")))
-                  case RequestSuccess(_, _, _, result) if !result.errors => cb(Right(a))
-                  case RequestFailure(_, _, _, error)                    => cb(Left(error.asException))
-                  case _                                                 => cb(Left(new Throwable("Unexpected error")))
-                }
-              case Failure(e) => cb(Left(e))
-            }
-          }
-        }.as(())
-      }*/
-
     def bulkStream[T: ClassTag, C: ClassTag](
       search: SearchRequest,
       transformHit: SearchHit => Option[T],

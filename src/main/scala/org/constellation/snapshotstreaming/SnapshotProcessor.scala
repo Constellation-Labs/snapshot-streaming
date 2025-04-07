@@ -38,7 +38,6 @@ import fs2.io.net.Network
 import org.constellation.snapshotstreaming.db.SnapshotDAO
 import org.constellation.snapshotstreaming.mapper.{CurrencySnapshotMapper, GlobalSnapshotMapper}
 import org.constellation.snapshotstreaming.opensearch.OpensearchDAO
-import org.constellation.snapshotstreaming.opensearch.UpdateRequestBuilder
 import org.constellation.snapshotstreaming.mapper.CurrencySnapshotMapper
 import org.constellation.snapshotstreaming.mapper.GlobalSnapshotMapper
 import org.constellation.snapshotstreaming.s3.S3DAO
@@ -141,31 +140,6 @@ object SnapshotProcessor {
       }
     }
 
-    private val oRquestBuilder = configuration.opensearch.map(UpdateRequestBuilder.make)
-
-    private def uploadToOpenSearch(global: GlobalData, metagraph: MetagraphData): F[Unit] =
-      oRquestBuilder
-        .map(_.bulkUpdateRequests(global, metagraph))
-        .traverse { requests =>
-          logger.info("Starting to send parallel bulk updates to Opensearch") >>
-            requests.parallelRequests.parTraverse { br =>
-              logGroupedRequests(br, "parallel") >>
-                opensearchDAO.traverse(_.sendToOpensearch(bulk(br)))
-            }.timed.flatTap { case (elapsedTime, _) =>
-              logger.info(s"Parallel bulk update operation took ${elapsedTime.toMillis} ms")
-            } >>
-            logger.info("Starting to send sequential bulk updates to Opensearch") >>
-            requests.sequentialRequests.traverse { br =>
-              logGroupedRequests(br, "sequential") >>
-                opensearchDAO.traverse(_.sendToOpensearch(bulk(br)))
-            }.timed.flatTap { case (elapsedTime, _) =>
-              logger.info(s"Sequential bulk update operation took ${elapsedTime.toMillis} ms")
-            } >> logger.info(
-              s"Snapshot ${global.snapshot.ordinal} (hash: ${global.snapshot.hash.show.take(8)}) sent to opensearch."
-            )
-        }
-        .void
-
     private def storeInPostgres(globalSnapshots: Seq[GlobalData], metagraphs: Seq[MetagraphData]) =
       snapshotDAO.traverse(dao =>
         dao.insertGlobalData(globalSnapshots.toList) >> dao
@@ -187,7 +161,7 @@ object SnapshotProcessor {
     private def store(globalSnapshotWithState: GlobalSnapshotWithState, hasher: Hasher[F]): F[Unit] =
       storeInS3(globalSnapshotWithState) >>
         splitData(globalSnapshotWithState, hasher).flatMap { case (globalData, metagraphData) =>
-          storeInPostgres(Seq(globalData), Seq(metagraphData)) >> uploadToOpenSearch(globalData, metagraphData)
+          storeInPostgres(Seq(globalData), Seq(metagraphData))
         }.void
 
     private def process(globalSnapshotWithState: GlobalSnapshotWithState, hasher: Hasher[F]): F[Unit] = {
