@@ -258,10 +258,11 @@ object SnapshotDAO {
       owner_address,
       staking_address,
       epoch_progress,
+      size,
       version,
       created_at
     ) VALUES (
-      $varchar, $int8, $varchar, $varchar, $int8, $int8, $varchar, $int8, ${varchar.opt}, ${varchar.opt}, $int8, $varchar, $timestamp
+      $varchar, $int8, $varchar, $varchar, $int8, $int8, $varchar, $int8, ${varchar.opt}, ${varchar.opt}, $int8, $int8, $varchar, $timestamp
     )
     ON CONFLICT (metagraph_id, hash) DO NOTHING;
   """.command.contramap { case (gsHash, CurrencyData(id, cs:CurrencySnapshot)) =>
@@ -277,6 +278,7 @@ object SnapshotDAO {
         cs.ownerAddress,
         cs.stakingAddress,
         cs.epochProgress,
+        cs.sizeInKB,
         cs.version,
         cs.timestamp
       )

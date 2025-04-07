@@ -463,6 +463,7 @@ CREATE TABLE metagraph_snapshots (
 	owner_address varchar NULL,
 	staking_address varchar NULL,
 	epoch_progress int8 NULL,
+	"size" int8 NULL,
 	"version" varchar NOT NULL,
 	created_at timestamp DEFAULT now() NOT NULL,
 	updated_at timestamp DEFAULT now() NOT NULL,
