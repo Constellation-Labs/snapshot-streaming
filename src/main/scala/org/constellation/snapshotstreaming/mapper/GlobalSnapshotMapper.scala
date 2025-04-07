@@ -5,7 +5,7 @@ import cats.syntax.all._
 import eu.timepit.refined.auto._
 import org.tessellation.schema.{GlobalIncrementalSnapshot, GlobalSnapshotInfo, transaction}
 import org.tessellation.security.{Hashed, Hasher}
-import org.constellation.snapshotstreaming.SnapshotProcessor.GlobalSnapshotWithState
+import org.constellation.snapshotstreaming.SnapshotProcessorS3.GlobalSnapshotWithState
 import org.constellation.snapshotstreaming.schema.schema.{GlobalData, SignatureProof}
 import org.constellation.snapshotstreaming.schema.{RewardTransaction, Snapshot}
 

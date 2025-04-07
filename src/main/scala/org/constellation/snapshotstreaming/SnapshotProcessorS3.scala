@@ -1,6 +1,6 @@
 package org.constellation.snapshotstreaming
 
-import cats.data.{NonEmptyList, Validated}
+import cats.data.NonEmptyList
 import cats.effect._
 import cats.effect.std.{Console, Random}
 import cats.syntax.all._
@@ -8,18 +8,14 @@ import cats.Parallel
 import cats.effect.implicits.clockOps
 import com.sksamuel.elastic4s.ElasticApi.{fieldSort, matchAllQuery, search}
 import com.sksamuel.elastic4s.requests.searches.SearchHit
-import com.sksamuel.elastic4s.requests.update.UpdateRequest
 import fs2.Stream
 import fs2.io.file.Files
 import fs2.io.net.Network
 import org.tessellation.currency.schema.currency.{CurrencyIncrementalSnapshot, CurrencySnapshot, CurrencySnapshotInfo}
-import org.tessellation.ext.cats.syntax.next.catsSyntaxNext
 import org.tessellation.json.JsonSerializer
 import org.tessellation.kryo.KryoSerializer
-import org.tessellation.merkletree.StateProofValidator
 import org.tessellation.node.shared.config.types.SharedConfigReader
 import org.tessellation.node.shared.domain.snapshot.storage.LastSnapshotStorage
-import org.tessellation.node.shared.infrastructure.cluster.storage.L0ClusterStorage
 import org.tessellation.schema.SnapshotReference.{fromHashedSnapshot => getSnapshotReference}
 import org.tessellation.schema.address.Address
 import org.tessellation.schema.{GlobalIncrementalSnapshot, GlobalSnapshot, GlobalSnapshotInfo, GlobalSnapshotInfoV2}
@@ -27,7 +23,6 @@ import org.tessellation.security._
 import org.tessellation.security.hash.Hash
 import org.tessellation.security.signature.Signed
 import org.tessellation.statechannel.StateChannelSnapshotBinary
-import org.constellation.snapshotstreaming.SnapshotProcessor.{GlobalSnapshotWithState, ProcessedSnapshots}
 import org.constellation.snapshotstreaming.db.SnapshotDAO
 import org.constellation.snapshotstreaming.mapper.{CurrencySnapshotMapper, GlobalSnapshotMapper}
 import org.constellation.snapshotstreaming.opensearch.OpensearchDAO
@@ -43,7 +38,7 @@ import org.typelevel.otel4s.trace.Tracer
 
 import java.time.{Instant, LocalDateTime, ZoneId}
 
-trait SnapshotProcessorS3[F[_]] {
+trait SnapshotProcessor[F[_]] {
   val runtime: Stream[F, Unit]
 }
 
@@ -57,10 +52,10 @@ object SnapshotProcessorS3 {
     txHasher: Hasher[F]
   ): Resource[F, SnapshotProcessor[F]] =
     for {
-      s3DAO <- configuration.s3.traverse(S3DAO.make[F])
-      opensearchDAO <- configuration.opensearch.traverse(OpensearchDAO.make[F])
-      sessionPool <- configuration.db.traverse(db.session[F])
-      snapshotDAO = sessionPool.map(SnapshotDAO.make[F])
+      s3DAO <- S3DAO.make[F](configuration.s3)
+      opensearchDAO <- OpensearchDAO.make[F](configuration.opensearch)
+      sessionPool <- db.session[F](configuration.db)
+      snapshotDAO = SnapshotDAO.make[F](sessionPool)
       lastIncrementalGlobalSnapshotStorage <- Resource.eval(fsGlobalIncrementalStorage(configuration))
       tesselationServices <- Resource.eval(
         TessellationServices.make[F](configuration.environment, sharedConfig)
@@ -89,9 +84,9 @@ object SnapshotProcessorS3 {
   def make[F[_]: Async: Parallel: HasherSelector](
     configuration: SnapshotStreamingConfig,
     lastIncrementalGlobalSnapshotStorage: LastSnapshotStorage[F, GlobalIncrementalSnapshot, GlobalSnapshotInfo],
-    s3DAO: Option[S3DAO[F]],
-    snapshotDAO: Option[SnapshotDAO[F]],
-    opensearchDAO: Option[OpensearchDAO[F]],
+    s3DAO: S3DAO[F],
+    snapshotDAO: SnapshotDAO[F],
+    opensearchDAO: OpensearchDAO[F],
     globalMapper: GlobalSnapshotMapper[F],
     currencyMapper: CurrencySnapshotMapper[F],
     txHasher: Hasher[F],
@@ -101,14 +96,10 @@ object SnapshotProcessorS3 {
     private val logger = Slf4jLogger.getLogger[F]
 
     private def storeInPostgres(globalSnapshots: Seq[GlobalData], metagraphs: Seq[MetagraphData]) =
-      snapshotDAO.traverse(dao =>
-        dao.insertGlobalData(globalSnapshots.toList) >> dao
-          .insertMetagraphData(metagraphs.toList)
-          .whenA(metagraphs.nonEmpty)
-      ) >>
-        logger
-          .debug(s"${globalSnapshots.size} sent to postgres.")
-          .handleErrorWith(s => logger.error(s)("Error in database layer") >> s.raiseError[F, Unit])
+      snapshotDAO.insertGlobalData(globalSnapshots.toList) >> snapshotDAO
+        .insertMetagraphData(metagraphs.toList)
+        .whenA(metagraphs.nonEmpty)
+        .handleErrorWith(s => logger.error(s)("Error in database layer") >> s.raiseError[F, Unit])
 
     private def splitData(globalSnapshotWithState: GlobalSnapshotWithState) = {
       val hasher = HasherSelector[F].getForOrdinal(globalSnapshotWithState.snapshot.ordinal)
@@ -136,7 +127,7 @@ object SnapshotProcessorS3 {
         .void
 
     val searchGlobalSnapshots =
-      search(configuration.opensearch.get.indexes.snapshots)
+      search(configuration.opensearch.indexes.snapshots)
         .query(matchAllQuery())
         .sortBy(fieldSort("ordinal").asc())
         .sourceInclude("ordinal", "hash", "timestamp")
@@ -167,11 +158,11 @@ object SnapshotProcessorS3 {
             .orElse(signedFullGlobalSnapshot.value.ordinal.some)
             .map(_.value.value)
 
-          opensearchDAO.get
+          opensearchDAO
             .bulkStream(searchGlobalSnapshots, hitMapper, cursorMapper, startAfterOrdinal)
             .parEvalMap(reindexerConf.s3Parallelism) { case (h, ts) =>
               logger.info(s"Downloading hash ${h} from S3") >>
-                s3DAO.get
+                s3DAO
                   .downloadSnapshot(Hash(h))
                   .timed
                   .flatMap { case (t, snapshot) =>
@@ -216,15 +207,13 @@ object SnapshotProcessorS3 {
                   }
             }
             .map(_._2)
-            .evalTap { case GlobalSnapshotWithState(snapshot, _, _, _, _) =>
-              logger.info(s"Pulled following global snapshot: ${getSnapshotReference(snapshot).show}")
+            .parEvalMapUnordered(reindexerConf.dbParallelism) { state =>
+              logger.info(s"Pulled following global snapshot: ${getSnapshotReference(state.snapshot).show}") >>
+                store(Seq(state)).timed.flatMap { case (t, _) =>
+                  logger.debug(s"Stored ${state.snapshot.hash} in ${t.toMillis} ms").map(_ => state)
+                }
             }
-            .chunkMin(reindexerConf.dbChunks)
-            .parEvalMapUnordered(reindexerConf.dbParallelism) { states =>
-              store(states.asSeq).timed.flatMap { case (t, _) =>
-                logger.debug(s"Stored ${states.size} snapshots in ${t.toMillis} ms").map(_ => states)
-              }
-            }
+            .chunkN(reindexerConf.checkpointEvery)
             .evalMap { snapshots =>
               snapshots.last.traverse { last =>
                 logger.info(s"Checkpoint at snapshot ordinal ${last.snapshot.ordinal} hash ${last.snapshot.hash} ") >>
@@ -235,5 +224,23 @@ object SnapshotProcessorS3 {
         }
 
   }
+
+  case class GlobalSnapshotWithState(
+    snapshot: Hashed[GlobalIncrementalSnapshot],
+    maybePrevSnapshotInfo: Option[GlobalSnapshotInfo],
+    snapshotInfo: GlobalSnapshotInfo,
+    currencySnapshots: Map[Address, NonEmptyList[
+      Either[Hashed[
+        CurrencySnapshot
+      ], (Hashed[CurrencyIncrementalSnapshot], CurrencySnapshotInfo, Signed[StateChannelSnapshotBinary])]
+    ]],
+    ts: LocalDateTime
+  )
+
+  case class ProcessedSnapshots(
+    lastSnapshot: Signed[GlobalIncrementalSnapshot],
+    lastState: GlobalSnapshotInfo,
+    snapshotsWithState: List[GlobalSnapshotWithState]
+  )
 
 }

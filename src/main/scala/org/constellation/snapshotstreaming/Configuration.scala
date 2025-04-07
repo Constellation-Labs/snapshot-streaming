@@ -84,9 +84,9 @@ final case class SnapshotStreamingConfig(
   environment: AppEnvironment,
   httpClient: HttpClientConfig,
   node: NodeConfig,
-  s3: Option[S3Config],
-  db: Option[DbConfig],
-  opensearch: Option[OpenSearchConfig],
+  s3: S3Config,
+  db: DbConfig,
+  opensearch: OpenSearchConfig,
   reindexer: Option[Reindexer]
 )
 

@@ -6,7 +6,7 @@ import org.tessellation.json.JsonSerializer
 import org.tessellation.schema.address.Address
 import org.tessellation.schema.balance.Balance
 import org.tessellation.security.Hasher
-import org.constellation.snapshotstreaming.SnapshotProcessor.GlobalSnapshotWithState
+import org.constellation.snapshotstreaming.SnapshotProcessorS3.GlobalSnapshotWithState
 import org.constellation.snapshotstreaming.schema.schema.MetagraphData
 import org.constellation.snapshotstreaming.schema.{
   AddressBalance,

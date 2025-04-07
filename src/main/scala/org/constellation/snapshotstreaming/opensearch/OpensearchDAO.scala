@@ -15,7 +15,6 @@ import cats.effect.implicits.clockOps
 import scala.util.{Failure, Success}
 
 trait OpensearchDAO[F[_]] {
-  def sendToOpensearch(bulkRequest: BulkRequest): F[Unit]
 
   def bulkStream[T: ClassTag, C: ClassTag](
     search: SearchRequest,
