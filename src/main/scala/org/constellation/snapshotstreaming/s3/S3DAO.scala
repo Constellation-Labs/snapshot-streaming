@@ -16,6 +16,8 @@ import fs2.{Stream, io}
 import org.constellation.snapshotstreaming.S3Config
 import org.typelevel.log4cats.slf4j.Slf4jLogger
 
+import java.io.ByteArrayInputStream
+
 trait S3DAO[F[_]] {
   def uploadSnapshot(snapshot: Hashed[GlobalIncrementalSnapshot]): F[Unit]
   def downloadSnapshot(hash: Hash): F[Signed[GlobalIncrementalSnapshot]]
@@ -46,8 +48,7 @@ object S3DAO {
     private val logger = Slf4jLogger.getLogger[F]
 
     def uploadSnapshot(snapshot: Hashed[GlobalIncrementalSnapshot]): F[Unit] =
-      Async[F].unit
-      /*for {
+      for {
         arr <- snapshot.signed.toBinaryF
         is = new ByteArrayInputStream(arr)
         keyName = s"${config.bucketDir}/${snapshot.hash}"
@@ -55,7 +56,7 @@ object S3DAO {
         _ <- logger.info(
           s"Snapshot ${snapshot.ordinal.value.value} (hash: ${snapshot.hash.show.take(8)}) uploaded to s3."
         )
-      } yield ()*/
+      } yield ()
 
     def downloadSnapshot(hash: Hash): F[Signed[GlobalIncrementalSnapshot]] = {
       val keyName = s"${config.bucketDir}/${hash}"

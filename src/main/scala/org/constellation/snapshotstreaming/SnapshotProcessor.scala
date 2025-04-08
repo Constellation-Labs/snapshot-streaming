@@ -55,10 +55,10 @@ object SnapshotProcessor {
   ): Resource[F, SnapshotProcessor[F]] =
     for {
       client <- makeClient(configuration.httpClient)
-      s3DAO <- configuration.s3.traverse(S3DAO.make[F])
-      opensearchDAO <- configuration.opensearch.traverse(OpensearchDAO.make[F])
-      sessionPool <- configuration.db.traverse(db.session[F])
-      snapshotDAO = sessionPool.map(SnapshotDAO.make[F])
+      s3DAO <- S3DAO.make[F](configuration.s3)
+      opensearchDAO <- OpensearchDAO.make[F](configuration.opensearch)
+      sessionPool <- db.session[F](configuration.db)
+      snapshotDAO = SnapshotDAO.make[F](sessionPool)
       globalSnapshotClient = L0GlobalSnapshotClient.make[F](client)
       l0ClusterStorage <- Resource.eval(L0ClusterStorageRef(configuration.node))
       lastIncrementalGlobalSnapshotStorage <- Resource.eval(fsGlobalIncrementalStorage(configuration))
@@ -109,9 +109,9 @@ object SnapshotProcessor {
     configuration: SnapshotStreamingConfig,
     lastIncrementalGlobalSnapshotStorage: LastSnapshotStorage[F, GlobalIncrementalSnapshot, GlobalSnapshotInfo],
     l0Service: GlobalL0Service[F],
-    s3DAO: Option[S3DAO[F]],
-    snapshotDAO: Option[SnapshotDAO[F]],
-    opensearchDAO: Option[OpensearchDAO[F]],
+    s3DAO: S3DAO[F],
+    snapshotDAO: SnapshotDAO[F],
+    opensearchDAO: OpensearchDAO[F],
     globalMapper: GlobalSnapshotMapper[F],
     currencyMapper: CurrencySnapshotMapper[F],
     txHasher: Hasher[F],
@@ -127,37 +127,10 @@ object SnapshotProcessor {
       }
     }
 
-    private val oRquestBuilder = configuration.opensearch.map(UpdateRequestBuilder.make)
-
-    private def uploadToOpenSearch(global: GlobalData, metagraph: MetagraphData): F[Unit] =
-      oRquestBuilder
-        .map(_.bulkUpdateRequests(global, metagraph))
-        .traverse { requests =>
-          logger.info("Starting to send parallel bulk updates to Opensearch") >>
-            requests.parallelRequests.parTraverse { br =>
-              logGroupedRequests(br, "parallel") >>
-                opensearchDAO.traverse(_.sendToOpensearch(bulk(br)))
-            }.timed.flatTap { case (elapsedTime, _) =>
-              logger.info(s"Parallel bulk update operation took ${elapsedTime.toMillis} ms")
-            } >>
-            logger.info("Starting to send sequential bulk updates to Opensearch") >>
-            requests.sequentialRequests.traverse { br =>
-              logGroupedRequests(br, "sequential") >>
-                opensearchDAO.traverse(_.sendToOpensearch(bulk(br)))
-            }.timed.flatTap { case (elapsedTime, _) =>
-              logger.info(s"Sequential bulk update operation took ${elapsedTime.toMillis} ms")
-            } >> logger.info(
-              s"Snapshot ${global.snapshot.ordinal} (hash: ${global.snapshot.hash.show.take(8)}) sent to opensearch."
-            )
-        }
-        .void
-
     private def storeInPostgres(global: GlobalData, metagraph: MetagraphData) =
-      snapshotDAO.traverse(dao =>
-        dao.insertGlobalData(global, metagraph.snapshots.size) >> dao
+      snapshotDAO.insertGlobalData(global, metagraph.snapshots.size) >> snapshotDAO
           .insertMetagraphData(global.snapshot.hash, metagraph)
-          .whenA(metagraph.allAsIncremental.nonEmpty)
-      ) >>
+          .whenA(metagraph.allAsIncremental.nonEmpty)  >>
         logger
           .info(s"Snapshot ${global.snapshot.ordinal} (hash: ${global.snapshot.hash.show}) sent to postgres.") >>
         logger
@@ -165,7 +138,7 @@ object SnapshotProcessor {
           .handleErrorWith(s => logger.error(s)("Error in database layer") >> s.raiseError[F, Unit])
 
     private def storeInS3(globalSnapshotWithState: GlobalSnapshotWithState) =
-      s3DAO.traverse(_.uploadSnapshot(globalSnapshotWithState.snapshot)).void
+      s3DAO.uploadSnapshot(globalSnapshotWithState.snapshot).void
 
     private def splitData(globalSnapshotWithState: GlobalSnapshotWithState, d: LocalDateTime, hasher: Hasher[F]) = (
       globalMapper.mapGlobalSnapshot(globalSnapshotWithState, d, txHasher, hasher),
@@ -173,12 +146,12 @@ object SnapshotProcessor {
     ).tupled
 
     private def store(globalSnapshotWithState: GlobalSnapshotWithState, hasher: Hasher[F]): F[Unit] =
-      storeInS3(globalSnapshotWithState) >> Clock[F].realTime.map { d =>
+      storeInS3(globalSnapshotWithState).whenA(configuration.s3.uploadEnabled) >> Clock[F].realTime.map { d =>
         val instant = Instant.ofEpochMilli(d.toMillis)
         LocalDateTime.ofInstant(instant, ZoneId.systemDefault())
       }.flatMap(splitData(globalSnapshotWithState, _, hasher)).flatMap { case (globalData, metagraphData) =>
         Async[F].delay { if (metagraphData.allAsIncremental.isEmpty && globalSnapshotWithState.currencySnapshots.nonEmpty) throw new Exception(s"No MG snapshots for ${globalSnapshotWithState.currencySnapshots}") else () } >>
-        storeInPostgres(globalData, metagraphData) >> uploadToOpenSearch(globalData, metagraphData)
+        storeInPostgres(globalData, metagraphData)
       }.void
 
     private def process(globalSnapshotWithState: GlobalSnapshotWithState, hasher: Hasher[F]): F[Unit] = {

@@ -35,7 +35,7 @@ final case class DbConfig(
 )
 
 final case class S3ApiConfig(endpoint: Option[String], region: Option[String], pathStyleEnabled: Option[Boolean])
-final case class S3Config(bucketRegion: String, bucketName: String, bucketDir: String, api: S3ApiConfig)
+final case class S3Config(bucketRegion: String, bucketName: String, bucketDir: String, api: S3ApiConfig, uploadEnabled: Boolean)
 
 final case class OpenSearchConfig(uri: Uri, bulkSize: Int, indexes: IndexesConfig)
 
@@ -78,9 +78,9 @@ final case class SnapshotStreamingConfig(
   environment: AppEnvironment,
   httpClient: HttpClientConfig,
   node: NodeConfig,
-  s3: Option[S3Config],
-  db: Option[DbConfig],
-  opensearch: Option[OpenSearchConfig],
+  s3: S3Config,
+  db: DbConfig,
+  opensearch: OpenSearchConfig,
   reindexer: Option[Reindexer]
 )
 

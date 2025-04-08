@@ -45,10 +45,10 @@ object SnapshotProcessorS3 {
      txHasher: Hasher[F]
    ): Resource[F, SnapshotProcessor[F]] =
     for {
-      s3DAO <- configuration.s3.traverse(S3DAO.make[F])
-      opensearchDAO <- configuration.opensearch.traverse(OpensearchDAO.make[F])
-      sessionPool <- configuration.db.traverse(db.session[F])
-      snapshotDAO = sessionPool.map(SnapshotDAO.make[F])
+      s3DAO <- S3DAO.make[F](configuration.s3)
+      opensearchDAO <- OpensearchDAO.make[F](configuration.opensearch)
+      sessionPool <- db.session[F](configuration.db)
+      snapshotDAO = SnapshotDAO.make[F](sessionPool)
       lastIncrementalGlobalSnapshotStorage <- Resource.eval(fsGlobalIncrementalStorage(configuration))
       tesselationServices <- Resource.eval(
         TessellationServices.make[F](configuration.environment, sharedConfig)
@@ -77,9 +77,9 @@ object SnapshotProcessorS3 {
   def make[F[_] : Async : Parallel : HasherSelector](
                                                       configuration: SnapshotStreamingConfig,
                                                       lastIncrementalGlobalSnapshotStorage: LastSnapshotStorage[F, GlobalIncrementalSnapshot, GlobalSnapshotInfo],
-                                                      s3DAO: Option[S3DAO[F]],
-                                                      snapshotDAO: Option[SnapshotDAO[F]],
-                                                      opensearchDAO: Option[OpensearchDAO[F]],
+                                                      s3DAO: S3DAO[F],
+                                                      snapshotDAO: SnapshotDAO[F],
+                                                      opensearchDAO: OpensearchDAO[F],
                                                       globalMapper: GlobalSnapshotMapper[F],
                                                       currencyMapper: CurrencySnapshotMapper[F],
                                                       txHasher: Hasher[F],
@@ -90,11 +90,9 @@ object SnapshotProcessorS3 {
 
 
     private def storeInPostgres(global: GlobalData, metagraph: MetagraphData) =
-      snapshotDAO.traverse(dao =>
-        dao.insertGlobalData(global, metagraph.snapshots.size) >> dao
+          (snapshotDAO.insertGlobalData(global, metagraph.snapshots.size) >> snapshotDAO
           .insertMetagraphData(global.snapshot.hash, metagraph)
-          .whenA(metagraph.snapshots.nonEmpty)
-      ).timed.flatMap{ t =>
+          .whenA(metagraph.allAsIncremental.nonEmpty)).timed.flatMap{ t =>
         logger
           .info(s"Snapshot ${global.snapshot.ordinal} (hash: ${global.snapshot.hash.show}) sent to postgres in ${t._1.toSeconds}.") }
           .handleErrorWith(s => logger.error(s)("Error in database layer") >> s.raiseError[F, Unit])
@@ -134,7 +132,7 @@ object SnapshotProcessorS3 {
     }
 
     val searchGlobalSnapshots =
-      search(configuration.opensearch.get.indexes.snapshots)
+      search(configuration.opensearch.indexes.snapshots)
         .query(matchAllQuery())
         .sortBy(fieldSort("ordinal").asc())
         .sourceInclude("ordinal", "hash", "timestamp")
@@ -154,10 +152,10 @@ object SnapshotProcessorS3 {
 
     def getGlobalSnapshotByOrdinal(ordinal: SnapshotOrdinal)(implicit hs: HasherSelector[F]) : F[Option[Hashed[GlobalIncrementalSnapshot]]] = {
       implicit val hasher = hs.getForOrdinal(ordinal)
-      val q= search(configuration.opensearch.get.indexes.snapshots)
+      val q= search(configuration.opensearch.indexes.snapshots)
         .query(termQuery("ordinal", ordinal.value.value))
-      opensearchDAO.get.singleQuery(q, hitMapper).flatMap ( _.traverse { case (hash, _) =>
-        s3DAO.get.downloadSnapshot(Hash(hash)).flatMap(_.toHashed)
+      opensearchDAO.singleQuery(q, hitMapper).flatMap ( _.traverse { case (hash, _) =>
+        s3DAO.downloadSnapshot(Hash(hash)).flatMap(_.toHashed)
       })
     }
 
@@ -172,11 +170,11 @@ object SnapshotProcessorS3 {
 
           val startAfterOrdinal = hashedIncrementalCombinedO.map(_._1.ordinal).orElse(signedFullGlobalSnapshot.value.ordinal.some).map(_.value.value)
 
-          opensearchDAO.get
+          opensearchDAO
             .bulkStream(searchGlobalSnapshots, hitMapper, cursorMapper, startAfterOrdinal)
             .parEvalMap(reindexerConf.s3Parallelism) { case (h, ts) =>
               logger.info(s"Downloading hash ${h} from S3") >>
-                s3DAO.get.downloadSnapshot(Hash(h)).flatMap { snapshot =>
+                s3DAO.downloadSnapshot(Hash(h)).flatMap { snapshot =>
                   implicit val hasher = HasherSelector[F].getForOrdinal(snapshot.ordinal)
                   logger.info(s" ordinal ${snapshot.ordinal} for hash ${h}")
                   snapshot.toHashed[F]
