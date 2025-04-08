@@ -90,7 +90,7 @@ object SnapshotProcessor {
       lastFullGlobalSnapshotStorage
     )
 
-  private def fsGlobalIncrementalStorage[F[_]: Async: HasherSelector: Files: KryoSerializer](
+  private def fsGlobalIncrementalStorage[F[_]: Async: Parallel: HasherSelector: Files: KryoSerializer](
     configuration: SnapshotStreamingConfig
   ) =
     FileBasedLastGlobalIncrementalSnapshotStorage.make[F](configuration.lastIncrementalSnapshotPath)
