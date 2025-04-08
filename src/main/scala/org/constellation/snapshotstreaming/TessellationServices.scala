@@ -1,5 +1,6 @@
 package org.constellation.snapshotstreaming
 
+import cats.Parallel
 import cats.effect.Async
 import cats.syntax.flatMap._
 import cats.syntax.functor._
@@ -29,7 +30,7 @@ import io.constellationnetwork.schema.epoch.EpochProgress
 
 object TessellationServices {
 
-  def make[F[_] : Async : JsonSerializer : KryoSerializer : SecurityProvider](
+  def make[F[_] : Async : Parallel: JsonSerializer : KryoSerializer : SecurityProvider](
                                                                                env: AppEnvironment,
                                                                                configuration: SharedConfigReader
   )(implicit hasherSelector: HasherSelector[F]): F[TessellationServices[F]] =
@@ -47,7 +48,7 @@ object TessellationServices {
           nodeConfig.feeConfigs,
           nodeConfig.snapshotSize.maxStateChannelSnapshotBinarySizeInBytes,
           txHasher,
-          DelegatedStakingConfig(nodeConfig.delegatedStaking.minRewardFraction, nodeConfig.delegatedStaking.maxRewardFraction, configuration.delegatedStaking.withdrawalTimeLimit)
+          DelegatedStakingConfig(nodeConfig.delegatedStaking.minRewardFraction, nodeConfig.delegatedStaking.maxRewardFraction, configuration.delegatedStaking.maxMetadataFieldsChars, configuration.delegatedStaking.withdrawalTimeLimit)
         )
       }
 

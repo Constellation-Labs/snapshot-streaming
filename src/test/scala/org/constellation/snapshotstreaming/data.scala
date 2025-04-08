@@ -1,5 +1,6 @@
 package org.constellation.snapshotstreaming
 
+import cats.Parallel
 import cats.data.NonEmptyList
 import cats.data.NonEmptySet
 import cats.syntax.all._
@@ -53,7 +54,7 @@ object data {
     def select(ordinal: SnapshotOrdinal): HashLogic = JsonHash
   }
 
-  def incrementalGlobalSnapshot[F[_]: Sync: HasherSelector](
+  def incrementalGlobalSnapshot[F[_]: Parallel: Sync: HasherSelector](
     ordinal: NonNegLong,
     height: NonNegLong,
     subHeight: NonNegLong,
@@ -191,7 +192,7 @@ object data {
     )
   }
 
-  def incrementalCurrencySnapshot[F[_]: Sync: HasherSelector](
+  def incrementalCurrencySnapshot[F[_]: Parallel: Sync: HasherSelector](
     ordinal: NonNegLong,
     height: NonNegLong,
     subHeight: NonNegLong,

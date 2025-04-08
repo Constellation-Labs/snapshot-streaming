@@ -59,7 +59,7 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
     }
 
   def mkInitialSnapshot()(implicit h: HasherSelector[IO]): IO[Hashed[GlobalIncrementalSnapshot]] =
-    incrementalGlobalSnapshot(100L, 10L, 20L, Hash("abc"), Hash("def"))
+    incrementalGlobalSnapshot[IO](100L, 10L, 20L, Hash("abc"), Hash("def"))
 
   test("explicitly sets balance to 0 for addressees missing in in info") { res =>
     implicit val (h, ks, sp, key1, key2, key3, _) = res

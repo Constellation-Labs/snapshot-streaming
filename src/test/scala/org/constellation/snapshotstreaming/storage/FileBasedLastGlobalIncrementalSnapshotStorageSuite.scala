@@ -71,7 +71,7 @@ object FileBasedLastGlobalIncrementalSnapshotStorageSuite extends MutableIOSuite
   )
 
   private def mkInitialSnapshot()(implicit ks: KryoSerializer[IO], h: HasherSelector[IO]) =
-    incrementalGlobalSnapshot(100L, 10L, 20L, Hash("abc"), Hash("def"), snapshotInfo)
+    incrementalGlobalSnapshot[IO](100L, 10L, 20L, Hash("abc"), Hash("def"), snapshotInfo)
 
   test("get should return None before initial snapshot is set") { res =>
     implicit val (ks, h) = res
@@ -176,7 +176,7 @@ object FileBasedLastGlobalIncrementalSnapshotStorageSuite extends MutableIOSuite
 
     fileBasedStorage.use { storage =>
       mkInitialSnapshot.flatMap { initial =>
-        incrementalGlobalSnapshot(102L, 10L, 22L, Hash("ghi"), Hash("jkl"), snapshotInfo).flatMap { nextWrong =>
+        incrementalGlobalSnapshot[IO](102L, 10L, 22L, Hash("ghi"), Hash("jkl"), snapshotInfo).flatMap { nextWrong =>
           storage.setInitial(initial, snapshotInfo) >>
             storage
               .set(nextWrong, snapshotInfo)
@@ -193,7 +193,7 @@ object FileBasedLastGlobalIncrementalSnapshotStorageSuite extends MutableIOSuite
 
     fileBasedStorage.use { storage =>
       mkInitialSnapshot.flatMap { initial =>
-        incrementalGlobalSnapshot(101L, 10L, 21L, Hash("def"), Hash("ghi"), snapshotInfo).flatMap { nextCorrect =>
+        incrementalGlobalSnapshot[IO](101L, 10L, 21L, Hash("def"), Hash("ghi"), snapshotInfo).flatMap { nextCorrect =>
           storage.setInitial(initial, snapshotInfo) >>
             storage
               .set(nextCorrect, GlobalSnapshotInfo.empty)
@@ -210,7 +210,7 @@ object FileBasedLastGlobalIncrementalSnapshotStorageSuite extends MutableIOSuite
 
     fileBasedStorage.use { storage =>
       mkInitialSnapshot.flatMap { initial =>
-        incrementalGlobalSnapshot(101L, 10L, 21L, Hash("def"), Hash("ghi"), snapshotInfo).flatMap { nextCorrect =>
+        incrementalGlobalSnapshot[IO](101L, 10L, 21L, Hash("def"), Hash("ghi"), snapshotInfo).flatMap { nextCorrect =>
           storage.setInitial(initial, snapshotInfo) >>
             storage
               .set(nextCorrect, snapshotInfo)
