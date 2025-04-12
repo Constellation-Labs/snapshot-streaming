@@ -37,7 +37,7 @@ object TessellationServices {
     for {
       _ <- Async[F].unit
       nodeConfig = Configuration.nodeSharedConfig(env, configuration)
-      tokenLocksAddedToGl0Ordinal = configuration.fieldsAddedOrdinals.globalTokenLocks.getOrElse(env, SnapshotOrdinal.MinValue)
+      tokenLocksAddedToGl0Ordinal = configuration.fieldsAddedOrdinals.tessellation3Migration.getOrElse(env, SnapshotOrdinal.MinValue)
       txHasher = Hasher.forKryo
       validators = hasherSelector.withCurrent { implicit hasher =>
         SharedValidators.make[F](
@@ -59,6 +59,7 @@ object TessellationServices {
       currencySnapshotContextFns <- {
         val currencySnapshotAcceptanceManager: CurrencySnapshotAcceptanceManager[F] =
           CurrencySnapshotAcceptanceManager.make(
+            configuration.fieldsAddedOrdinals.tessellation3Migration(env),
             LastGlobalSnapshotsSyncConfig(NonNegLong(2L), PosInt(10)),
             BlockAcceptanceManager.make[F](validators.currencyBlockValidator, txHasher),
             TokenLockBlockAcceptanceManager.make(validators.tokenLockBlockValidator),
@@ -73,6 +74,7 @@ object TessellationServices {
           CurrencySnapshotEventValidationErrorStorage.make(PosInt(10)).map { validationErrorStorage =>
             val currencySnapshotCreator = CurrencySnapshotCreator
               .make[F](
+                configuration.fieldsAddedOrdinals.tessellation3Migration(env),
                 currencySnapshotAcceptanceManager,
                 None,
                 nodeConfig.snapshotSize,
@@ -96,9 +98,7 @@ object TessellationServices {
             feeCalculator
           )
         val globalSnapshotAcceptanceManager: GlobalSnapshotAcceptanceManager[F] = GlobalSnapshotAcceptanceManager.make(
-          tokenLocksAddedToGl0Ordinal,
-          nodeConfig.fieldsAddedOrdinals.globalTokenLocks(env),
-          nodeConfig.fieldsAddedOrdinals.nodeCollateral(env),
+          configuration.fieldsAddedOrdinals.tessellation3Migration(env),
           BlockAcceptanceManager.make[F](validators.blockValidator, txHasher),
           AllowSpendBlockAcceptanceManager.make[F](validators.allowSpendBlockValidator),
           TokenLockBlockAcceptanceManager.make[F](validators.tokenLockBlockValidator),
