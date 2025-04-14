@@ -1,6 +1,6 @@
 package org.constellation.snapshotstreaming.storage
 
-import cats.Applicative
+import cats.{Applicative, Parallel}
 import cats.effect._
 import cats.syntax.all._
 import fs2.compression.Compression
@@ -36,7 +36,7 @@ object FileBasedLastGlobalIncrementalSnapshotStorage {
       .compile
       .drain
 
-  def make[F[_] : Async : HasherSelector : Files : KryoSerializer : Compression](
+  def make[F[_] : Async : Parallel: HasherSelector : Files : KryoSerializer : Compression](
     path: Path
   ): F[LastSnapshotStorage[F, GlobalIncrementalSnapshot, GlobalSnapshotInfo]] = {
 
@@ -60,7 +60,7 @@ object FileBasedLastGlobalIncrementalSnapshotStorage {
     readSnapshotWithState.flatMap(Ref.of[F, Option[SnapshotWithState]](_).map(make(_, path)))
   }
 
-  def make[F[_] : Async : HasherSelector : Files : KryoSerializer : Compression](
+  def make[F[_] : Async : Parallel: HasherSelector : Files : KryoSerializer : Compression](
     cachedSnapshot: Ref[F, Option[SnapshotWithState]],
     path          : Path
   ): LastSnapshotStorage[F, GlobalIncrementalSnapshot, GlobalSnapshotInfo] =

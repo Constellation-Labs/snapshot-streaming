@@ -1,5 +1,6 @@
 package org.constellation.snapshotstreaming
 
+import cats.Parallel
 import cats.effect.Async
 import cats.syntax.flatMap._
 import cats.syntax.functor._
@@ -19,7 +20,7 @@ import org.tessellation.node.shared.domain.statechannel.FeeCalculator
 
 object TessellationServices {
 
-  def make[F[_]: Async: JsonSerializer: KryoSerializer: SecurityProvider](
+  def make[F[_]: Async: Parallel: JsonSerializer: KryoSerializer: SecurityProvider](
     configuration: Configuration,
   )(implicit hasherSelector: HasherSelector[F]): F[TessellationServices[F]] =
     for {
