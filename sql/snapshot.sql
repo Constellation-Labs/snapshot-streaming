@@ -1,5 +1,53 @@
 -- DROP SCHEMA public;
 
+
+
+
+-- DROP FUNCTION public.insert_into_parent_abstract_blocks();
+
+CREATE OR REPLACE FUNCTION public.insert_into_parent_abstract_blocks()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+BEGIN
+    INSERT INTO abstract_blocks (hash, height, created_at)
+    VALUES (NEW.hash, NEW.height, NEW.created_at)
+    ON CONFLICT (hash) DO NOTHING;
+    RETURN NEW;
+END;
+$function$
+;
+
+-- DROP FUNCTION public.insert_into_parent_abstract_transactions();
+
+CREATE OR REPLACE FUNCTION public.insert_into_parent_abstract_transactions()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+BEGIN
+    INSERT INTO abstract_transactions (hash, source_addr, amount, created_at)
+    VALUES (NEW.hash, NEW.source_addr, NEW.amount, NEW.created_at)
+    ON CONFLICT (hash) DO NOTHING;
+
+    RETURN NEW;
+END;
+$function$
+;
+
+-- DROP FUNCTION public.update_updated_at_column();
+
+CREATE OR REPLACE FUNCTION public.update_updated_at_column()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+BEGIN
+  NEW.updated_at = NOW();
+  RETURN NEW;
+END;
+$function$
+;
+
+
 -- public.abstract_blocks definition
 
 -- Drop table
@@ -117,39 +165,6 @@ CREATE TABLE block_parents (
 );
 CREATE INDEX block_parents_hash_idx ON public.block_parents USING btree (hash);
 
-
--- public.dag_allow_spend_blocks definition
-
--- Drop table
-
--- DROP TABLE dag_allow_spend_blocks;
-
-CREATE TABLE dag_allow_spend_blocks (
-	round_id uuid NOT NULL,
-	global_snapshot_hash varchar NOT NULL,
-	created_at timestamp DEFAULT now() NOT NULL,
-	updated_at timestamp DEFAULT now() NOT NULL,
-	CONSTRAINT dag_allow_spend_blocks_pkey PRIMARY KEY (global_snapshot_hash),
-	CONSTRAINT dag_allow_spend_blocks_unique UNIQUE (round_id),
-	CONSTRAINT dag_allow_spend_blocks_global_snapshot_fk FOREIGN KEY (global_snapshot_hash) REFERENCES global_snapshots(hash) ON DELETE CASCADE
-);
-
--- Table Triggers
-
-create trigger set_updated_at_dag_allow_spend_blocks before
-update
-    on
-    public.dag_allow_spend_blocks for each row execute function update_updated_at_column();
-create trigger set_updated_at_dag_token_lock_blocks before
-update
-    on
-    public.dag_allow_spend_blocks for each row execute function update_updated_at_column();
-create trigger trigger_insert_abstract_transactions_dag_allow_spend_blocks before
-update
-    on
-    public.dag_allow_spend_blocks for each row execute function update_updated_at_column();
-
-
 -- public.dag_allow_spends definition
 
 -- Drop table
@@ -164,9 +179,9 @@ CREATE TABLE dag_allow_spends (
 	last_valid_epoch_progress int8 NOT NULL,
 	round_id uuid NOT NULL,
 	ordinal int8 NOT NULL,
+	snapshot_hash varchar NOT NULL,
 	CONSTRAINT dag_allow_spends_ordinal UNIQUE (ordinal),
 	CONSTRAINT dag_allow_spends_pk PRIMARY KEY (hash),
-	CONSTRAINT allow_spends_block_fk FOREIGN KEY (round_id) REFERENCES dag_allow_spend_blocks(round_id) ON DELETE CASCADE,
 	CONSTRAINT dag_allow_spends_destination_addr_fk FOREIGN KEY (destination_addr) REFERENCES addresses(address) ON DELETE CASCADE,
 	CONSTRAINT dag_allow_spends_source_addr_fk FOREIGN KEY (source_addr) REFERENCES addresses(address) ON DELETE CASCADE
 )
@@ -273,13 +288,12 @@ update
 CREATE TABLE dag_spend_transactions (
 	destination_addr varchar NULL,
 	allow_spend_ref varchar NULL,
+	snapshot_hash varchar NOT NULL,
 	CONSTRAINT dag_spend_transactions_pk PRIMARY KEY (hash),
 	CONSTRAINT dag_spend_transactions_dag_allow_spends_fk FOREIGN KEY (allow_spend_ref) REFERENCES dag_allow_spends(hash) ON DELETE CASCADE,
 	CONSTRAINT dag_spend_transactions_destination_addr_fk FOREIGN KEY (destination_addr) REFERENCES addresses(address) ON DELETE CASCADE
 )
 INHERITS (public.abstract_transactions);
-
--- Table Triggers
 
 create trigger set_updated_at_dag_spend_transactions before
 update
@@ -291,12 +305,11 @@ insert
     public.dag_spend_transactions for each row execute function insert_into_parent_abstract_transactions();
 
 
-
 CREATE TABLE dag_expired_spend_transactions (
 	allow_spend_ref varchar NULL,
 	snapshot_hash varchar NOT NULL,
 	CONSTRAINT dag_expired_spend_transactions_pk PRIMARY KEY (hash),
-	CONSTRAINT dag_expired_spend_transactions_dag_allow_spends_fk FOREIGN KEY (allow_spend_ref) REFERENCES dag_allow_spends(hash) ON DELETE CASCADE,
+	CONSTRAINT dag_expired_spend_transactions_dag_allow_spends_fk FOREIGN KEY (allow_spend_ref) REFERENCES dag_allow_spends(hash) ON DELETE CASCADE
 )
 INHERITS (public.abstract_transactions);
 
@@ -306,7 +319,7 @@ create trigger set_updated_at_dag_expired_spend_transactions before
 update
     on
     public.dag_expired_spend_transactions for each row execute function update_updated_at_column();
-create trigger trigger_insert_abstract_transactions_dag_expired_spend_transactions after
+create trigger trigger_insert_abstract_transactions_dag_expired_spend_transact after
 insert
     on
     public.dag_expired_spend_transactions for each row execute function insert_into_parent_abstract_transactions();
@@ -338,13 +351,12 @@ CREATE TABLE dag_token_lock_blocks (
 
 CREATE TABLE dag_token_locks (
 	ordinal int8 NOT NULL,
-	unlock_epoch int8 NOT NULL,
+	unlock_epoch int8 NULL,
 	round_id uuid NOT NULL,
 	parent_hash varchar NULL,
-	global_snapshot_hash varchar NOT NULL,
+	snapshot_hash varchar NOT NULL,
 	CONSTRAINT dag_token_locks_pk PRIMARY KEY (hash),
 	CONSTRAINT dag_token_locks_unique UNIQUE (hash, ordinal),
-	CONSTRAINT dag_token_lock_block_fk FOREIGN KEY (round_id) REFERENCES dag_token_lock_blocks(round_id) ON DELETE CASCADE,
 	CONSTRAINT dag_token_locks_source_addr_fk FOREIGN KEY (source_addr) REFERENCES addresses(address) ON DELETE CASCADE
 )
 INHERITS (public.abstract_transactions);
@@ -370,6 +382,8 @@ insert
 CREATE TABLE dag_token_unlocks (
 	lock_reference_ordinal int8 NOT NULL,
 	lock_reference_hash varchar NOT NULL,
+	snapshot_hash varchar NOT NULL,
+	parent_hash varchar NOT NULL,
 	CONSTRAINT dag_token_unlocks_pk PRIMARY KEY (lock_reference_ordinal, lock_reference_hash),
 	CONSTRAINT dag_token_unlocks_token_locks_fk FOREIGN KEY (lock_reference_hash,lock_reference_ordinal) REFERENCES dag_token_locks(hash,ordinal) ON DELETE CASCADE,
 	CONSTRAINT ddag_token_unlocks_address_fk FOREIGN KEY (source_addr) REFERENCES addresses(address) ON DELETE CASCADE
@@ -519,13 +533,12 @@ CREATE TABLE metagraph_token_locks (
 	metagraph_id varchar NOT NULL,
 	ordinal int8 NOT NULL,
 	unlock_epoch int8 NOT NULL,
-	round_id uuid NOT NULL,
+	round_id varchar NOT NULL,
 	parent_hash varchar NULL,
 	snapshot_hash varchar NOT NULL,
 	CONSTRAINT metagraph_token_locks_pk PRIMARY KEY (metagraph_id, hash),
 	CONSTRAINT metagraph_token_locks_unique UNIQUE (metagraph_id, ordinal),
 	CONSTRAINT metagraph_id_fk FOREIGN KEY (metagraph_id) REFERENCES metagraphs(id) ON DELETE CASCADE,
-	CONSTRAINT metagraph_token_lock_block_fk FOREIGN KEY (metagraph_id,round_id) REFERENCES metagraph_token_lock_blocks(metagraph_id,round_id) ON DELETE CASCADE,
 	CONSTRAINT metagraph_token_locks_source_addr_fk FOREIGN KEY (source_addr) REFERENCES addresses(address) ON DELETE CASCADE
 )
 INHERITS (public.abstract_transactions);
@@ -552,6 +565,8 @@ CREATE TABLE metagraph_token_unlocks (
 	metagraph_id varchar NOT NULL,
 	lock_reference_ordinal int8 NOT NULL,
 	lock_reference_hash varchar NOT NULL,
+	snapshot_hash varchar NOT NULL,
+	parent_hash varchar NOT NULL,
 	CONSTRAINT metagraph_token_unlocks_pk PRIMARY KEY (lock_reference_ordinal, lock_reference_hash),
 	CONSTRAINT address_fk FOREIGN KEY (source_addr) REFERENCES addresses(address) ON DELETE CASCADE,
 	CONSTRAINT metagraph_id_fk FOREIGN KEY (metagraph_id) REFERENCES metagraphs(id) ON DELETE CASCADE,
@@ -626,6 +641,7 @@ CREATE TABLE metagraph_allow_spends (
 	last_valid_epoch_progress int8 NOT NULL,
 	round_id uuid NOT NULL,
 	ordinal int8 NOT NULL,
+	snapshot_hash varchar NOT NULL,
 	CONSTRAINT metagraph_allow_spends_ordinal UNIQUE (ordinal),
 	CONSTRAINT metagraph_allow_spends_pk PRIMARY KEY (hash),
 	CONSTRAINT allow_spends_block_fk FOREIGN KEY (round_id) REFERENCES metagraph_allow_spend_blocks(round_id) ON DELETE CASCADE,
@@ -772,6 +788,7 @@ CREATE TABLE metagraph_spend_transactions (
 	metagraph_id varchar NOT NULL,
 	destination_addr varchar NOT NULL,
 	allow_spend_ref varchar NULL,
+	snapshot_hash varchar NOT NULL,
 	CONSTRAINT metagraph_spend_transactions_pk PRIMARY KEY (hash),
 	CONSTRAINT metagraph_spend_transactions_metagraph_allow_spends_fk FOREIGN KEY (allow_spend_ref) REFERENCES metagraph_allow_spends(hash) ON DELETE CASCADE,
 	CONSTRAINT metagraph_spend_transactions_destination_addr_fk FOREIGN KEY (destination_addr) REFERENCES addresses(address) ON DELETE CASCADE,
@@ -792,10 +809,11 @@ insert
 
 
 CREATE TABLE metagraph_expired_spend_transactions (
-    metagraph_id varchar NOT NULL,
+	metagraph_id varchar NOT NULL,
 	allow_spend_ref varchar NULL,
-	CONSTRAINT metagraph_expired_spend_transactions_pk PRIMARY KEY (hash)
-	CONSTRAINT metagraph_expired_spend_transactions_metagraph_allow_spends_fk FOREIGN KEY (allow_spend_ref) REFERENCES metagraph_allow_spends(hash) ON DELETE CASCADE,
+	snapshot_hash varchar NULL,
+	CONSTRAINT metagraph_expired_spend_transactions_pk PRIMARY KEY (hash),
+	CONSTRAINT metagraph_expired_spend_transactions_metagraph_allow_spends_fk FOREIGN KEY (allow_spend_ref) REFERENCES metagraph_allow_spends(hash) ON DELETE CASCADE
 )
 INHERITS (public.abstract_transactions);
 
@@ -805,7 +823,7 @@ create trigger set_updated_at_metagraph_expired_spend_transactions before
 update
     on
     public.metagraph_expired_spend_transactions for each row execute function update_updated_at_column();
-create trigger trigger_insert_abstract_transactions_metagraph_expired_spend_transactions after
+create trigger trigger_insert_abstract_transactions_metagraph_expired_spend_tr after
 insert
     on
     public.metagraph_expired_spend_transactions for each row execute function insert_into_parent_abstract_transactions();
@@ -872,49 +890,3 @@ AS SELECT tx.hash,
    FROM abstract_transactions tx
      JOIN pg_class p ON tx.tableoid = p.oid
   WHERE p.relname <> 'abstract_transactions'::name;
-
-
-
--- DROP FUNCTION public.insert_into_parent_abstract_blocks();
-
-CREATE OR REPLACE FUNCTION public.insert_into_parent_abstract_blocks()
- RETURNS trigger
- LANGUAGE plpgsql
-AS $function$
-BEGIN
-    INSERT INTO abstract_blocks (hash, height, created_at)
-    VALUES (NEW.hash, NEW.height, NEW.created_at)
-    ON CONFLICT (hash) DO NOTHING;
-    RETURN NEW;
-END;
-$function$
-;
-
--- DROP FUNCTION public.insert_into_parent_abstract_transactions();
-
-CREATE OR REPLACE FUNCTION public.insert_into_parent_abstract_transactions()
- RETURNS trigger
- LANGUAGE plpgsql
-AS $function$
-BEGIN
-    INSERT INTO abstract_transactions (hash, source_addr, amount, created_at)
-    VALUES (NEW.hash, NEW.source_addr, NEW.amount, NEW.created_at)
-    ON CONFLICT (hash) DO NOTHING;
-
-    RETURN NEW;
-END;
-$function$
-;
-
--- DROP FUNCTION public.update_updated_at_column();
-
-CREATE OR REPLACE FUNCTION public.update_updated_at_column()
- RETURNS trigger
- LANGUAGE plpgsql
-AS $function$
-BEGIN
-  NEW.updated_at = NOW();
-  RETURN NEW;
-END;
-$function$
-;

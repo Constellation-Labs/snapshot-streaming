@@ -37,7 +37,7 @@ object TessellationServices {
     for {
       _ <- Async[F].unit
       nodeConfig = Configuration.nodeSharedConfig(env, configuration)
-      tokenLocksAddedToGl0Ordinal = configuration.fieldsAddedOrdinals.tessellation3Migration.getOrElse(env, SnapshotOrdinal.MinValue)
+      tessellation3Migration = configuration.fieldsAddedOrdinals.tessellation3Migration.getOrElse(env, SnapshotOrdinal.MinValue)
       txHasher = Hasher.forKryo
       validators = hasherSelector.withCurrent { implicit hasher =>
         SharedValidators.make[F](
@@ -59,7 +59,7 @@ object TessellationServices {
       currencySnapshotContextFns <- {
         val currencySnapshotAcceptanceManager: CurrencySnapshotAcceptanceManager[F] =
           CurrencySnapshotAcceptanceManager.make(
-            configuration.fieldsAddedOrdinals.tessellation3Migration(env),
+            tessellation3Migration,
             LastGlobalSnapshotsSyncConfig(NonNegLong(2L), PosInt(10)),
             BlockAcceptanceManager.make[F](validators.currencyBlockValidator, txHasher),
             TokenLockBlockAcceptanceManager.make(validators.tokenLockBlockValidator),
@@ -74,7 +74,7 @@ object TessellationServices {
           CurrencySnapshotEventValidationErrorStorage.make(PosInt(10)).map { validationErrorStorage =>
             val currencySnapshotCreator = CurrencySnapshotCreator
               .make[F](
-                configuration.fieldsAddedOrdinals.tessellation3Migration(env),
+                tessellation3Migration,
                 currencySnapshotAcceptanceManager,
                 None,
                 nodeConfig.snapshotSize,
@@ -82,7 +82,7 @@ object TessellationServices {
                 validationErrorStorage
               )
             val currencySnapshotValidator = CurrencySnapshotValidator
-              .make[F](tokenLocksAddedToGl0Ordinal, currencySnapshotCreator, SignedValidator.make[F], None, None)
+              .make[F](tessellation3Migration, currencySnapshotCreator, SignedValidator.make[F], None, None)
             CurrencySnapshotContextFunctions.make(currencySnapshotValidator)
           }
         }
@@ -98,7 +98,7 @@ object TessellationServices {
             feeCalculator
           )
         val globalSnapshotAcceptanceManager: GlobalSnapshotAcceptanceManager[F] = GlobalSnapshotAcceptanceManager.make(
-          configuration.fieldsAddedOrdinals.tessellation3Migration(env),
+          tessellation3Migration,
           BlockAcceptanceManager.make[F](validators.blockValidator, txHasher),
           AllowSpendBlockAcceptanceManager.make[F](validators.allowSpendBlockValidator),
           TokenLockBlockAcceptanceManager.make[F](validators.tokenLockBlockValidator),

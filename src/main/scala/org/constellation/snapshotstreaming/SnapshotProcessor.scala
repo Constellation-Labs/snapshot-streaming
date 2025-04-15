@@ -3,13 +3,12 @@ package org.constellation.snapshotstreaming
 import cats.data.{NonEmptyList, Validated}
 import cats.effect._
 import cats.effect.std.{Console, Random}
-import cats.effect.syntax.all._
+
 import cats.syntax.all._
 import cats.{Applicative, Parallel}
-import com.sksamuel.elastic4s.ElasticDsl.bulk
 import com.sksamuel.elastic4s.requests.update.UpdateRequest
 import fs2.Stream
-import fs2.io.file.{Files, Flag, Flags, Path}
+import fs2.io.file.{Files, Flags, Path}
 import fs2.io.net.Network
 import io.constellationnetwork.currency.schema.currency.{CurrencyIncrementalSnapshot, CurrencySnapshot, CurrencySnapshotInfo}
 import io.constellationnetwork.ext.cats.syntax.next._

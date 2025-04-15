@@ -12,7 +12,6 @@ import io.constellationnetwork.node.shared.ext.pureconfig._
 import io.constellationnetwork.schema.SnapshotOrdinal
 import io.constellationnetwork.security._
 import eu.timepit.refined.pureconfig._
-import org.constellation.snapshotstreaming.schema.kryoRegistrar
 import org.typelevel.log4cats.slf4j.Slf4jLogger
 import org.typelevel.otel4s.trace.Tracer.Implicits.noop
 import pureconfig.ConfigSource
