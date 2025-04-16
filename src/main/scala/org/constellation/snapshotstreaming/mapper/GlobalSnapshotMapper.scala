@@ -4,7 +4,7 @@ import cats.effect.Async
 import cats.syntax.all._
 import eu.timepit.refined.auto._
 import io.constellationnetwork.schema.address.Address
-import io.constellationnetwork.schema.delegatedStake.{DelegatedStakeRecord, PendingDelegatedStakeWithdrawal}
+import io.constellationnetwork.schema.delegatedStake.{DelegatedStakeRecord, PendingWithdrawal}
 import io.constellationnetwork.schema.peer.PeerId
 import io.constellationnetwork.schema.round.RoundId
 import io.constellationnetwork.schema.{
@@ -168,13 +168,17 @@ abstract class GlobalSnapshotMapper[F[_]: Async] extends SnapshotMapper[F, Globa
         }
       }
 
+      previousNodeIdByStakingRefHash <- prev.traverse { case (_, dsr) =>
+        dsr.event.toHashed.map(_.hash.value -> dsr.event.nodeId)
+      }.map(_.toMap)
+
       unstakedToZeroBalances <- flatten(snapshotInfo.delegatedStakesWithdrawals).traverse { case (address, dsr) =>
         dsr.event.toHashed.map { hashedDsr =>
           DelegatedStakingBalanceChanges(
             snapshotHash = gsHash.value,
             snapshotOrdinal = gsOrdinal.value.value,
             address = address.value,
-            nodeId = dsr.event.value.nodeId.value.value,
+            nodeId = previousNodeIdByStakingRefHash(dsr.event.stakeRef.value).value.value,
             balance = 0L,
             rewards = 0L,
             stakingCreateEvent = StakingEventWithdraw(hashedDsr.hash.value)
@@ -187,14 +191,14 @@ abstract class GlobalSnapshotMapper[F[_]: Async] extends SnapshotMapper[F, Globa
   }
 
   private def mapDelegatedStakingWithdraw(snapshotHash: Hash)(
-    pendingWithdrawal: PendingDelegatedStakeWithdrawal
+    pendingWithdrawal: PendingWithdrawal
   )(implicit hasher: Hasher[F]): F[DelegatedStakingWithdraw] =
     pendingWithdrawal.event.toHashed.map { staking =>
       DelegatedStakingWithdraw(
         snapshotHash.value,
         staking.hash.value,
         staking.source.value,
-        staking.hash.value,
+        staking.stakeRef.value,
         pendingWithdrawal.rewards.value,
         pendingWithdrawal.createdAt.value.value
       )
@@ -209,12 +213,12 @@ abstract class GlobalSnapshotMapper[F[_]: Async] extends SnapshotMapper[F, Globa
     implicit val hs: Hasher[F] = hasher
 
     val prePendingWithdrawalsStakeRefs =
-      maybePrevSnapshotInfo.toSeq.flatMap(s => flatten(s.delegatedStakesWithdrawals).map(_._2.event))
+      maybePrevSnapshotInfo.toSeq.flatMap(s => flatten(s.delegatedStakesWithdrawals).map(_._2.event.stakeRef))
 
     snapshotInfo.delegatedStakesWithdrawals.toList.flatTraverse(_.toList.flatTraverse { case (_, stakes) =>
       // keep only the new pending withdrawals
       stakes
-        .filterNot(dsr => prePendingWithdrawalsStakeRefs.contains(dsr.event))
+        .filterNot(dsr => prePendingWithdrawalsStakeRefs.contains(dsr.event.stakeRef))
         .traverse(mapDelegatedStakingWithdraw(snapshotHash))
     })
   }
