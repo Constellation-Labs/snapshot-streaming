@@ -18,8 +18,12 @@ object schema {
     allowSpends: Seq[AllowSpend] = Seq.empty,
     tokenLocks: Seq[TokenLock] = Seq.empty,
     tokenUnlocks: Seq[TokenUnlock] = Seq.empty,
+    delegatedStakingCreate: Seq[DelegatedStakingCreate],
+    delegatedStakingWithdraw: Seq[DelegatedStakingWithdraw],
+    delegatedStakingRewards: Seq[DelegatedStakingReward],
+    delegatedStakingBalanceChanges: Seq[DelegatedStakingBalanceChanges],
     spendTransactions: Seq[SpendTransaction],
-    allowSpendExpirations: Seq[AllowSpendExpiration],
+    allowSpendExpirations: Seq[AllowSpendExpiration]
   )
 
   case class MetagraphData(
@@ -32,11 +36,10 @@ object schema {
     spendTransactions: Seq[CurrencyData[SpendTransaction]],
     allowSpendExpirations: Seq[CurrencyData[AllowSpendExpiration]],
     tokenLocks: Seq[CurrencyData[TokenLock]] = Seq.empty,
-    tokenUnlocks: Seq[CurrencyData[TokenUnlock]] = Seq.empty,
-
+    tokenUnlocks: Seq[CurrencyData[TokenUnlock]] = Seq.empty
   )
 
-  def toIncremental(snapshot: Snapshot): CurrencySnapshot = {
+  def toIncremental(snapshot: Snapshot): CurrencySnapshot =
     CurrencySnapshot(
       hash = snapshot.hash,
       ordinal = snapshot.ordinal,
@@ -53,9 +56,6 @@ object schema {
       version = snapshot.version,
       sizeInKB = 0
     )
-  }
-
-
 
   implicit val dateEncoder: Encoder[Date] =
     Encoder.encodeString.contramap(date => date.toInstant.toString)

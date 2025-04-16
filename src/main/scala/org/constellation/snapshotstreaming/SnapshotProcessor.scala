@@ -2,8 +2,8 @@ package org.constellation.snapshotstreaming
 
 import cats.data.{NonEmptyList, Validated}
 import cats.effect._
+import cats.effect.implicits.clockOps
 import cats.effect.std.{Console, Random}
-
 import cats.syntax.all._
 import cats.{Applicative, Parallel}
 import com.sksamuel.elastic4s.requests.update.UpdateRequest
@@ -81,7 +81,6 @@ object SnapshotProcessor {
       l0Service,
       s3DAO,
       snapshotDAO,
-      opensearchDAO,
       GlobalSnapshotMapper.make(),
       CurrencySnapshotMapper.make(),
       txHasher,
@@ -110,7 +109,6 @@ object SnapshotProcessor {
     l0Service: GlobalL0Service[F],
     s3DAO: S3DAO[F],
     snapshotDAO: SnapshotDAO[F],
-    opensearchDAO: OpensearchDAO[F],
     globalMapper: GlobalSnapshotMapper[F],
     currencyMapper: CurrencySnapshotMapper[F],
     txHasher: Hasher[F],
@@ -119,25 +117,21 @@ object SnapshotProcessor {
   ): SnapshotProcessor[F] = new SnapshotProcessor[F] {
     private val logger = Slf4jLogger.getLogger[F]
 
-    private def logGroupedRequests(br: Seq[UpdateRequest], mode: String): F[Unit] = {
-      val groupedBr = br.groupBy(_.index.index)
-      groupedBr.toList.traverse_ { case (index, group) =>
-        logger.info(s"Processing $mode group for index: $index with ${group.size} requests")
-      }
-    }
-
     private def storeInPostgres(global: GlobalData, metagraph: MetagraphData) =
-      snapshotDAO.insertGlobalData(global, metagraph.snapshots.size) >> snapshotDAO
+        (snapshotDAO.insertGlobalData(global, metagraph.snapshots.size) >> snapshotDAO
           .insertMetagraphData(global.snapshot.hash, metagraph)
-          .whenA(metagraph.snapshots.nonEmpty)  >>
-        logger
-          .info(s"Snapshot ${global.snapshot.ordinal} (hash: ${global.snapshot.hash.show}) sent to postgres.") >>
-        logger
-          .info(s"Metagraph Snapshots for currencies ${metagraph.snapshots.map(_.identifier) }  sent to postgres.")
-          .handleErrorWith(s => logger.error(s)("Error in database layer") >> s.raiseError[F, Unit])
+          .whenA(metagraph.snapshots.nonEmpty)).timed.flatMap { t =>
+          logger
+            .info(s"Snapshot ${global.snapshot.ordinal} (hash: ${global.snapshot.hash.show}) sent to postgres in ${t._1.toSeconds} s.") >>
+            logger
+              .info(s"Metagraph Snapshots for currencies ${metagraph.snapshots.map(_.identifier)}  sent to postgres.")
+              .handleErrorWith(s => logger.error(s)("Error in database layer") >> s.raiseError[F, Unit])
+        }
 
     private def storeInS3(globalSnapshotWithState: GlobalSnapshotWithState, hasher: Hasher[F]) =
-      s3DAO.uploadSnapshot(globalSnapshotWithState.snapshot, hasher.getLogic(globalSnapshotWithState.snapshot.ordinal)).void
+      s3DAO
+        .uploadSnapshot(globalSnapshotWithState.snapshot, hasher.getLogic(globalSnapshotWithState.snapshot.ordinal))
+        .void
 
     private def splitData(globalSnapshotWithState: GlobalSnapshotWithState, d: LocalDateTime, hasher: Hasher[F]) = (
       globalMapper.mapGlobalSnapshot(globalSnapshotWithState, d, txHasher, hasher),
@@ -148,10 +142,16 @@ object SnapshotProcessor {
       storeInS3(globalSnapshotWithState, hasher).whenA(configuration.s3.uploadEnabled) >> Clock[F].realTime.map { d =>
         val instant = Instant.ofEpochMilli(d.toMillis)
         LocalDateTime.ofInstant(instant, ZoneId.systemDefault())
-      }.flatMap(splitData(globalSnapshotWithState, _, hasher)).flatMap { case (globalData, metagraphData) =>
-        Async[F].delay { if (metagraphData.snapshots.isEmpty && globalSnapshotWithState.currencySnapshots.nonEmpty) throw new Exception(s"No MG snapshots for ${globalSnapshotWithState.currencySnapshots}") else () } >>
-        storeInPostgres(globalData, metagraphData)
-      }.void
+      }.flatMap(splitData(globalSnapshotWithState, _, hasher))
+        .flatMap { case (globalData, metagraphData) =>
+          Async[F].delay {
+            if (metagraphData.snapshots.isEmpty && globalSnapshotWithState.currencySnapshots.nonEmpty)
+              throw new Exception(s"No MG snapshots for ${globalSnapshotWithState.currencySnapshots}")
+            else ()
+          } >>
+            storeInPostgres(globalData, metagraphData)
+        }
+        .void
 
     private def process(globalSnapshotWithState: GlobalSnapshotWithState, hasher: Hasher[F]): F[Unit] = {
       val GlobalSnapshotWithState(snapshot, _, snapshotInfo, _, _) = globalSnapshotWithState
@@ -244,7 +244,13 @@ object SnapshotProcessor {
                     .pullGlobalSnapshot(signedFullGlobalSnapshot.value.ordinal.next)
                     .map(
                       _.map(nextSnapshot =>
-                        GlobalSnapshotWithState(nextSnapshot, None, signedFullGlobalSnapshot.value.info, Map.empty, LocalDateTime.now())
+                        GlobalSnapshotWithState(
+                          nextSnapshot,
+                          None,
+                          signedFullGlobalSnapshot.value.info,
+                          Map.empty,
+                          LocalDateTime.now()
+                        )
                       )
                     )
                     .map(_.toList)
@@ -263,17 +269,20 @@ object SnapshotProcessor {
         }
         .evalMap {
           _.tailRecM {
-            case (state @ GlobalSnapshotWithState(snapshot, _, _, _,_)) :: nextSnapshots
+            case (state @ GlobalSnapshotWithState(snapshot, _, _, _, _)) :: nextSnapshots
                 if configuration.node.terminalSnapshotOrdinal.forall(snapshot.ordinal <= _) =>
               val hasher = HasherSelector[F].getForOrdinal(snapshot.ordinal)
               process(state, hasher) >> {
                 val snapshotWithState = SnapshotWithState(state.snapshot, state.snapshotInfo)
                 val snapshotOrdinal = state.snapshot.ordinal.value.value
-                FileBasedLastGlobalIncrementalSnapshotStorage.
-                  saveSnapshotWithStateJson(Path(s"snapshotWithState.$snapshotOrdinal.json.gz"), snapshotWithState, Flags.Write).
-                  whenA(snapshotOrdinal % configuration.checkpointEvery == 0)
-              }
-                .as{
+                FileBasedLastGlobalIncrementalSnapshotStorage
+                  .saveSnapshotWithStateJson(
+                    Path(s"snapshotWithState.$snapshotOrdinal.json.gz"),
+                    snapshotWithState,
+                    Flags.Write
+                  )
+                  .whenA(snapshotOrdinal % configuration.checkpointEvery == 0)
+              }.as {
                 if (configuration.node.terminalSnapshotOrdinal.forall(snapshot.ordinal < _))
                   nextSnapshots.asLeft[Boolean]
                 else

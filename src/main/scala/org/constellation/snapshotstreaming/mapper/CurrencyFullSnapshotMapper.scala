@@ -12,7 +12,7 @@ import java.time.LocalDateTime
 import scala.collection.immutable.SortedSet
 
 
-abstract class CurrencyFullSnapshotMapper[F[_]: Async] extends SnapshotMapper[F, OriginalCurrencySnapshot, CurrencySnapshotInfo] {
+abstract class CurrencyFullSnapshotMapper[F[_]: Async] extends SnapshotMapper[F, OriginalCurrencySnapshot] {
   def mapSnapshot(snapshot: Hashed[OriginalCurrencySnapshot], timestamp: LocalDateTime, hasher: Hasher[F]): F[Snapshot]
 }
 

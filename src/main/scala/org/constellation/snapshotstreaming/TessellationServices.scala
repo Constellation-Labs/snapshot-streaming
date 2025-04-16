@@ -17,7 +17,6 @@ import io.constellationnetwork.node.shared.infrastructure.consensus.CurrencySnap
 import io.constellationnetwork.node.shared.infrastructure.snapshot._
 import io.constellationnetwork.node.shared.modules.SharedValidators
 import io.constellationnetwork.schema.balance.Amount
-import io.constellationnetwork.schema.node.RewardFraction
 import io.constellationnetwork.security.signature.SignedValidator
 import io.constellationnetwork.security.{Hasher, HasherSelector, SecurityProvider}
 import eu.timepit.refined.auto._
