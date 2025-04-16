@@ -129,6 +129,48 @@ abstract class SnapshotMapper[F[_]: Async, S <: OriginalSnapshot, SI <: Snapshot
   private def mapTransactionRef(nodeRef: OriginalTransactionReference): TransactionReference =
     TransactionReference(nodeRef.hash.value, nodeRef.ordinal.value)
 
+//TODO from chatGPT , verify
+  def optimizedBalanceDiff(
+                      prev: SortedMap[Address, Balance],
+                      balances: SortedMap[Address, Balance]
+                    ): SortedMap[Address, Balance] = {
+    val builder = SortedMap.newBuilder[Address, Balance](balances.ordering)
+
+    val prevIter = prev.iterator
+    val currIter = balances.iterator
+
+    var prevEntry = if (prevIter.hasNext) Some(prevIter.next()) else None
+    var currEntry = if (currIter.hasNext) Some(currIter.next()) else None
+
+    while (prevEntry.isDefined && currEntry.isDefined) {
+      val (addr1, bal1) = prevEntry.get
+      val (addr2, bal2) = currEntry.get
+
+      if (addr1 == addr2) {
+        if (bal1 =!= bal2) {
+          builder += addr2 -> bal2
+        }
+        prevEntry = if (prevIter.hasNext) Some(prevIter.next()) else None
+        currEntry = if (currIter.hasNext) Some(currIter.next()) else None
+      } else if (addr1 < addr2) {
+        prevEntry = if (prevIter.hasNext) Some(prevIter.next()) else None
+      } else { // addr2 < addr1
+        builder += addr2 -> bal2
+        currEntry = if (currIter.hasNext) Some(currIter.next()) else None
+      }
+    }
+
+    // Add remaining curr entries not in prev
+    while (currEntry.isDefined) {
+      val (addr, bal) = currEntry.get
+      builder += addr -> bal
+      currEntry = if (currIter.hasNext) Some(currIter.next()) else None
+    }
+
+    builder.result()
+  }
+
+
   def balanceDiff(
     snapshot: S,
     prevBalances: Option[SortedMap[Address, Balance]],
@@ -136,6 +178,7 @@ abstract class SnapshotMapper[F[_]: Async, S <: OriginalSnapshot, SI <: Snapshot
   ): SortedMap[Address, Balance] =
     prevBalances match {
       case Some(prev) =>
+
         val changed = info.balances.filterNot { case (address, balance) =>
           prev.get(address).exists(_ === balance)
         }

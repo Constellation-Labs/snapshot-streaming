@@ -1,5 +1,6 @@
 package org.constellation.snapshotstreaming
 
+import cats.Parallel
 import cats.effect.Async
 import cats.syntax.flatMap._
 import cats.syntax.functor._
@@ -18,7 +19,6 @@ import eu.timepit.refined.auto._
 import org.tessellation.env.AppEnvironment
 import org.tessellation.node.shared.config.types.SharedConfigReader
 import org.tessellation.node.shared.domain.block.processing.BlockAcceptanceManager
-
 import org.tessellation.node.shared.domain.statechannel.FeeCalculator
 import org.tessellation.schema.SnapshotOrdinal
 import org.tessellation.schema.cluster.ClusterId
@@ -28,7 +28,7 @@ import java.util.UUID
 
 object TessellationServices {
 
-  def make[F[_]: Async: JsonSerializer: KryoSerializer: SecurityProvider](
+  def make[F[_]: Async: Parallel: JsonSerializer: KryoSerializer: SecurityProvider](
     env: AppEnvironment,
     configuration: SharedConfigReader
   )(implicit hasherSelector: HasherSelector[F]): F[TessellationServices[F]] = {
@@ -47,7 +47,6 @@ object TessellationServices {
       stateChannelManager <- GlobalSnapshotStateChannelAcceptanceManager.make(None)
       jsonBrotliBinarySerializer <- JsonBrotliBinarySerializer.forSync[F]
       feeCalculator = FeeCalculator.make(nodeConfig.feeConfigs)
-      sharedStorage <- SharedStorages.make(ClusterId(UUID.randomUUID()), nodeConfig)
       currencySnapshotContextFns = {
         val currencySnapshotAcceptanceManager: CurrencySnapshotAcceptanceManager[F] =
           CurrencySnapshotAcceptanceManager.make(
@@ -66,7 +65,7 @@ object TessellationServices {
       }
 
     } yield {
-      val globalSnapshotStateChannelEventsProcessor =
+      val globalSnapshotStateChannelEventsProcessor: GlobalSnapshotStateChannelEventsProcessor[F] =
         GlobalSnapshotStateChannelEventsProcessor.make[F](
           validators.stateChannelValidator,
           stateChannelManager,

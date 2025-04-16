@@ -5,17 +5,14 @@ import cats.syntax.all._
 import com.sksamuel.elastic4s.ElasticDsl._
 import com.sksamuel.elastic4s._
 import com.sksamuel.elastic4s.http.JavaClient
-import com.sksamuel.elastic4s.requests.bulk.{BulkRequest, BulkResponse}
-import com.sksamuel.elastic4s.requests.searches.{SearchHit, SearchRequest, SearchResponse}
+import com.sksamuel.elastic4s.requests.searches.{SearchHit, SearchRequest}
 import org.typelevel.log4cats.slf4j.Slf4jLogger
 import fs2.Stream
 import org.constellation.snapshotstreaming.OpenSearchConfig
 import scala.reflect.ClassTag
 import cats.effect.implicits.clockOps
-import scala.util.{Failure, Success}
 
 trait OpensearchDAO[F[_]] {
-  def sendToOpensearch(bulkRequest: BulkRequest): F[Unit]
 
   def bulkStream[T: ClassTag, C: ClassTag](
     search: SearchRequest,

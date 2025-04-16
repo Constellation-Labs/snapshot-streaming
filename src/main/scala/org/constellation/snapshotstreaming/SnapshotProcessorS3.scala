@@ -10,7 +10,7 @@ import com.sksamuel.elastic4s.ElasticApi.{fieldSort, matchAllQuery, search}
 import com.sksamuel.elastic4s.requests.searches.SearchHit
 import com.sksamuel.elastic4s.requests.update.UpdateRequest
 import fs2.Stream
-import fs2.io.file.Files
+import fs2.io.file.{Files, Flags, Path}
 import fs2.io.net.Network
 import org.tessellation.currency.schema.currency.{CurrencyIncrementalSnapshot, CurrencySnapshot, CurrencySnapshotInfo}
 import org.tessellation.ext.cats.syntax.next.catsSyntaxNext
@@ -33,10 +33,7 @@ import org.constellation.snapshotstreaming.mapper.{CurrencySnapshotMapper, Globa
 import org.constellation.snapshotstreaming.opensearch.OpensearchDAO
 import org.constellation.snapshotstreaming.schema.schema.{GlobalData, MetagraphData}
 import org.constellation.snapshotstreaming.s3.S3DAO
-import org.constellation.snapshotstreaming.storage.{
-  FileBasedLastGlobalFullSnapshotStorage,
-  FileBasedLastGlobalIncrementalSnapshotStorage
-}
+import org.constellation.snapshotstreaming.storage.{FileBasedLastGlobalFullSnapshotStorage, FileBasedLastGlobalIncrementalSnapshotStorage, SnapshotWithState}
 import org.http4s.ember.client.EmberClientBuilder
 import org.typelevel.log4cats.slf4j.Slf4jLogger
 import org.typelevel.otel4s.trace.Tracer
@@ -219,21 +216,24 @@ object SnapshotProcessorS3 {
             .evalTap { case GlobalSnapshotWithState(snapshot, _, _, _, _) =>
               logger.info(s"Pulled following global snapshot: ${getSnapshotReference(snapshot).show}")
             }
-            .chunkMin(reindexerConf.dbChunks)
+            .chunkN(reindexerConf.dbChunks)
             .parEvalMapUnordered(reindexerConf.dbParallelism) { states =>
               store(states.asSeq).timed.flatMap { case (t, _) =>
                 logger.debug(s"Stored ${states.size} snapshots in ${t.toMillis} ms").map(_ => states)
               }
-            }
+            }.unchunks.chunkN(reindexerConf.checkpointEvery)
             .evalMap { snapshots =>
               snapshots.last.traverse { last =>
-                logger.info(s"Checkpoint at snapshot ordinal ${last.snapshot.ordinal} hash ${last.snapshot.hash} ") >>
-                  lastIncrementalGlobalSnapshotStorage.set(last.snapshot, last.snapshotInfo)
+                val snapshotWithState = SnapshotWithState(last.snapshot, last.snapshotInfo)
+                val snapshotOrdinal = last.snapshot.ordinal.value.value
+                FileBasedLastGlobalIncrementalSnapshotStorage.
+                  saveSnapshotWithStateJson(Path(s"snapshotWithState.$snapshotOrdinal.json.gz"), snapshotWithState, Flags.Write) >>
+                logger.info(s"Checkpoint at snapshot ordinal ${last.snapshot.ordinal} hash ${last.snapshot.hash} ")
               }
-            }
-            .void
+            }.void
         }
 
   }
 
 }
+

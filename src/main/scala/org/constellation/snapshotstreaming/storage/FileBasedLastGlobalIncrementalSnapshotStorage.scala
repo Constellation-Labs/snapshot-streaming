@@ -27,6 +27,18 @@ import fs2.compression.Compression
 
 object FileBasedLastGlobalIncrementalSnapshotStorage {
 
+  def saveSnapshotWithStateJson[F[_]: Files: Compression: Async]( filePath: Path,
+                                                                  snapshotWithState: SnapshotWithState,
+                                                                  flags: Flags = Flags(Flag.Write, Flag.Truncate)
+                                                                ): F[Unit] =
+    Stream
+      .emit(snapshotWithState.asJson.spaces2)
+      .through(text.utf8.encode)
+      .through(Compression[F].gzip())
+      .through(Files[F].writeAll(filePath, flags))
+      .compile
+      .drain
+
   def make[F[_]: Async: HasherSelector: Files: KryoSerializer](
     path: Path
   ): F[LastSnapshotStorage[F, GlobalIncrementalSnapshot, GlobalSnapshotInfo]] = {
