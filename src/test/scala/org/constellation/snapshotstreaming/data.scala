@@ -88,6 +88,7 @@ object data {
             artifacts = None,
             activeDelegatedStakes = None,
             delegatedStakesWithdrawals = None,
+            delegateRewards= None,
             activeNodeCollaterals = None,
             nodeCollateralWithdrawals = None,
           ),

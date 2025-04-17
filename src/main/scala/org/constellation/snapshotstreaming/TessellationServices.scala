@@ -88,6 +88,10 @@ object TessellationServices {
         }
       }
 
+      updateNodeParametersAcceptanceManager = UpdateNodeParametersAcceptanceManager.make[F](validators.updateNodeParametersValidator)
+      updateDelegatedStakeAcceptanceManager = UpdateDelegatedStakeAcceptanceManager.make[F](validators.updateDelegatedStakeValidator)
+      updateNodeCollateralAcceptanceManager = UpdateNodeCollateralAcceptanceManager.make[F](validators.updateNodeCollateralValidator)
+
       globalSnapshotContextService = hasherSelector.withCurrent { implicit hasher => {
         val globalSnapshotStateChannelEventsProcessor =
           GlobalSnapshotStateChannelEventsProcessor.make[F](
@@ -103,14 +107,19 @@ object TessellationServices {
           AllowSpendBlockAcceptanceManager.make[F](validators.allowSpendBlockValidator),
           TokenLockBlockAcceptanceManager.make[F](validators.tokenLockBlockValidator),
           globalSnapshotStateChannelEventsProcessor,
-          UpdateNodeParametersAcceptanceManager.make[F](validators.updateNodeParametersValidator),
-          UpdateDelegatedStakeAcceptanceManager.make[F](validators.updateDelegatedStakeValidator),
-          UpdateNodeCollateralAcceptanceManager.make[F](validators.updateNodeCollateralValidator),
+          updateNodeParametersAcceptanceManager,
+          updateDelegatedStakeAcceptanceManager,
+          updateNodeCollateralAcceptanceManager,
           SpendActionValidator.make[F],
           configuration.collateral.get.amount,
           configuration.delegatedStaking.withdrawalTimeLimit.getOrElse(env, EpochProgress.MinValue)
         )
-        val globalSnapshotContextFns = GlobalSnapshotContextFunctions.make[F](globalSnapshotAcceptanceManager)
+        val globalSnapshotContextFns = GlobalSnapshotContextFunctions.make[F](
+          globalSnapshotAcceptanceManager,
+          updateDelegatedStakeAcceptanceManager,
+          configuration.delegatedStaking.withdrawalTimeLimit.getOrElse(env, EpochProgress.MinValue),
+          tessellation3Migration
+        )
         GlobalSnapshotContextService.make(globalSnapshotStateChannelEventsProcessor, globalSnapshotContextFns)
       }
       }
