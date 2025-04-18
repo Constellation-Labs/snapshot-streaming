@@ -136,8 +136,8 @@ object SnapshotProcessor {
           .info(s"Metagraph Snapshots for currencies ${metagraph.snapshots.map(_.identifier) }  sent to postgres.")
           .handleErrorWith(s => logger.error(s)("Error in database layer") >> s.raiseError[F, Unit])
 
-    private def storeInS3(globalSnapshotWithState: GlobalSnapshotWithState) =
-      s3DAO.uploadSnapshot(globalSnapshotWithState.snapshot).void
+    private def storeInS3(globalSnapshotWithState: GlobalSnapshotWithState, hasher: Hasher[F]) =
+      s3DAO.uploadSnapshot(globalSnapshotWithState.snapshot, hasher.getLogic(globalSnapshotWithState.snapshot.ordinal)).void
 
     private def splitData(globalSnapshotWithState: GlobalSnapshotWithState, d: LocalDateTime, hasher: Hasher[F]) = (
       globalMapper.mapGlobalSnapshot(globalSnapshotWithState, d, txHasher, hasher),
@@ -145,7 +145,7 @@ object SnapshotProcessor {
     ).tupled
 
     private def store(globalSnapshotWithState: GlobalSnapshotWithState, hasher: Hasher[F]): F[Unit] =
-      storeInS3(globalSnapshotWithState).whenA(configuration.s3.uploadEnabled) >> Clock[F].realTime.map { d =>
+      storeInS3(globalSnapshotWithState, hasher).whenA(configuration.s3.uploadEnabled) >> Clock[F].realTime.map { d =>
         val instant = Instant.ofEpochMilli(d.toMillis)
         LocalDateTime.ofInstant(instant, ZoneId.systemDefault())
       }.flatMap(splitData(globalSnapshotWithState, _, hasher)).flatMap { case (globalData, metagraphData) =>
