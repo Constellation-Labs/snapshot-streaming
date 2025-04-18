@@ -92,7 +92,7 @@ object SnapshotProcessorS3 {
     private def storeInPostgres(global: GlobalData, metagraph: MetagraphData) =
           (snapshotDAO.insertGlobalData(global, metagraph.snapshots.size) >> snapshotDAO
           .insertMetagraphData(global.snapshot.hash, metagraph)
-          .whenA(metagraph.allAsIncremental.nonEmpty)).timed.flatMap{ t =>
+          .whenA(metagraph.snapshots.nonEmpty)).timed.flatMap{ t =>
         logger
           .info(s"Snapshot ${global.snapshot.ordinal} (hash: ${global.snapshot.hash.show}) sent to postgres in ${t._1.toSeconds}.") }
           .handleErrorWith(s => logger.error(s)("Error in database layer") >> s.raiseError[F, Unit])

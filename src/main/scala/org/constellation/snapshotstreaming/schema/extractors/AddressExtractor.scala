@@ -49,7 +49,7 @@ object AddressExtractor {
       data.balances.toSet.flatMap(implicitly[AddressExtractor[AddressBalance]].extractAddresses)
 
   implicit val metagraphDataExtractor: AddressExtractor[MetagraphData] = data =>
-    data.allAsIncremental.toSet.flatMap(implicitly[AddressExtractor[CurrencyData[CurrencySnapshot]]].extractAddresses) ++
+    data.snapshots.toSet.flatMap(implicitly[AddressExtractor[CurrencyData[CurrencySnapshot]]].extractAddresses) ++
       data.txs.toSet.flatMap(implicitly[AddressExtractor[CurrencyData[Transaction]]].extractAddresses) ++
       data.feeTxs.toSet.flatMap(implicitly[AddressExtractor[CurrencyData[FeeTransaction]]].extractAddresses) ++
       data.allowSpends.toSet.flatMap(implicitly[AddressExtractor[CurrencyData[AllowSpend]]].extractAddresses) ++

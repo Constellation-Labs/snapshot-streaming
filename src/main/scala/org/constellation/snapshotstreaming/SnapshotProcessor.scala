@@ -29,7 +29,7 @@ import io.constellationnetwork.security.signature.Signed
 import io.constellationnetwork.statechannel.StateChannelSnapshotBinary
 import org.constellation.snapshotstreaming.db.SnapshotDAO
 import org.constellation.snapshotstreaming.mapper.{CurrencySnapshotMapper, GlobalSnapshotMapper}
-import org.constellation.snapshotstreaming.opensearch.{OpensearchDAO, UpdateRequestBuilder}
+import org.constellation.snapshotstreaming.opensearch.OpensearchDAO
 import org.constellation.snapshotstreaming.schema.schema.{GlobalData, MetagraphData}
 import org.constellation.snapshotstreaming.s3.S3DAO
 import org.constellation.snapshotstreaming.storage.{FileBasedLastGlobalFullSnapshotStorage, FileBasedLastGlobalIncrementalSnapshotStorage, SnapshotWithState}
@@ -129,11 +129,11 @@ object SnapshotProcessor {
     private def storeInPostgres(global: GlobalData, metagraph: MetagraphData) =
       snapshotDAO.insertGlobalData(global, metagraph.snapshots.size) >> snapshotDAO
           .insertMetagraphData(global.snapshot.hash, metagraph)
-          .whenA(metagraph.allAsIncremental.nonEmpty)  >>
+          .whenA(metagraph.snapshots.nonEmpty)  >>
         logger
           .info(s"Snapshot ${global.snapshot.ordinal} (hash: ${global.snapshot.hash.show}) sent to postgres.") >>
         logger
-          .info(s"Metagraph Snapshots for currencies ${metagraph.allAsIncremental.map(_.identifier) }  sent to postgres.")
+          .info(s"Metagraph Snapshots for currencies ${metagraph.snapshots.map(_.identifier) }  sent to postgres.")
           .handleErrorWith(s => logger.error(s)("Error in database layer") >> s.raiseError[F, Unit])
 
     private def storeInS3(globalSnapshotWithState: GlobalSnapshotWithState) =
@@ -149,7 +149,7 @@ object SnapshotProcessor {
         val instant = Instant.ofEpochMilli(d.toMillis)
         LocalDateTime.ofInstant(instant, ZoneId.systemDefault())
       }.flatMap(splitData(globalSnapshotWithState, _, hasher)).flatMap { case (globalData, metagraphData) =>
-        Async[F].delay { if (metagraphData.allAsIncremental.isEmpty && globalSnapshotWithState.currencySnapshots.nonEmpty) throw new Exception(s"No MG snapshots for ${globalSnapshotWithState.currencySnapshots}") else () } >>
+        Async[F].delay { if (metagraphData.snapshots.isEmpty && globalSnapshotWithState.currencySnapshots.nonEmpty) throw new Exception(s"No MG snapshots for ${globalSnapshotWithState.currencySnapshots}") else () } >>
         storeInPostgres(globalData, metagraphData)
       }.void
 

@@ -599,7 +599,7 @@ object SnapshotDAO {
           val blockParents = mgSnapshot.blocks.flatMap { currencyData =>
             currencyData.data.parent.map(parent => (currencyData.identifier, currencyData.data.hash, parent))
           }
-          val unifiedSnapshots = mgSnapshot.allAsIncremental
+          val unifiedSnapshots = mgSnapshot.snapshots
           for {
             preparedMetagraphs <- session.prepare(insertMetagraphsCommand)
             preparedMetagraphSnapshot <- session.prepare(insertMetagraphSnapshotCommand)

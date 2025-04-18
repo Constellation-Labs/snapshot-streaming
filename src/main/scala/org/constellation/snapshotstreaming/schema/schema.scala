@@ -23,8 +23,7 @@ object schema {
   )
 
   case class MetagraphData(
-    snapshots: Seq[CurrencyData[Snapshot]],
-    snapshotsInc: Seq[CurrencyData[CurrencySnapshot]],
+    snapshots: Seq[CurrencyData[CurrencySnapshot]],
     blocks: Seq[CurrencyData[Block]],
     txs: Seq[CurrencyData[Transaction]],
     feeTxs: Seq[CurrencyData[FeeTransaction]],
@@ -35,14 +34,10 @@ object schema {
     tokenLocks: Seq[CurrencyData[TokenLock]] = Seq.empty,
     tokenUnlocks: Seq[CurrencyData[TokenUnlock]] = Seq.empty,
 
-  ) {
-    val allAsIncremental: Seq[CurrencyData[CurrencySnapshot]] = snapshots.map(toIncremental) ++ snapshotsInc
-  }
+  )
 
-
-  def toIncremental(cs: CurrencyData[Snapshot]): CurrencyData[CurrencySnapshot] = {
-    val CurrencyData(id, snapshot) = cs
-    CurrencyData(id, CurrencySnapshot(
+  def toIncremental(snapshot: Snapshot): CurrencySnapshot = {
+    CurrencySnapshot(
       hash = snapshot.hash,
       ordinal = snapshot.ordinal,
       height = snapshot.height,
@@ -57,7 +52,7 @@ object schema {
       timestamp = snapshot.timestamp,
       version = snapshot.version,
       sizeInKB = 0
-    ))
+    )
   }
 
 

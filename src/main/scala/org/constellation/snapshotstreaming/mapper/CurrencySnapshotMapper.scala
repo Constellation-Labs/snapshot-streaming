@@ -9,7 +9,7 @@ import io.constellationnetwork.security.Hasher
 import org.constellation.snapshotstreaming.SnapshotProcessor.GlobalSnapshotWithState
 import org.constellation.snapshotstreaming.schema.AllowSpends.{AllowSpend, AllowSpendExpiration, SpendTransaction}
 import org.constellation.snapshotstreaming.schema.TokenLocks.{TokenLock, TokenUnlock}
-import org.constellation.snapshotstreaming.schema.schema.MetagraphData
+import org.constellation.snapshotstreaming.schema.schema.{MetagraphData, toIncremental}
 import org.constellation.snapshotstreaming.schema.{AddressBalance, Block, CurrencyData, FeeTransaction, Snapshot, Transaction, CurrencySnapshot => OSCurrencySnapshot}
 
 import java.time.LocalDateTime
@@ -42,7 +42,6 @@ object CurrencySnapshotMapper {
     new CurrencySnapshotMapper[F] {
 
       type Acc = (
-        Seq[CurrencyData[Snapshot]],
           Seq[CurrencyData[OSCurrencySnapshot]],
           Seq[CurrencyData[Block]],
           Seq[CurrencyData[Transaction]],
@@ -87,14 +86,13 @@ object CurrencySnapshotMapper {
           Seq.empty,
           Seq.empty,
           Seq.empty,
-          Seq.empty,
           initialAccBalances
         )
 
         currencySnapshots.toList.flatMap { case (i, s) => s.toList.map((i, _)) }
           .foldLeftM[F, Acc](initialAcc) {
             case (
-              (aggSnap, aggCurrencyIncrementalSnap, aggBlocks, aggTxs, aggFeeTxs, aggBalances, aggAllowSpends, aggSpendTxs, aggSpendExpirations, aggTokenLocks, aggTokenUnlocks, aggLastBalances),
+              (aggCurrencySnap, aggBlocks, aggTxs, aggFeeTxs, aggBalances, aggAllowSpends, aggSpendTxs, aggSpendExpirations, aggTokenLocks, aggTokenUnlocks, aggLastBalances),
               (identifier, fullOrIncremental)
               ) =>
               val identifierStr = identifier.value.value
@@ -105,7 +103,7 @@ object CurrencySnapshotMapper {
                   for {
                     snapshot <- fullMapper
                       .mapSnapshot(full, timestamp, hasher)
-                      .map(CurrencyData(identifierStr, _))
+                      .map(full => CurrencyData(identifierStr, toIncremental(full)))
                     blocks <- fullMapper
                       .mapBlocks(full, timestamp, txHasher, hasher)
                       .map(_.map(CurrencyData(identifierStr, _)))
@@ -116,8 +114,7 @@ object CurrencySnapshotMapper {
                       .mapBalances(full, full.info.balances, timestamp)
                       .map(CurrencyData(identifierStr, _))
                   } yield (
-                    aggSnap :+ snapshot,
-                    aggCurrencyIncrementalSnap,
+                    aggCurrencySnap :+ snapshot,
                     aggBlocks ++ blocks,
                     aggTxs ++ transactions,
                     aggFeeTxs,
@@ -160,8 +157,7 @@ object CurrencySnapshotMapper {
                       .mapBalances(incremental, filteredBalances, timestamp)
                       .map(CurrencyData(identifierStr, _))
                   } yield (
-                    aggSnap,
-                    aggCurrencyIncrementalSnap :+ snapshot,
+                    aggCurrencySnap :+ snapshot,
                     aggBlocks ++ blocks,
                     aggTxs ++ transactions,
                     aggFeeTxs ++ feeTransactions,
@@ -175,8 +171,8 @@ object CurrencySnapshotMapper {
                   )
               }
           }
-          .map { case (aggSnap, aggCurrencyIncrementalSnap, aggBlocks, aggTxs, aggFeeTxs, aggBalances, aggAllowSpends, aggSpendTxs, aggSpendExpirations, aggTokenLocks, aggTokenUnlocks, _) =>
-            MetagraphData(aggSnap, aggCurrencyIncrementalSnap, aggBlocks, aggTxs, aggFeeTxs, aggBalances, aggAllowSpends, aggSpendTxs, aggSpendExpirations, aggTokenLocks, aggTokenUnlocks)
+          .map { case (aggCurrencySnap, aggBlocks, aggTxs, aggFeeTxs, aggBalances, aggAllowSpends, aggSpendTxs, aggSpendExpirations, aggTokenLocks, aggTokenUnlocks, _) =>
+            MetagraphData(aggCurrencySnap, aggBlocks, aggTxs, aggFeeTxs, aggBalances, aggAllowSpends, aggSpendTxs, aggSpendExpirations, aggTokenLocks, aggTokenUnlocks)
           }
       }
 
