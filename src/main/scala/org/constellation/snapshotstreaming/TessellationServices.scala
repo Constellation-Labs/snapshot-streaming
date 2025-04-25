@@ -47,7 +47,7 @@ object TessellationServices {
           nodeConfig.feeConfigs,
           nodeConfig.snapshotSize.maxStateChannelSnapshotBinarySizeInBytes,
           txHasher,
-          DelegatedStakingConfig(nodeConfig.delegatedStaking.minRewardFraction, nodeConfig.delegatedStaking.maxRewardFraction, configuration.delegatedStaking.maxMetadataFieldsChars, configuration.delegatedStaking.withdrawalTimeLimit)
+          DelegatedStakingConfig(configuration.delegatedStaking.minRewardFraction, configuration.delegatedStaking.maxRewardFraction, configuration.delegatedStaking.maxMetadataFieldsChars, configuration.delegatedStaking.maxTokenLocksPerAddress, configuration.delegatedStaking.minTokenLockAmount, configuration.delegatedStaking.withdrawalTimeLimit)
         )
       }
 
