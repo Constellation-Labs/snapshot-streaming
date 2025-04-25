@@ -88,11 +88,11 @@ object data {
             artifacts = None,
             activeDelegatedStakes = None,
             delegatedStakesWithdrawals = None,
-            delegateRewards= None,
+            delegateRewards = SortedMap.empty[PeerId, Map[Address, Amount]].some,
             activeNodeCollaterals = None,
             nodeCollateralWithdrawals = None,
           ),
-          NonEmptySet.one(SignatureProof(Id(Hex("")), Signature(Hex(""))))
+          NonEmptySet.one(SignatureProof(Id(Hex("")), Signature(Hex("")))),
         ),
         hash,
         ProofsHash(Hash.empty.value)

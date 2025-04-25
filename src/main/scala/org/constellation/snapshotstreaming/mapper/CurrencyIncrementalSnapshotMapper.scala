@@ -23,7 +23,7 @@ import java.time.LocalDateTime
 import scala.collection.immutable.SortedSet
 
 abstract class CurrencyIncrementalSnapshotMapper[F[_]: Async]
-  extends SnapshotMapper[F, CurrencyIncrementalSnapshot, CurrencySnapshotInfo] {
+  extends SnapshotMapper[F, CurrencyIncrementalSnapshot] {
 
   def mapSnapshot(
                    snapshot: Hashed[CurrencyIncrementalSnapshot],

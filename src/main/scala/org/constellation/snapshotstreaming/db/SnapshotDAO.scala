@@ -5,7 +5,23 @@ import cats.syntax.all._
 import org.constellation.snapshotstreaming.schema.AllowSpends.{AllowSpend, AllowSpendExpiration, SpendTransaction}
 import org.constellation.snapshotstreaming.schema.extractors.{AddressExtractor, MetagraphExtractor}
 import org.constellation.snapshotstreaming.schema.schema.{GlobalData, MetagraphData}
-import org.constellation.snapshotstreaming.schema.{AddressBalance, Block, BlockReference, CurrencyData, CurrencySnapshot, FeeTransaction, RewardTransaction, Snapshot, Transaction => STransaction}
+import org.constellation.snapshotstreaming.schema.{
+  AddressBalance,
+  Block,
+  BlockReference,
+  CurrencyData,
+  CurrencySnapshot,
+  DelegatedStakingBalanceChanges,
+  DelegatedStakingCreate,
+  DelegatedStakingReward,
+  DelegatedStakingWithdraw,
+  FeeTransaction,
+  RewardTransaction,
+  Snapshot,
+  StakingEventCreate,
+  StakingEventWithdraw,
+  Transaction => STransaction
+}
 import io.constellationnetwork.security.signature.signature.SignatureProof
 import org.constellation.snapshotstreaming.schema.TokenLocks.{TokenLock, TokenUnlock}
 import skunk._
@@ -174,7 +190,6 @@ object SnapshotDAO {
       )
     }
 
-
   private val insertDagTokenLockCommand: Command[TokenLock] =
     sql"""
       INSERT INTO dag_token_locks (
@@ -204,6 +219,92 @@ object SnapshotDAO {
       ON CONFLICT (hash) DO NOTHING;
     """.command.contramap { tx: TokenUnlock =>
       (tx.hash, tx.lockReference, tx.amount, tx.address, tx.snapshotHash)
+    }
+
+  private val insertDelegatedStakingCreateCommand: Command[DelegatedStakingCreate] =
+    sql"""
+      INSERT INTO delegate_stake_create_events (
+        hash,
+        ordinal,
+        source_addr,
+        node_id,
+        amount,
+        fee,
+        lock_reference_hash,
+        parent_hash,
+        is_update,
+        global_snapshot_hash
+      ) VALUES ($varchar, $int8, $varchar, $varchar, $int8, $int8, $varchar, $varchar, $bool, $varchar)
+      ON CONFLICT (hash) DO NOTHING;
+    """.command.contramap { tx =>
+      (
+        tx.hash,
+        tx.createdAtOrdinal,
+        tx.sourceAddress,
+        tx.nodeId,
+        tx.amount,
+        tx.fee,
+        tx.tokenLockHash,
+        tx.parentHash,
+        tx.isUpdate,
+        tx.snapshotHash
+      )
+    }
+
+  private val insertDelegatedStakingCreateWithdrawCommand: Command[DelegatedStakingWithdraw] =
+    sql"""
+      INSERT INTO delegate_stake_withdraw_events (
+        hash,
+        source_addr,
+        stake_create_hash,
+        global_snapshot_hash
+      ) VALUES ($varchar, $varchar, $varchar, $varchar)
+      ON CONFLICT (hash) DO NOTHING;
+    """.command.contramap { tx =>
+      (tx.hash, tx.sourceAddress, tx.stakeCreateHash, tx.snapshotHash)
+    }
+
+  private val insertDelegatedStakingBalanceChangesCommand: Command[DelegatedStakingBalanceChanges] =
+    sql"""
+      INSERT INTO delegate_stake_balance_changes (
+        global_snapshot_hash,
+        global_snapshot_ordinal,
+        address,
+        node_id,
+        balance,
+        rewards,
+        stake_create_hash,
+        stake_withdraw_hash
+      ) VALUES ($varchar, $int8, $varchar, $varchar, $int8, $int8, ${varchar.opt}, ${varchar.opt})
+      ON CONFLICT (global_snapshot_hash, address, node_id, balance, rewards) DO NOTHING;
+    """.command.contramap { tx =>
+      val (stakeCreateHashOpt, stakeWithdrawHashOpt) = tx.stakingCreateEvent match {
+        case StakingEventCreate(hash)   => (hash.some, None)
+        case StakingEventWithdraw(hash) => (None, hash.some)
+      }
+      (
+        tx.snapshotHash,
+        tx.snapshotOrdinal,
+        tx.address,
+        tx.nodeId,
+        tx.balance,
+        tx.rewards,
+        stakeCreateHashOpt,
+        stakeWithdrawHashOpt
+      )
+    }
+
+  private val insertDelegatedStakingRewardsCommand: Command[DelegatedStakingReward] =
+    sql"""
+      INSERT INTO delegate_stake_rewards (
+        global_snapshot_hash,
+        address,
+        node_id,
+        rewards
+      ) VALUES ($varchar, $varchar, $varchar, $int8)
+      ON CONFLICT (global_snapshot_hash, address, node_id, rewards) DO NOTHING;
+    """.command.contramap { tx =>
+      (tx.snapshotHash, tx.address, tx.nodeId, tx.amount)
     }
 
   private val insertDagRewardTxCommand: Command[(String, RewardTransaction)] =
@@ -265,7 +366,7 @@ object SnapshotDAO {
       $varchar, $int8, $varchar, $varchar, $int8, $int8, $varchar, $int8, ${varchar.opt}, ${varchar.opt}, $int8, $int8, $varchar, $timestamp
     )
     ON CONFLICT (metagraph_id, hash) DO NOTHING;
-  """.command.contramap { case (gsHash, CurrencyData(id, cs:CurrencySnapshot)) =>
+  """.command.contramap { case (gsHash, CurrencyData(id, cs: CurrencySnapshot)) =>
       (
         id,
         cs.ordinal,
@@ -470,7 +571,6 @@ object SnapshotDAO {
       )
     }
 
-
   private val insertMetagraphFeeTransactionCommand: Command[CurrencyData[FeeTransaction]] =
     sql"""
       INSERT INTO metagraph_fee_transactions (
@@ -552,8 +652,6 @@ object SnapshotDAO {
 
   private def pairWith[V, T](elem: V, elements: Seq[T]) = elements.map((elem, _))
 
-
-
   def make[F[_]: Async](pool: Resource[F, Session[F]]): SnapshotDAO[F] = new SnapshotDAO[F] {
 
     def insertGlobalData(snapshot: GlobalData, mgSnaphotsCount: Int): F[Unit] =
@@ -570,6 +668,10 @@ object SnapshotDAO {
             preparedDagExpiredSpends <- session.prepare(insertDagExpiredSpendTransactionCommand)
             preparedDagTokenLock <- session.prepare(insertDagTokenLockCommand)
             preparedDagTokenUnlock <- session.prepare(insertDagTokenUnlockCommand)
+            preparedDagDelegatedStakingCreate <- session.prepare(insertDelegatedStakingCreateCommand)
+            preparedDagDelegatedStakingWithdraw <- session.prepare(insertDelegatedStakingCreateWithdrawCommand)
+            preparedDagDelegatedStakingBalanceChanges <- session.prepare(insertDelegatedStakingBalanceChangesCommand)
+            preparedDagDelegatedStakingRewards <- session.prepare(insertDelegatedStakingRewardsCommand)
             preparedDagRewardTxs <- session.prepare(insertDagRewardTxCommand)
             preparedDagAddressBalance <- session.prepare(insertAddressBalanceCommand)
             preparedProofs <- session.prepare(insertProofCommand)
@@ -584,6 +686,10 @@ object SnapshotDAO {
             _ <- executeCmd(preparedDagExpiredSpends)(snapshot.allowSpendExpirations)
             _ <- executeCmd(preparedDagTokenLock)(snapshot.tokenLocks)
             _ <- executeCmd(preparedDagTokenUnlock)(snapshot.tokenUnlocks)
+            _ <- executeCmd(preparedDagDelegatedStakingCreate)(snapshot.delegatedStakingCreate)
+            _ <- executeCmd(preparedDagDelegatedStakingWithdraw)(snapshot.delegatedStakingWithdraw)
+            _ <- executeCmd(preparedDagDelegatedStakingBalanceChanges)(snapshot.delegatedStakingBalanceChanges)
+            _ <- executeCmd(preparedDagDelegatedStakingRewards)(snapshot.delegatedStakingRewards)
             _ <- executeCmd(preparedDagAddressBalance)(snapshot.balances)
             _ <- executeCmd(preparedDagRewardTxs)(pairWith(gsHash, snapshot.snapshot.rewards.toSeq))
             _ <- executeCmd(preparedBlockParent)(blockParents)
@@ -593,7 +699,7 @@ object SnapshotDAO {
         }
       }
 
-    def insertMetagraphData(globalSnapshotHash: String, mgSnapshot: MetagraphData): F[Unit] = {
+    def insertMetagraphData(globalSnapshotHash: String, mgSnapshot: MetagraphData): F[Unit] =
       pool.use { session =>
         session.transaction.use { xa =>
           val blockParents = mgSnapshot.blocks.flatMap { currencyData =>
@@ -637,7 +743,6 @@ object SnapshotDAO {
           } yield ()
         }
       }
-    }
 
   }
 

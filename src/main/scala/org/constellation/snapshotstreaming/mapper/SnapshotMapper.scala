@@ -19,7 +19,7 @@ import scala.collection.immutable.{SortedMap, SortedSet}
 
 case class SnapshotReferredAddresses(source: Set[Address], destination: Set[Address])
 
-abstract class SnapshotMapper[F[_]: Async, S <: OriginalSnapshot, SI <: SnapshotInfo[_]] {
+abstract class SnapshotMapper[F[_]: Async, S <: OriginalSnapshot] {
 
   def fetchRewards(snapshot: S): SortedSet[OriginalRewardTransaction]
 
