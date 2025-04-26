@@ -35,6 +35,7 @@ object AddressExtractor {
   implicit val delegatedStakingCreateExtractor: AddressExtractor[DelegatedStakingCreate] = dsc => Set(dsc.sourceAddress)
   implicit val delegatedStakingWithdrawExtractor: AddressExtractor[DelegatedStakingWithdraw] = dsw => Set(dsw.sourceAddress)
   implicit val delegatedStakingBalanceChangesExtractor: AddressExtractor[DelegatedStakingBalanceChanges] = balance => Set(balance.address)
+  implicit val delegatedStakingRewardExtractor: AddressExtractor[DelegatedStakingReward] = reward => Set(reward.address)
 
   implicit val addressCurrencySnapshotExtractor: AddressExtractor[CurrencySnapshot] = snapshot =>
     snapshot.rewards.flatMap(
@@ -53,7 +54,8 @@ object AddressExtractor {
       data.balances.toSet.flatMap(implicitly[AddressExtractor[AddressBalance]].extractAddresses) ++
       data.delegatedStakingCreate.toSet.flatMap(implicitly[AddressExtractor[DelegatedStakingCreate]].extractAddresses) ++
       data.delegatedStakingWithdraw.toSet.flatMap(implicitly[AddressExtractor[DelegatedStakingWithdraw]].extractAddresses) ++
-      data.delegatedStakingBalanceChanges.toSet.flatMap(implicitly[AddressExtractor[DelegatedStakingBalanceChanges]].extractAddresses)
+      data.delegatedStakingBalanceChanges.toSet.flatMap(implicitly[AddressExtractor[DelegatedStakingBalanceChanges]].extractAddresses) ++
+      data.delegatedStakingRewards.toSet.flatMap(implicitly[AddressExtractor[DelegatedStakingReward]].extractAddresses)
 
 
   implicit val metagraphDataExtractor: AddressExtractor[MetagraphData] = data =>

@@ -117,7 +117,7 @@ abstract class GlobalSnapshotMapper[F[_]: Async] extends SnapshotMapper[F, Globa
   private def flatten[T](bag: Option[SortedMap[Address, List[T]]]) =
     bag.toSeq.flatMap(_.flatMap { case (address, values) => values.map((address, _)) })
 
-  private def calculateStakingBalances(
+  def calculateStakingBalances(
     gsHash: Hash,
     gsOrdinal: SnapshotOrdinal,
     snapshotInfo: GlobalSnapshotInfo,
@@ -186,7 +186,7 @@ abstract class GlobalSnapshotMapper[F[_]: Async] extends SnapshotMapper[F, Globa
 
   }
 
-  private def mapDelegatedStakingWithdraw(snapshotHash: Hash)(
+  def mapDelegatedStakingWithdraw(snapshotHash: Hash)(
     pendingWithdrawal: PendingDelegatedStakeWithdrawal
   )(implicit hasher: Hasher[F]): F[DelegatedStakingWithdraw] =
     pendingWithdrawal.event.toHashed.map { staking =>
@@ -200,7 +200,7 @@ abstract class GlobalSnapshotMapper[F[_]: Async] extends SnapshotMapper[F, Globa
       )
     }
 
-  private def mapDelegatedStakingWithdraws(
+  def mapDelegatedStakingWithdraws(
     snapshotHash: Hash,
     snapshotInfo: GlobalSnapshotInfo,
     maybePrevSnapshotInfo: Option[GlobalSnapshotInfo],
@@ -238,7 +238,7 @@ abstract class GlobalSnapshotMapper[F[_]: Async] extends SnapshotMapper[F, Globa
       )
     }
 
-  private def mapDelegatedStakingCreates(
+  def mapDelegatedStakingCreates(
     snapshotHash: Hash,
     snapshotInfo: GlobalSnapshotInfo,
     maybePrevSnapshotInfo: Option[GlobalSnapshotInfo],
@@ -253,10 +253,11 @@ abstract class GlobalSnapshotMapper[F[_]: Async] extends SnapshotMapper[F, Globa
 
     snapshotInfo.activeDelegatedStakes.toList.flatTraverse(_.toList.flatTraverse { case (_, stakes) =>
       stakes.filter { dsr => // keep only the new or the updated
-        prevActiveTokenLocks.get(dsr.event.tokenLockRef).exists(_ =!= dsr.event.nodeId)
+        prevActiveTokenLocks.get(dsr.event.tokenLockRef).forall(_ =!= dsr.event.nodeId)
       }
         .traverse(mapDelegatedStakingCreate(snapshotHash, prevActiveTokenLocks))
     })
+
   }
 
   def mapAllowSpend(snapshotHash: Hash, roundId: RoundId)(
