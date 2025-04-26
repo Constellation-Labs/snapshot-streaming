@@ -39,8 +39,8 @@ CREATE TABLE delegate_stake_balance_changes (
 	node_id varchar NOT NULL,
 	balance int8 NOT NULL,
 	rewards int8 NOT NULL,
-	stake_create_hash varchar NOT NULL REFERENCES delegate_stake_create_events(hash) ON DELETE CASCADE,
-	stake_withdraw_hash varchar NOT NULL REFERENCES delegate_stake_withdraw_events(hash) ON DELETE CASCADE,
+	stake_create_hash varchar NULL REFERENCES delegate_stake_create_events(hash) ON DELETE CASCADE,
+	stake_withdraw_hash varchar NULL REFERENCES delegate_stake_withdraw_events(hash) ON DELETE CASCADE,
 	created_at timestamp DEFAULT now() NOT NULL,
 	updated_at timestamp DEFAULT now() NOT NULL
 );
