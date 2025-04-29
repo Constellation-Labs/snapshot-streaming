@@ -114,7 +114,7 @@ abstract class GlobalSnapshotMapper[F[_]: Async] extends SnapshotMapper[F, Globa
       }
     })
 
-  private def flatten[T](bag: Option[SortedMap[Address, List[T]]]) =
+  private def flatten[T](bag: Option[SortedMap[Address, Set[T]]]) =
     bag.toSeq.flatMap(_.flatMap { case (address, values) => values.map((address, _)) })
 
   def calculateStakingBalances(
@@ -213,7 +213,7 @@ abstract class GlobalSnapshotMapper[F[_]: Async] extends SnapshotMapper[F, Globa
 
     snapshotInfo.delegatedStakesWithdrawals.toList.flatTraverse(_.toList.flatTraverse { case (_, stakes) =>
       // keep only the new pending withdrawals
-      stakes
+      stakes.toList
         .filterNot(dsr => prePendingWithdrawalsStakeRefs.contains(dsr.event))
         .traverse(mapDelegatedStakingWithdraw(snapshotHash))
     })
@@ -252,7 +252,8 @@ abstract class GlobalSnapshotMapper[F[_]: Async] extends SnapshotMapper[F, Globa
       .toMap
 
     snapshotInfo.activeDelegatedStakes.toList.flatTraverse(_.toList.flatTraverse { case (_, stakes) =>
-      stakes.filter { dsr => // keep only the new or the updated
+      stakes.toList
+        .filter { dsr => // keep only the new or the updated
         prevActiveTokenLocks.get(dsr.event.tokenLockRef).forall(_ =!= dsr.event.nodeId)
       }
         .traverse(mapDelegatedStakingCreate(snapshotHash, prevActiveTokenLocks))
