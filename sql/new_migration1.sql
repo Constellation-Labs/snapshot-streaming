@@ -1,0 +1,2 @@
+ALTER TABLE public.metagraph_balance_changes ADD CONSTRAINT metagraph_balance_changes_unique UNIQUE (metagraph_id,metagraph_snapshot_hash,address,balance);
+ALTER TABLE public.metagraph_balance_changes DROP CONSTRAINT metagraph_balance_change_metagraph_snapshot_fk;

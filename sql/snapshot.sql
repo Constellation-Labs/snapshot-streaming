@@ -384,8 +384,8 @@ CREATE TABLE dag_token_unlocks (
 	lock_reference_hash varchar NOT NULL,
 	snapshot_hash varchar NOT NULL,
 	parent_hash varchar NOT NULL,
-	CONSTRAINT dag_token_unlocks_pk PRIMARY KEY (lock_reference_ordinal, lock_reference_hash),
-	CONSTRAINT dag_token_unlocks_token_locks_fk FOREIGN KEY (lock_reference_hash,lock_reference_ordinal) REFERENCES dag_token_locks(hash,ordinal) ON DELETE CASCADE,
+	CONSTRAINT dag_token_unlocks_pk PRIMARY KEY (lock_reference_hash),
+	CONSTRAINT dag_token_unlocks_token_locks_fk FOREIGN KEY (lock_reference_hash) REFERENCES dag_token_locks(hash) ON DELETE CASCADE,
 	CONSTRAINT ddag_token_unlocks_address_fk FOREIGN KEY (source_addr) REFERENCES addresses(address) ON DELETE CASCADE
 )
 INHERITS (public.abstract_transactions);
