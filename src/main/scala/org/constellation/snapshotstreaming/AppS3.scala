@@ -3,23 +3,24 @@ package org.constellation.snapshotstreaming
 import cats.effect._
 import cats.effect.std.Random
 import cats.syntax.all._
-import io.constellationnetwork._
 import io.constellationnetwork.ext.cats.effect._
 import io.constellationnetwork.json.JsonSerializer
 import io.constellationnetwork.kryo.KryoSerializer
 import io.constellationnetwork.node.shared.config.types.SharedConfigReader
 import io.constellationnetwork.node.shared.ext.pureconfig._
+import eu.timepit.refined.pureconfig._
 import io.constellationnetwork.schema.SnapshotOrdinal
 import io.constellationnetwork.security._
-import eu.timepit.refined.pureconfig._
+import org.constellation.snapshotstreaming.schema.{kryoRegistrar, migrations}
 import org.typelevel.log4cats.slf4j.Slf4jLogger
 import org.typelevel.otel4s.trace.Tracer.Implicits.noop
 import pureconfig.ConfigSource
 import pureconfig.generic.auto._
 import pureconfig.module.catseffect.syntax._
 import pureconfig.module.enumeratum._
+import io.constellationnetwork.shared.sharedKryoRegistrar
 
-object App extends IOApp {
+object AppS3 extends IOApp {
   private val logger = Slf4jLogger.getLogger[IO]
 
   def run(args: List[String]): IO[ExitCode] =
@@ -28,7 +29,7 @@ object App extends IOApp {
       .flatMap { appConfig =>
         ConfigSource.default.loadF[IO, SharedConfigReader]().flatMap { sharedCfg =>
           Random.scalaUtilRandom[IO].flatMap { implicit random =>
-            KryoSerializer.forAsync[IO](shared.sharedKryoRegistrar).use { implicit ks =>
+            KryoSerializer.forAsync[IO](sharedKryoRegistrar ++ kryoRegistrar, migrations).use { implicit ks =>
               JsonSerializer.forSync[IO].asResource.use { implicit jsonSerializer =>
                 val hashSelect = makeHashSelect(appConfig, sharedCfg)
                 implicit val hasherSelector =
@@ -37,14 +38,14 @@ object App extends IOApp {
                 val txHasher = Hasher.forKryo[IO]
 
                 SecurityProvider.forAsync[IO].use { implicit sp =>
-                  SnapshotProcessor
+                  SnapshotProcessorS3
                     .make[IO](
                       appConfig.snapshotStreaming,
                       sharedCfg,
                       txHasher
                     )
-                    .use { snapshotProcessor =>
-                      snapshotProcessor.runtime.compile.drain.recoverWith { case e => logger.error(s"$e") }
+                    .use { snapshotProcessorS3 =>
+                      snapshotProcessorS3.runtime.compile.drain.recoverWith { case e => logger.error(s"$e") }
                         .flatTap(_ => logger.info("Done!"))
                         .as(ExitCode.Success)
                     }

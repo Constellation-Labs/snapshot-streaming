@@ -1,21 +1,19 @@
-package org.constellation.snapshotstreaming.opensearch.mapper
+package org.constellation.snapshotstreaming.mapper
 
 import cats.effect.Async
 import cats.syntax.all._
-
-import scala.collection.immutable.SortedSet
-import org.tessellation.currency.schema.currency.{CurrencySnapshot => OriginalCurrencySnapshot}
-import org.tessellation.schema.transaction
-import org.tessellation.security.Hashed
-import org.tessellation.security.Hasher
 import eu.timepit.refined.auto._
-import org.constellation.snapshotstreaming.opensearch.schema._
-import org.tessellation.currency.schema.currency.CurrencySnapshotInfo
+import io.constellationnetwork.currency.schema.currency.{CurrencySnapshotInfo, CurrencySnapshot => OriginalCurrencySnapshot}
+import io.constellationnetwork.schema.transaction
+import io.constellationnetwork.security.{Hashed, Hasher}
+import org.constellation.snapshotstreaming.schema.{RewardTransaction, Snapshot}
 
-import java.util.Date
+import java.time.LocalDateTime
+import scala.collection.immutable.SortedSet
 
-abstract class CurrencyFullSnapshotMapper[F[_]: Async] extends SnapshotMapper[F, OriginalCurrencySnapshot, CurrencySnapshotInfo] {
-  def mapSnapshot(snapshot: Hashed[OriginalCurrencySnapshot], timestamp: Date, hasher: Hasher[F]): F[Snapshot]
+
+abstract class CurrencyFullSnapshotMapper[F[_]: Async] extends SnapshotMapper[F, OriginalCurrencySnapshot] {
+  def mapSnapshot(snapshot: Hashed[OriginalCurrencySnapshot], timestamp: LocalDateTime, hasher: Hasher[F]): F[Snapshot]
 }
 
 object CurrencyFullSnapshotMapper {
@@ -33,7 +31,7 @@ object CurrencyFullSnapshotMapper {
         SnapshotReferredAddresses(source, destination)
       }
 
-      def mapSnapshot(snapshot: Hashed[OriginalCurrencySnapshot], timestamp: Date, hasher: Hasher[F]): F[Snapshot] =
+      def mapSnapshot(snapshot: Hashed[OriginalCurrencySnapshot], timestamp: LocalDateTime, hasher: Hasher[F]): F[Snapshot] =
         for {
           blocksHashes <- snapshot.blocks.unsorted.map(_.block).map(hashBlock(_, hasher)).toList.sequence
         } yield Snapshot(
@@ -49,7 +47,9 @@ object CurrencyFullSnapshotMapper {
               reward.amount.value
             )
           ),
-          timestamp = timestamp
+          epochProgress = snapshot.epochProgress.value,
+          timestamp = timestamp,
+          version = snapshot.version.version
         )
     }
 

@@ -1,14 +1,11 @@
-package org.constellation.snapshotstreaming.opensearch.schema
-
-import java.util.Date
-
-import org.tessellation.schema.transaction.{Transaction => OriginalTransaction}
-import org.tessellation.security.signature.Signed
+package org.constellation.snapshotstreaming.schema
 
 import io.circe.Encoder
 import io.circe.generic.semiauto._
+import io.constellationnetwork.schema.transaction.{Transaction => OriginalTransaction}
+import io.constellationnetwork.security.signature.Signed
 
-import schema._
+import java.time.LocalDateTime
 
 final case class Transaction(
   hash: String,
@@ -22,7 +19,8 @@ final case class Transaction(
   snapshotHash: String,
   snapshotOrdinal: Long,
   transactionOriginal: Signed[OriginalTransaction],
-  timestamp: Date
+  ordinal: Long,
+  timestamp: LocalDateTime
 )
 
 object Transaction {
