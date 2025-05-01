@@ -110,8 +110,14 @@ object CurrencySnapshotMapper {
                     transactions <- fullMapper
                       .mapTransactions(full, timestamp, txHasher, hasher)
                       .map(_.map(CurrencyData(identifierStr, _)))
+                    prevBalances = aggLastBalances.get(identifier)
+                    filteredBalances = fullMapper.balanceDiff(
+                      full,
+                      prevBalances,
+                      full.info.balances
+                    )
                     balances = fullMapper
-                      .mapBalances(full, full.info.balances, timestamp)
+                      .mapBalances(full, filteredBalances, timestamp)
                       .map(CurrencyData(identifierStr, _))
                   } yield (
                     aggCurrencySnap :+ snapshot,
@@ -124,7 +130,7 @@ object CurrencySnapshotMapper {
                     aggSpendExpirations,
                     aggTokenLocks,
                     aggTokenUnlocks,
-                    aggLastBalances + (identifier -> full.info.balances)
+                    aggLastBalances + (identifier -> filteredBalances)
                   )
 
                 case Right((incremental, info, binary)) =>
@@ -151,7 +157,7 @@ object CurrencySnapshotMapper {
                     filteredBalances = incrementalMapper.balanceDiff(
                       incremental,
                       prevBalances,
-                      info
+                      info.balances
                     )
                     balances = incrementalMapper
                       .mapBalances(incremental, filteredBalances, timestamp)

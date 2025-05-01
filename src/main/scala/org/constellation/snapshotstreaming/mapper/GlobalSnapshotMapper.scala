@@ -57,7 +57,7 @@ abstract class GlobalSnapshotMapper[F[_]: Async] extends SnapshotMapper[F, Globa
       filteredBalances = balanceDiff(
         globalSnapshot.signed.value,
         maybePrevSnapshotInfo.map(prev => prev.balances),
-        snapshotInfo
+        snapshotInfo.balances
       )
       balances = mapBalances(globalSnapshot, filteredBalances, timestamp)
 

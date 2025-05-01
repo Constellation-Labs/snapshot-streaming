@@ -122,11 +122,11 @@ abstract class SnapshotMapper[F[_]: Async, S <: OriginalSnapshot] {
   def balanceDiff(
                    snapshot: S,
                    prevBalances: Option[SortedMap[Address, Balance]],
-                   info: SnapshotInfo[_],
+                   newBalances: SortedMap[Address, Balance],
                  ): SortedMap[Address, Balance] =
     prevBalances match {
       case Some(prev) =>
-        val changed = info.balances.filterNot { case (address, balance) =>
+        val changed = newBalances.filterNot { case (address, balance) =>
           prev.get(address).exists(_ === balance)
         }
 
@@ -136,14 +136,14 @@ abstract class SnapshotMapper[F[_]: Async, S <: OriginalSnapshot] {
          */
         val explicitlyZeroed = {
           val srcTransactions = extractSnapshotReferredAddresses(snapshot).source
-          (srcTransactions -- info.balances.keys)
+          (srcTransactions -- newBalances.keys)
             .map(address => address -> Balance.empty)
             .toSortedMap
         }
 
         changed ++ explicitlyZeroed
       case None =>
-        info.balances
+        newBalances
     }
 
   def extractSnapshotReferredAddresses(snapshot: S): SnapshotReferredAddresses
