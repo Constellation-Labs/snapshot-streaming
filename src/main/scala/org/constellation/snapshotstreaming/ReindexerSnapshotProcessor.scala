@@ -219,24 +219,30 @@ object ReindexerSnapshotProcessor {
         .evalTap { case GlobalSnapshotWithState(snapshot, _, _, _, _) =>
           logger.info(s"Pulled following global snapshot: ${fromHashedSnapshot(snapshot).show}")
         }
-        .chunkMin(reindexerConf.dbChunks)
+        .chunkN(reindexerConf.dbChunks)
         .parEvalMapUnordered(reindexerConf.dbParallelism) { states =>
           store(states.asSeq).timed.flatMap { case (t, _) =>
             logger.debug(s"Stored ${states.size} snapshots in ${t.toMillis} ms").map(_ => states)
           }
-        }.unchunks
-        .chunkMin(configuration.checkpointEvery)
-        .evalMap { snapshots =>
+        }.evalMap { snapshots =>
+          logger.debug(s"chunk size ${snapshots.size}") >>
           snapshots.last.traverse { last =>
-            val snapshotWithState = SnapshotWithState(last.snapshot, last.snapshotInfo)
             logger.info(s"Checkpoint at snapshot ordinal ${last.snapshot.ordinal} hash ${last.snapshot.hash} ") >>
-            FileBasedLastGlobalIncrementalSnapshotStorage
-              .saveSnapshotWithStateJson(
-                Path(s"snapshotWithState.${last.snapshot.ordinal.value}.json.gz"),
-                snapshotWithState,
-                Flags.Write
-              )
+              lastIncrementalGlobalSnapshotStorage.set(last.snapshot, last.snapshotInfo).map( _ => last )
           }
+        }.chunkN(configuration.checkpointEvery).evalMap { snapshots =>
+            snapshots.last.flatTraverse {
+              _.traverse { last =>
+                val snapshotWithState = SnapshotWithState(last.snapshot, last.snapshotInfo)
+                logger.info(s"Intermediate state ") >>
+                  FileBasedLastGlobalIncrementalSnapshotStorage
+                    .saveSnapshotWithStateJson(
+                      Path(s"snapshotWithState.${last.snapshot.ordinal.value}.json.gz"),
+                      snapshotWithState,
+                      Flags.Write
+                    ) >> lastIncrementalGlobalSnapshotStorage.set(last.snapshot, last.snapshotInfo)
+              }
+            }
         }.void
 
   }
