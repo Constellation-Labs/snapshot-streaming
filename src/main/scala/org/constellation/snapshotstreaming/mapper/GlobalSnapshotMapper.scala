@@ -3,17 +3,16 @@ package org.constellation.snapshotstreaming.mapper
 import cats.effect.Async
 import cats.syntax.all._
 import eu.timepit.refined.auto._
-import org.tessellation.schema.{GlobalIncrementalSnapshot, GlobalSnapshotInfo, transaction}
-import org.tessellation.security.{Hashed, Hasher}
-import org.constellation.snapshotstreaming.SnapshotProcessor.GlobalSnapshotWithState
+import org.constellation.snapshotstreaming.ReindexerSnapshotProcessor.GlobalSnapshotWithState
 import org.constellation.snapshotstreaming.schema.schema.{GlobalData, SignatureProof}
 import org.constellation.snapshotstreaming.schema.{RewardTransaction, Snapshot}
+import org.tessellation.schema.{GlobalIncrementalSnapshot, transaction}
+import org.tessellation.security.{Hashed, Hasher}
 
 import java.time.LocalDateTime
 import scala.collection.immutable.SortedSet
 
-abstract class GlobalSnapshotMapper[F[_]: Async]
-    extends SnapshotMapper[F, GlobalIncrementalSnapshot, GlobalSnapshotInfo] {
+abstract class GlobalSnapshotMapper[F[_]: Async] extends SnapshotMapper[F, GlobalIncrementalSnapshot] {
 
   def mapSnapshot(snapshot: Hashed[GlobalIncrementalSnapshot], timestamp: LocalDateTime, hasher: Hasher[F]): F[Snapshot]
 
@@ -31,11 +30,18 @@ abstract class GlobalSnapshotMapper[F[_]: Async]
       filteredBalances = balanceDiff(
         globalSnapshot.signed.value,
         maybePrevSnapshotInfo.map(prev => prev.balances),
-        snapshotInfo
+        snapshotInfo.balances
       )
       balances = mapBalances(globalSnapshot, filteredBalances, timestamp)
-      signatures = globalSnapshot.signed.proofs.toSortedSet.toSeq.map(SignatureProof.from(globalSnapshot.hash, _))
-    } yield GlobalData(snapshot, blocks, transactions, balances, signatures, currencySnapshots.size)
+
+    } yield GlobalData(
+      snapshot,
+      blocks,
+      transactions,
+      balances,
+      globalSnapshot.signed.proofs.toSortedSet.toSeq.map(SignatureProof.from(globalSnapshot.hash, _)),
+      currencySnapshots.values.map( _=> ()).size
+    )
   }
 
 }
@@ -60,28 +66,27 @@ object GlobalSnapshotMapper {
         timestamp: LocalDateTime,
         hasher: Hasher[F]
       ): F[Snapshot] =
-        for {
-          blockHashes <- snapshot.blocks.unsorted.map(_.block).map(hashBlock(_, hasher)).toList.sequence
-          rewards = fetchRewards(snapshot).unsorted.map(reward =>
-            RewardTransaction(
-              snapshot.hash.value,
-              reward.destination.value,
-              reward.amount.value
-            )
+        snapshot.blocks.unsorted.map(_.block).map(hashBlock(_, hasher)).toList.sequence.map { blocksHashes =>
+          Snapshot(
+            hash = snapshot.hash.value,
+            ordinal = snapshot.ordinal.value.value,
+            height = snapshot.height.value,
+            subHeight = snapshot.subHeight.value,
+            lastSnapshotHash = snapshot.lastSnapshotHash.value,
+            epochProgress = snapshot.epochProgress.value,
+            blocks = blocksHashes.toSet,
+            rewards = fetchRewards(snapshot).unsorted.map(reward =>
+              RewardTransaction(
+                snapshot.hash.value,
+                reward.destination.value,
+                reward.amount.value
+              )
+            ),
+            version = snapshot.version.version,
+            metagraphSnapshotsCount = snapshot.stateChannelSnapshots.values.map( _=> ()).size,
+            timestamp = timestamp
           )
-        } yield Snapshot(
-          hash = snapshot.hash.value,
-          ordinal = snapshot.ordinal.value.value,
-          height = snapshot.height.value,
-          subHeight = snapshot.subHeight.value,
-          lastSnapshotHash = snapshot.lastSnapshotHash.value,
-          epochProgress = snapshot.epochProgress.value,
-          blocks = blockHashes.toSet,
-          rewards = rewards,
-          version = snapshot.version.version,
-          metagraphSnapshotsCount = snapshot.stateChannelSnapshots.size,
-          timestamp = timestamp
-        )
+        }
 
     }
 

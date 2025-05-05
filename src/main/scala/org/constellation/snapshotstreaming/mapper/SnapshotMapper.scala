@@ -28,7 +28,7 @@ import scala.collection.immutable.{SortedMap, SortedSet}
 
 case class SnapshotReferredAddresses(source: Set[Address], destination: Set[Address])
 
-abstract class SnapshotMapper[F[_]: Async, S <: OriginalSnapshot, SI <: SnapshotInfo[_]] {
+abstract class SnapshotMapper[F[_]: Async, S <: OriginalSnapshot] {
 
   def fetchRewards(snapshot: S): SortedSet[OriginalRewardTransaction]
 
@@ -42,24 +42,23 @@ abstract class SnapshotMapper[F[_]: Async, S <: OriginalSnapshot, SI <: Snapshot
     transaction.toHashed.map(_.hash.value)
   }
 
-  def mapBlocks(snapshot: Hashed[S], timestamp: LocalDateTime, txHasher: Hasher[F], hasher: Hasher[F]): F[Seq[Block]] =
-    for {
-      blocks <- snapshot.blocks.unsorted
-        .map(_.block)
-        .map(mapBlock(snapshot.hash.value, snapshot.ordinal.value.value, timestamp, txHasher, hasher))
-        .toList
-        .sequence
-    } yield blocks
+  def mapBlocks(snapshot: Hashed[S], timestamp: LocalDateTime, txHasher: Hasher[F], hasher: Hasher[F]): F[Seq[Block]] = for {
+    blocks <- snapshot.blocks.unsorted
+      .map(_.block)
+      .map(mapBlock(snapshot.hash.value, snapshot.ordinal.value.value, timestamp, txHasher, hasher))
+      .toList
+      .sequence
+  } yield blocks
 
   private def mapBlock(
-    snapshotHash: String,
-    snapshotOrdinal: Long,
-    timestamp: LocalDateTime,
-    txHasher: Hasher[F],
-    hasher: Hasher[F]
-  )(
-    block: Signed[OriginalBlock]
-  ): F[Block] =
+                        snapshotHash: String,
+                        snapshotOrdinal: Long,
+                        timestamp: LocalDateTime,
+                        txHasher: Hasher[F],
+                        hasher: Hasher[F]
+                      )(
+                        block: Signed[OriginalBlock]
+                      ): F[Block] =
     for {
       blockHash <- hashBlock(block, hasher)
       transactionsHashes <- block.value.transactions.toSortedSet.unsorted
@@ -129,7 +128,7 @@ abstract class SnapshotMapper[F[_]: Async, S <: OriginalSnapshot, SI <: Snapshot
   private def mapTransactionRef(nodeRef: OriginalTransactionReference): TransactionReference =
     TransactionReference(nodeRef.hash.value, nodeRef.ordinal.value)
 
-//TODO from chatGPT , verify
+//TODO verify
   def optimizedBalanceDiff(
                       prev: SortedMap[Address, Balance],
                       balances: SortedMap[Address, Balance]
@@ -172,14 +171,13 @@ abstract class SnapshotMapper[F[_]: Async, S <: OriginalSnapshot, SI <: Snapshot
 
 
   def balanceDiff(
-    snapshot: S,
-    prevBalances: Option[SortedMap[Address, Balance]],
-    info: SnapshotInfo[_]
-  ): SortedMap[Address, Balance] =
+                   snapshot: S,
+                   prevBalances: Option[SortedMap[Address, Balance]],
+                   newBalances: SortedMap[Address, Balance],
+                 ): SortedMap[Address, Balance] =
     prevBalances match {
       case Some(prev) =>
-
-        val changed = info.balances.filterNot { case (address, balance) =>
+        val changed = newBalances.filterNot { case (address, balance) =>
           prev.get(address).exists(_ === balance)
         }
 
@@ -189,23 +187,23 @@ abstract class SnapshotMapper[F[_]: Async, S <: OriginalSnapshot, SI <: Snapshot
          */
         val explicitlyZeroed = {
           val srcTransactions = extractSnapshotReferredAddresses(snapshot).source
-          (srcTransactions -- info.balances.keys)
+          (srcTransactions -- newBalances.keys)
             .map(address => address -> Balance.empty)
             .toSortedMap
         }
 
         changed ++ explicitlyZeroed
       case None =>
-        info.balances
+        newBalances
     }
 
   def extractSnapshotReferredAddresses(snapshot: S): SnapshotReferredAddresses
 
   def mapBalances(
-    globalSnapshot: Hashed[S],
-    balances: SortedMap[Address, Balance],
-    timestamp: LocalDateTime
-  ): Seq[AddressBalance] =
+                   globalSnapshot: Hashed[S],
+                   balances: SortedMap[Address, Balance],
+                   timestamp: LocalDateTime
+                 ): Seq[AddressBalance] =
     balances.toSeq.map { case (address, balance) =>
       AddressBalance(
         address = address.value.value,

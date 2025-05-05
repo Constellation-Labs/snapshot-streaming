@@ -28,7 +28,7 @@ import java.util.UUID
 
 object TessellationServices {
 
-  def make[F[_]: Async: Parallel: JsonSerializer: KryoSerializer: SecurityProvider](
+  def make[F[_]: Async: JsonSerializer: KryoSerializer: SecurityProvider: Parallel](
     env: AppEnvironment,
     configuration: SharedConfigReader
   )(implicit hasherSelector: HasherSelector[F]): F[TessellationServices[F]] = {

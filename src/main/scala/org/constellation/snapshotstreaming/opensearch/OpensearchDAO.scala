@@ -21,6 +21,8 @@ trait OpensearchDAO[F[_]] {
     initialCursor: Option[C]
   ): Stream[F, T]
 
+  def singleQuery[T: ClassTag, C: ClassTag]( search: SearchRequest,
+                                             transformHit: SearchHit => Option[T]): F[Option[T]]
 }
 
 object OpensearchDAO {
@@ -70,6 +72,14 @@ object OpensearchDAO {
           }
         }
         .flatMap(Stream.emits)
+    }
+
+    def singleQuery[T: ClassTag, C: ClassTag]( search: SearchRequest,
+                     transformHit: SearchHit => Option[T]): F[Option[T]] = {
+
+      Async[F].fromFuture(Async[F].delay(esClient.execute(search))).map { response =>
+        response.result.hits.hits.headOption.flatMap(transformHit)
+      }
     }
 
   }

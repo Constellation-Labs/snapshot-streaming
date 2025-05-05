@@ -69,24 +69,18 @@ final case class NodeConfig(
   val l0PeersMap = NonEmptyMap.fromMapUnsafe(SortedMap.from(l0Peers.map(p => p.id -> p)))
 }
 
-final case class Reindexer(
-  s3Parallelism: Int,
-  s3Prefetch: Int,
-  snapshotContextPrefetch: Int,
-  dbChunks: Int,
-  dbParallelism: Int,
-  checkpointEvery: Int
-)
+final case class Reindexer( s3Parallelism: Int, s3Prefetch: Int, snapshotContextPrefetch: Int, dbChunks: Int,  dbParallelism: Int)
 
 final case class SnapshotStreamingConfig(
   lastSnapshotPath: Path,
   lastIncrementalSnapshotPath: Path,
+  checkpointEvery: Int,
   environment: AppEnvironment,
   httpClient: HttpClientConfig,
   node: NodeConfig,
-  s3: Option[S3Config],
-  db: Option[DbConfig],
-  opensearch: Option[OpenSearchConfig],
+  s3: S3Config,
+  db: DbConfig,
+  opensearch: OpenSearchConfig,
   reindexer: Option[Reindexer]
 )
 
@@ -107,11 +101,7 @@ object Configuration {
 
   implicit def hint[A]: ProductHint[A] = ProductHint[A](ConfigFieldMapping(CamelCase, CamelCase))
 
-  ConfigSource.default.load[PosLong]
-  ConfigSource.default.load[L0Peer]
-  ConfigSource.default.load[FiniteDuration]
-  ConfigSource.default.load[SnapshotOrdinal]
-  ConfigSource.default.load[NodeConfig]
+
 
   def load[F[_]: Sync]: F[AppConfig] = ConfigSource.default
     .loadF[F, AppConfig]()
@@ -120,7 +110,7 @@ object Configuration {
     SharedConfig(
       env,
       c.gossip,
-      null, // http: HttpConfig,
+      null, // http: HttpConfig, not needed
       c.leavingDelay,
       c.stateAfterJoining,
       CliMethod.collateralConfig(env, c.collateral.map(_.amount)),

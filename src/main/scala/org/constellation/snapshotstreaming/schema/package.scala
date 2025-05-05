@@ -30,9 +30,7 @@ package object schema {
     classOf[CurrencyIncrementalSnapshot] -> 1004,
     classOf[CurrencySnapshotStateProof] -> 1005,
     classOf[CurrencySnapshotInfo] -> 1006,
-    classOf[cats.kernel.Order[_]] -> 1007
+    classOf[cats.kernel.Order[_]] -> 1007,
   )
-
-//  val migrations = List(Migration[GlobalIncrementalSnapshotV1, GlobalIncrementalSnapshot](_.toGlobalIncrementalSnapshot))
 
 }

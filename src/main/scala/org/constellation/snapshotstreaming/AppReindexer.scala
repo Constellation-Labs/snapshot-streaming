@@ -24,7 +24,7 @@ import org.tessellation.ext.kryo._
 import org.tessellation.node.shared.nodeSharedKryoRegistrar
 import org.tessellation.shared.sharedKryoRegistrar
 
-object AppS3 extends IOApp {
+object AppReindexer extends IOApp {
   private val logger = Slf4jLogger.getLogger[IO]
 
   def run(args: List[String]): IO[ExitCode] =
@@ -43,7 +43,7 @@ object AppS3 extends IOApp {
                 val txHasher = Hasher.forKryo[IO]
 
                 SecurityProvider.forAsync[IO].use { implicit sp =>
-                  SnapshotProcessorS3
+                  ReindexerSnapshotProcessor
                     .make[IO](
                       appConfig.snapshotStreaming,
                       sharedCfg,

@@ -205,7 +205,7 @@ object SnapshotDAO {
 
   private def insertMetagraphSnapshotsMany(size: Int): Command[List[CurrencyData[CurrencySnapshot]]] = {
     val enc = (
-      varchar *: varchar *: varchar *: int8 *: int8 *: int8 *: varchar *: int8.opt *: varchar.opt *: varchar.opt *: int8 *: int8 *: varchar *: timestamp
+      varchar *: varchar *: varchar *: int8 *: int8 *: int8 *: varchar *: int8.opt *: varchar.opt *: varchar.opt *: int8 *: int8.opt *: varchar *: timestamp
     ).values.contramap { cd: CurrencyData[CurrencySnapshot] =>
       (
         cd.identifier,
@@ -309,97 +309,7 @@ object SnapshotDAO {
       ON CONFLICT (metagraph_id, hash) DO NOTHING;
     """.command
   }
-//
-//  private def insertMetagraphAllowSpendsMany(size: Int): Command[List[CurrencyData[AllowSpend]]] = {
-//    val enc = (
-//      varchar *: varchar *: varchar *: varchar *: int8 *: int8 *: int8 *: varchar *: int8 *: uuid *: int8 *: varchar
-//    ).values.contramap { cdAs: CurrencyData[AllowSpend] =>
-//      (
-//        cdAs.identifier,
-//        cdAs.data.hash,
-//        cdAs.data.source,
-//        cdAs.data.destination,
-//        cdAs.data.amount,
-//        cdAs.data.fee,
-//        cdAs.data.parent.ordinal,
-//        cdAs.data.parent.hash,
-//        cdAs.data.lastValidEpochProgress,
-//        cdAs.data.roundId,
-//        cdAs.data.ordinal,
-//        cdAs.data.snapshotHash
-//      )
-//    }.list(size)
-//
-//    sql"""
-//      INSERT INTO metagraph_allow_spends (
-//        metagraph_id,
-//        hash,
-//        source_addr,
-//        destination_addr,
-//        amount,
-//        fee,
-//        parent_ordinal,
-//        parent_hash,
-//        last_valid_epoch_progress,
-//        round_id,
-//        ordinal,
-//        snapshotHash
-//      ) VALUES $enc
-//      ON CONFLICT (hash) DO NOTHING;
-//    """.command
-//  }
-//
-//  private def insertMetagraphTokenLocksMany(size: Int): Command[List[CurrencyData[TokenLock]]] = {
-//    val enc = (
-//      varchar *: varchar *: varchar *: int8 *: int8 *: int8
-//    ).values.contramap { cdTl: CurrencyData[TokenLock] =>
-//      (
-//        cdTl.identifier,
-//        cdTl.data.hash,
-//        cdTl.data.source,
-//        cdTl.data.amount,
-//        cdTl.data.ordinal,
-//        cdTl.data.unlockEpoch
-//      )
-//    }.list(size)
-//
-//    sql"""
-//      INSERT INTO metagraph_token_locks (
-//        metagraph_id,
-//        hash,
-//        source_addr,
-//        amount,
-//        ordinal,
-//        unlock_epoch
-//      ) VALUES $enc
-//      ON CONFLICT (metagraph_id, hash) DO NOTHING;
-//    """.command
-//  }
-//
-//  private def insertMetagraphTokenUnlocksMany(size: Int): Command[List[CurrencyData[TokenUnlock]]] = {
-//    val enc = (
-//      varchar *: int8 *: varchar *: int8 *: varchar
-//    ).values.contramap { cdTu: CurrencyData[TokenUnlock] =>
-//      (
-//        cdTu.identifier,
-//        cdTu.data.lockReference.ordinal,
-//        cdTu.data.lockReference.hash,
-//        cdTu.data.amount,
-//        cdTu.data.address
-//      )
-//    }.list(size)
-//
-//    sql"""
-//      INSERT INTO metagraph_token_unlocks (
-//        metagraph_id,
-//        lock_reference_ordinal,
-//        lock_reference_hash,
-//        amount,
-//        source_addr
-//      ) VALUES $enc
-//      ON CONFLICT (lock_reference_ordinal, lock_reference_hash) DO NOTHING;
-//    """.command
-//  }
+
 
   private def insertMetagraphFeeTransactionsMany(size: Int): Command[List[CurrencyData[FeeTransaction]]] = {
     val enc = (
@@ -535,7 +445,7 @@ object SnapshotDAO {
       })
 
     def insertMetagraphData(metagraphSnapshots: List[MetagraphData]): F[Unit] =
-      pool.use(session => session.transaction.use { xa =>
+      pool.flatMap(session => session.transaction.map((_, session))).use { case (xa, session) =>
         val addresses = metagraphSnapshots.flatMap(AddressExtractor.extract(_))
         val snapshots = metagraphSnapshots.flatMap(_.snapshots)
         val blocks = metagraphSnapshots.flatMap(_.blocks)
@@ -560,7 +470,7 @@ object SnapshotDAO {
             executeMany(session, blockParents, insertBlockParentsMany)
           ).parTupled >>
           xa.commit.void
-      })
+      }
 
   }
 

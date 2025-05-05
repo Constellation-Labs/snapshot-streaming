@@ -13,7 +13,7 @@ import java.time.LocalDateTime
 import scala.collection.immutable.SortedSet
 
 abstract class CurrencyFullSnapshotMapper[F[_]: Async]
-    extends SnapshotMapper[F, OriginalCurrencySnapshot, CurrencySnapshotInfo] {
+    extends SnapshotMapper[F, OriginalCurrencySnapshot] {
 
   def mapSnapshot(
     globalSnapshotHash: Hash,
@@ -61,11 +61,12 @@ object CurrencyFullSnapshotMapper {
           height = snapshot.height.value,
           subHeight = snapshot.subHeight.value,
           lastSnapshotHash = snapshot.lastSnapshotHash.value,
+          epochProgress = snapshot.epochProgress.value,
           blocks = blocksHashes.toSet,
           rewards = rewards,
-          epochProgress = snapshot.epochProgress.value,
+          fee = None,
           timestamp = timestamp,
-          sizeInKB = 0,
+          sizeInKB = None,
           version = snapshot.version.version
         )
 

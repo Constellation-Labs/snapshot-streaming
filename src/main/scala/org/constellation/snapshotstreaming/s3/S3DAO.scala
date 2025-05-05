@@ -22,7 +22,6 @@ import java.io.ByteArrayInputStream
 import scala.collection.immutable.SortedSet
 
 trait S3DAO[F[_]] {
-  def uploadSnapshot(snapshot: Hashed[GlobalIncrementalSnapshot]): F[Unit]
   def downloadSnapshot(hash: Hash): F[Signed[GlobalIncrementalSnapshot]]
   def metadata(hash: Hash): F[ObjectMetadata]
 }
@@ -50,18 +49,6 @@ object S3DAO {
 
     private val logger = Slf4jLogger.getLogger[F]
 
-    def uploadSnapshot(snapshot: Hashed[GlobalIncrementalSnapshot]): F[Unit] =
-      Async[F].unit
-    /*for {
-        arr <- snapshot.signed.toBinaryF
-        is = new ByteArrayInputStream(arr)
-        keyName = s"${config.bucketDir}/${snapshot.hash}"
-        _ <- Async[F].delay(s3Client.putObject(config.bucketName, keyName, is, new ObjectMetadata()))
-        _ <- logger.info(
-          s"Snapshot ${snapshot.ordinal.value.value} (hash: ${snapshot.hash.show.take(8)}) uploaded to s3."
-        )
-      } yield ()*/
-
     def downloadSnapshot(hash: Hash): F[Signed[GlobalIncrementalSnapshot]] = {
       val keyName = s"${config.bucketDir}/${hash}"
       val resource = for {
@@ -76,9 +63,6 @@ object S3DAO {
         .flatMap(_.fromBinaryF[Signed[GlobalIncrementalSnapshot]])
 
     }
-
-    private def safeProofSet(proofs: NonEmptySet[SignatureProof]): NonEmptySet[SignatureProof] =
-      NonEmptySet.fromSetUnsafe(SortedSet.from(proofs.toSortedSet)(SignatureProof.OrderingInstance))
 
     def metadata(hash: Hash) =
       Async[F].delay(s3Client.getObjectMetadata(config.bucketName, s"${config.bucketDir}/${hash}"))

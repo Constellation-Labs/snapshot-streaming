@@ -24,7 +24,7 @@ import java.time.LocalDateTime
 import scala.collection.immutable.SortedSet
 
 abstract class CurrencyIncrementalSnapshotMapper[F[_]: Async]
-    extends SnapshotMapper[F, CurrencyIncrementalSnapshot, CurrencySnapshotInfo] {
+    extends SnapshotMapper[F, CurrencyIncrementalSnapshot] {
 
   def mapSnapshot(
     globalSnapshotHash: Hash,
@@ -99,10 +99,10 @@ object CurrencyIncrementalSnapshotMapper {
         epochProgress = snapshot.epochProgress.value,
         timestamp = timestamp,
         version = snapshot.version.version,
-        fee = Some(binary.fee.value),
+        fee = binary.fee.value.value.some,
         stakingAddress = getMessageAddress(MessageType.Staking, info),
         ownerAddress = getMessageAddress(MessageType.Owner, info),
-        sizeInKB = sizeInKb.toLong
+        sizeInKB = sizeInKb.toLong.some
       )
 
       private def mapFeeTransaction(snapshotHash: String, snapshotOrdinal: Long, timestamp: LocalDateTime)(

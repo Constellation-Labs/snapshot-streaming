@@ -21,32 +21,12 @@
         </encoder>
     </appender>
 
-    <property name="JSON_LOG" value="logs/json_logs/dag.log"/>
-    <property name="JSON_ROLLING_LOG" value="logs/json_logs/dag.%d{yyyy-MM-dd_HH}.%i.log"/>
-
-    <appender name="jsonFile" class="ch.qos.logback.core.rolling.RollingFileAppender">
-        <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
-            <level>DEBUG</level>
-        </filter>
-        <file>${JSON_LOG}</file>
-        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
-            <fileNamePattern>${JSON_ROLLING_LOG}</fileNamePattern>
-            <maxFileSize>200MB</maxFileSize>
-            <totalSizeCap>2GB</totalSizeCap>
-            <maxHistory>10</maxHistory>
-        </rollingPolicy>
-        <encoder class="net.logstash.logback.encoder.LogstashEncoder">
-            <includeCallerData>true</includeCallerData>
-        </encoder>
-    </appender>
-
     <logger name="org.constellation" level="DEBUG" />
     <logger name="io.constellationnetwork" level="DEBUG" />
 
     <root level="INFO">
         <appender-ref ref="console" />
         <appender-ref ref="rollingFile" />
-        <appender-ref ref="jsonFile" />
     </root>
 
 </configuration>

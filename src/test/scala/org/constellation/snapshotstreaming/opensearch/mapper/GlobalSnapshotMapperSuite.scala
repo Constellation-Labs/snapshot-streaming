@@ -100,7 +100,7 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
 
       result = GlobalSnapshotMapper
         .make()
-        .balanceDiff(snapshot, initialBalances.some, GlobalSnapshotInfo.empty)
+        .balanceDiff(snapshot, initialBalances.some, GlobalSnapshotInfo.empty.balances)
     } yield expect.all(
       initialBalances(address1) === Balance(1000L),
       initialBalances(address2) === Balance(1000L),
@@ -145,7 +145,7 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
 
       result = GlobalSnapshotMapper
         .make()
-        .balanceDiff(snapshot, initialBalances.some, updatedInfo)
+        .balanceDiff(snapshot, initialBalances.some, updatedInfo.balances)
     } yield expect.same(
       result,
       updatedBalances - address1 - address2
@@ -188,7 +188,7 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
 
       result = GlobalSnapshotMapper
         .make()
-        .balanceDiff(snapshot, initialBalances.some, updatedInfo)
+        .balanceDiff(snapshot, initialBalances.some, updatedInfo.balances)
     } yield expect.same(
       result,
       updatedBalances - address4
@@ -224,7 +224,7 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
         rewards = rewards
       )
 
-      result = GlobalSnapshotMapper.make().balanceDiff(snapshot, initialBalances.some, updatedInfo)
+      result = GlobalSnapshotMapper.make().balanceDiff(snapshot, initialBalances.some, updatedInfo.balances)
     } yield expect.same(
       result,
       updatedBalances - address3 - address4

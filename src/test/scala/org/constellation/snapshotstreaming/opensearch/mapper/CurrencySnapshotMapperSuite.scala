@@ -114,7 +114,7 @@ object CurrencySnapshotMapperSuite extends MutableIOSuite {
 
       result = CurrencyIncrementalSnapshotMapper
         .make()
-        .balanceDiff(snapshot, initialBalances.some, emptyCurrencySnapshotInfo)
+        .balanceDiff(snapshot, initialBalances.some, emptyCurrencySnapshotInfo.balances)
     } yield expect.all(
       initialBalances(address1) === Balance(1000L),
       initialBalances(address2) === Balance(1000L),
@@ -160,7 +160,7 @@ object CurrencySnapshotMapperSuite extends MutableIOSuite {
 
       result = CurrencyIncrementalSnapshotMapper
         .make()
-        .balanceDiff(snapshot, initialBalances.some, updatedInfo)
+        .balanceDiff(snapshot, initialBalances.some, updatedInfo.balances)
     } yield expect.same(
       result,
       updatedBalances - address1 - address2
@@ -198,7 +198,7 @@ object CurrencySnapshotMapperSuite extends MutableIOSuite {
 
       result = CurrencyIncrementalSnapshotMapper
         .make()
-        .balanceDiff(snapshot, initialBalances.some, updatedInfo)
+        .balanceDiff(snapshot, initialBalances.some, updatedInfo.balances)
     } yield expect.same(
       result,
       updatedBalances - address1 - address2
@@ -242,7 +242,7 @@ object CurrencySnapshotMapperSuite extends MutableIOSuite {
 
       result = CurrencyIncrementalSnapshotMapper
         .make()
-        .balanceDiff(snapshot, initialBalances.some, updatedInfo)
+        .balanceDiff(snapshot, initialBalances.some, updatedInfo.balances)
     } yield expect.same(
       result,
       updatedBalances - address4
@@ -278,7 +278,7 @@ object CurrencySnapshotMapperSuite extends MutableIOSuite {
         rewards = rewards
       )
 
-      result = CurrencyIncrementalSnapshotMapper.make().balanceDiff(snapshot, initialBalances.some, updatedInfo)
+      result = CurrencyIncrementalSnapshotMapper.make().balanceDiff(snapshot, initialBalances.some, updatedInfo.balances)
     } yield expect.same(
       result,
       updatedBalances - address3 - address4

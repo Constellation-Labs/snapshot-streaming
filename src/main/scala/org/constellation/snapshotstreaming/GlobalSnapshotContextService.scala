@@ -12,7 +12,7 @@ import org.tessellation.schema.{GlobalIncrementalSnapshot, GlobalSnapshotInfo, S
 import org.tessellation.security.signature.Signed
 import org.tessellation.security.Hashed
 import org.tessellation.security.HasherSelector
-import org.constellation.snapshotstreaming.SnapshotProcessor.GlobalSnapshotWithState
+import org.constellation.snapshotstreaming.ReindexerSnapshotProcessor.GlobalSnapshotWithState
 import org.tessellation.statechannel.StateChannelSnapshotBinary
 
 import java.time.LocalDateTime

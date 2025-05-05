@@ -1,9 +1,6 @@
 package org.constellation.snapshotstreaming.schema
 
 import io.circe.Encoder
-import org.tessellation.security.signature.signature.SignatureProof
-//import AllowSpends.{AllowSpend, TokenLock, TokenUnlock}
-import org.tessellation.sdk.security
 import org.tessellation.security.hash.Hash
 import org.tessellation.security.signature.signature
 
@@ -18,9 +15,6 @@ object schema {
     balances: Seq[AddressBalance],
     proofs: Seq[SignatureProof],
     metagraphSnapshotCount: Int,
-//    allowSpends: Seq[AllowSpend] = Seq.empty,
-//    tokenLocks: Seq[TokenLock] = Seq.empty,
-//    tokenUnlocks: Seq[TokenUnlock] = Seq.empty
   )
 
   case class MetagraphData(
@@ -30,10 +24,26 @@ object schema {
     txs: Seq[CurrencyData[Transaction]],
     feeTxs: Seq[CurrencyData[FeeTransaction]],
     balances: Seq[CurrencyData[AddressBalance]],
-//    allowSpends: Seq[CurrencyData[AllowSpend]] = Seq.empty,
-//    tokenLocks: Seq[CurrencyData[TokenLock]] = Seq.empty,
-//    tokenUnlocks: Seq[CurrencyData[TokenUnlock]] = Seq.empty
   )
+
+  def toIncremental(gsHash: Hash, snapshot: CurrencySnapshot): CurrencySnapshot =
+    CurrencySnapshot(
+      globalSnapshotHash = gsHash.value,
+      hash = snapshot.hash,
+      ordinal = snapshot.ordinal,
+      height = snapshot.height,
+      subHeight = snapshot.subHeight,
+      lastSnapshotHash = snapshot.lastSnapshotHash,
+      epochProgress = snapshot.epochProgress,
+      blocks = snapshot.blocks,
+      rewards = snapshot.rewards,
+      fee = None,
+      ownerAddress = None,
+      stakingAddress = None,
+      timestamp = snapshot.timestamp,
+      version = snapshot.version,
+      sizeInKB = None
+    )
 
   implicit val dateEncoder: Encoder[Date] =
     Encoder.encodeString.contramap(date => date.toInstant.toString)
