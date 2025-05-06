@@ -5,26 +5,16 @@ import cats.syntax.all._
 import eu.timepit.refined.auto._
 import org.tessellation.schema.address.Address
 import org.tessellation.schema.balance.Balance
-import org.tessellation.schema.snapshot.{Snapshot => OriginalSnapshot, SnapshotInfo}
-import org.tessellation.schema.transaction.{
-  RewardTransaction => OriginalRewardTransaction,
-  Transaction => OriginalTransaction,
-  TransactionReference => OriginalTransactionReference
-}
+import org.tessellation.schema.snapshot.{SnapshotInfo, Snapshot => OriginalSnapshot}
+import org.tessellation.schema.transaction.{RewardTransaction => OriginalRewardTransaction, Transaction => OriginalTransaction, TransactionReference => OriginalTransactionReference}
 import org.tessellation.schema.{Block => OriginalBlock}
 import org.tessellation.security.{Hashed, Hasher}
 import org.tessellation.security.signature.Signed
 import org.tessellation.syntax.sortedCollection._
-import org.constellation.snapshotstreaming.schema.{
-  AddressBalance,
-  Block,
-  BlockReference,
-  Transaction,
-  TransactionReference
-}
+import org.constellation.snapshotstreaming.schema.{AddressBalance, Block, BlockReference, Transaction, TransactionReference}
 
 import java.time.LocalDateTime
-import scala.collection.immutable.{SortedMap, SortedSet}
+import scala.collection.immutable.{HashMap, SortedMap, SortedSet}
 
 case class SnapshotReferredAddresses(source: Set[Address], destination: Set[Address])
 
@@ -177,8 +167,9 @@ abstract class SnapshotMapper[F[_]: Async, S <: OriginalSnapshot] {
                  ): SortedMap[Address, Balance] =
     prevBalances match {
       case Some(prev) =>
+        val optimizedPrev = HashMap.from(prev)
         val changed = newBalances.filterNot { case (address, balance) =>
-          prev.get(address).exists(_ === balance)
+          optimizedPrev.get(address).exists(_ === balance)
         }
 
         /* NOTE: SnapshotInfo calculation optimization gets rid of addresses that have empty balances.
