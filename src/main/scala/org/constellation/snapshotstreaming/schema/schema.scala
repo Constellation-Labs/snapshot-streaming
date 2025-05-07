@@ -10,20 +10,19 @@ import java.util.Date
 object schema {
 
   case class GlobalData(
-    snapshot: Snapshot,
-    blocks: Seq[Block],
-    txs: Seq[Transaction],
-    balances: Seq[AddressBalance],
-    proofs: Seq[SignatureProof],
-    allowSpends: Seq[AllowSpend] = Seq.empty,
-    tokenLocks: Seq[TokenLock] = Seq.empty,
-    tokenUnlocks: Seq[TokenUnlock] = Seq.empty,
-    delegatedStakingCreate: Seq[DelegatedStakingCreate],
-    delegatedStakingWithdraw: Seq[DelegatedStakingWithdraw],
-    delegatedStakingRewards: Seq[DelegatedStakingReward],
-    delegatedStakingBalanceChanges: Seq[DelegatedStakingBalanceChanges],
-    spendTransactions: Seq[SpendTransaction],
-    allowSpendExpirations: Seq[AllowSpendExpiration]
+                         snapshot: Snapshot,
+                         blocks: Seq[Block],
+                         txs: Seq[Transaction],
+                         balances: Seq[AddressBalance],
+                         proofs: Seq[SignatureProof],
+                         allowSpends: Seq[AllowSpend] = Seq.empty,
+                         tokenLocks: Seq[TokenLock] = Seq.empty,
+                         tokenUnlocks: Seq[TokenUnlock] = Seq.empty,
+                         delegatedStakingCreate: Seq[DelegatedStakingCreate],
+                         delegatedStakingWithdraw: Seq[DelegatedStakingWithdraw],
+                         delegatedStakingRewards: Seq[DelegatedStakingReward],
+                         spendTransactions: Seq[SpendTransaction],
+                         allowSpendExpirations: Seq[AllowSpendExpiration]
   )
 
   case class MetagraphData(
