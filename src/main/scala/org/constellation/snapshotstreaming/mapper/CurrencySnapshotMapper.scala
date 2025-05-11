@@ -52,7 +52,7 @@ object CurrencySnapshotMapper {
           Seq[CurrencyData[Transaction]],
           Seq[CurrencyData[FeeTransaction]],
           Seq[CurrencyData[AddressBalance]],
-          Map[Address, SortedMap[Address, Balance]],
+          Map[Address, Map[Address, Balance]],
         )
 
       type CurrencySnapshotMapperResult = MetagraphData
@@ -86,7 +86,7 @@ object CurrencySnapshotMapper {
         currencySnapshots.toList.flatMap { case (i, s) => s.toList.map((i, _)) }
           .foldLeftM[F, Acc](initialAcc) {
             case (
-              (aggCurrencySnap, aggBlocks, aggTxs, aggFeeTxs, aggBalances,aggLastBalances),
+              (aggCurrencySnap, aggBlocks, aggTxs, aggFeeTxs, aggChangedBalances, aggLastBalances),
               (identifier, fullOrIncremental)
               ) =>
               val identifierStr = identifier.value.value
@@ -105,21 +105,21 @@ object CurrencySnapshotMapper {
                       .mapTransactions(full, timestamp, txHasher, hasher)
                       .map(_.map(CurrencyData(identifierStr, _)))
                     prevBalances = aggLastBalances.get(identifier)
-                    filteredBalances = fullMapper.balanceDiff(
+                    onlyUpdatedBalances = fullMapper.balanceDiff(
                       full,
                       prevBalances,
                       full.info.balances
                     )
-                    balances = fullMapper
-                      .mapBalances(full, filteredBalances, timestamp)
+                    changedAddressBalances = fullMapper
+                      .mapBalances(full, onlyUpdatedBalances, timestamp)
                       .map(CurrencyData(identifierStr, _))
                   } yield (
                     aggCurrencySnap :+ snapshot,
                     aggBlocks ++ blocks,
                     aggTxs ++ transactions,
                     aggFeeTxs,
-                    aggBalances ++ balances,
-                    aggLastBalances + (identifier -> filteredBalances)
+                    aggChangedBalances ++ changedAddressBalances,
+                    aggLastBalances + (identifier -> full.info.balances)
                   )
 
                 case Right((incremental, info, binary)) =>
@@ -137,29 +137,34 @@ object CurrencySnapshotMapper {
                       .mapFeeTransactions(incremental, timestamp, hasher)
                       .map(_.map(CurrencyData(identifierStr, _)))
                     prevBalances = aggLastBalances.get(identifier)
-                    filteredBalances = incrementalMapper.balanceDiff(
+                    //in theory, we won't need this
+                    onlyUpdatedBalances = incrementalMapper.balanceDiff(
                       incremental,
                       prevBalances,
                       info.balances
                     )
-                    balances = incrementalMapper
-                      .mapBalances(incremental, filteredBalances, timestamp)
+                    changedAddressBalances = incrementalMapper
+                      .mapBalances(incremental, onlyUpdatedBalances, timestamp)
                       .map(CurrencyData(identifierStr, _))
                   } yield (
                     aggCurrencySnap :+ snapshot,
                     aggBlocks ++ blocks,
                     aggTxs ++ transactions,
                     aggFeeTxs ++ feeTransactions,
-                    aggBalances ++ balances,
-                    aggLastBalances + (identifier -> filteredBalances)
+                    aggChangedBalances ++ changedAddressBalances,
+                    updateBalanceMap(identifier, aggLastBalances, onlyUpdatedBalances)
                   )
               }
           }
-          .map { case (aggCurrencySnap, aggBlocks, aggTxs, aggFeeTxs, aggBalances, _) =>
-            MetagraphData(globalSnapshot.hash.value, aggCurrencySnap, aggBlocks, aggTxs, aggFeeTxs, aggBalances)
+          .map { case (aggCurrencySnap, aggBlocks, aggTxs, aggFeeTxs, changedBalances, newBalanceState) =>
+            MetagraphData(globalSnapshot.hash.value, aggCurrencySnap, aggBlocks, aggTxs, aggFeeTxs, changedBalances, newBalanceState)
           }
       }
 
     }
 
+  def updateBalanceMap(identifier: Address, previous: Map[Address, Map[Address, Balance]], changedBalances: Map[Address, Balance] ) =
+    previous.updatedWith(identifier)( _.map(_ ++ changedBalances).orElse(changedBalances.some))
+
 }
+

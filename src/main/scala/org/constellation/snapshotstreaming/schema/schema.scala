@@ -1,6 +1,8 @@
 package org.constellation.snapshotstreaming.schema
 
 import io.circe.Encoder
+import org.tessellation.schema.address.Address
+import org.tessellation.schema.balance.Balance
 import org.tessellation.security.hash.Hash
 import org.tessellation.security.signature.signature
 
@@ -15,6 +17,7 @@ object schema {
     balances: Seq[AddressBalance],
     proofs: Seq[SignatureProof],
     metagraphSnapshotCount: Int,
+    balanceState: Map[Address, Balance]
   )
 
   case class MetagraphData(
@@ -24,6 +27,7 @@ object schema {
     txs: Seq[CurrencyData[Transaction]],
     feeTxs: Seq[CurrencyData[FeeTransaction]],
     balances: Seq[CurrencyData[AddressBalance]],
+    balanceState: Map[Address,Map[Address, Balance ]]
   )
 
   def toIncremental(gsHash: Hash, snapshot: CurrencySnapshot): CurrencySnapshot =

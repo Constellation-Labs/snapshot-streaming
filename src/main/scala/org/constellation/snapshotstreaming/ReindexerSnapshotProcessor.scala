@@ -266,5 +266,3 @@ object ReindexerSnapshotProcessor {
   )
 
 }
-
-//lastIncrementalGlobalSnapshotStorage.set(last.snapshot, last.snapshotInfo)

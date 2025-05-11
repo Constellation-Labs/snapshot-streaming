@@ -162,9 +162,9 @@ abstract class SnapshotMapper[F[_]: Async, S <: OriginalSnapshot] {
 
   def balanceDiff(
                    snapshot: S,
-                   prevBalances: Option[SortedMap[Address, Balance]],
-                   newBalances: SortedMap[Address, Balance],
-                 ): SortedMap[Address, Balance] =
+                   prevBalances: Option[Map[Address, Balance]],
+                   newBalances: Map[Address, Balance],
+                 ): Map[Address, Balance] =
     prevBalances match {
       case Some(prev) =>
         val optimizedPrev = HashMap.from(prev)
@@ -192,7 +192,7 @@ abstract class SnapshotMapper[F[_]: Async, S <: OriginalSnapshot] {
 
   def mapBalances(
                    globalSnapshot: Hashed[S],
-                   balances: SortedMap[Address, Balance],
+                   balances: Map[Address, Balance],
                    timestamp: LocalDateTime
                  ): Seq[AddressBalance] =
     balances.toSeq.map { case (address, balance) =>

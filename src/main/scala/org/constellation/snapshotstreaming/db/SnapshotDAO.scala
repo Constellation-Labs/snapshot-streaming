@@ -415,63 +415,67 @@ object SnapshotDAO {
 
   def make[F[_]: Async: Parallel](pool: Resource[F, Session[F]]): SnapshotDAO[F] = new SnapshotDAO[F] {
 
-    private val logger = Slf4jLogger.getLogger[F]
+    private implicit val logger = Slf4jLogger.getLogger[F]
 
     def insertGlobalData(globalSnapshots: List[GlobalData]): F[Unit] =
-      pool.use(session =>
-        session.transaction.use { xa =>
-          val addresses = globalSnapshots.flatMap(AddressExtractor.extract(_))
-          val snapshots = globalSnapshots.map(_.snapshot)
-          val blocks = globalSnapshots.flatMap(_.blocks)
-          val transactions = globalSnapshots.flatMap(_.txs)
-          val balances = globalSnapshots.flatMap(_.balances)
-          val rewards = globalSnapshots.flatMap(_.snapshot.rewards.toList)
-          val blockParents = globalSnapshots.flatMap(_.blocks.flatMap { block =>
-            block.parent.map(parent => (block.hash, parent))
-          })
-          val proofs = globalSnapshots.flatMap(_.proofs.toList)
-          executeMany(session, addresses, insertAddressMany) >>
-            executeMany(session, snapshots, insertGlobalSnapshotsMany) >>
-            executeMany(session, blocks, insertDagBlocksMany) >>
-            (
-              executeMany(session, transactions, insertDagTransactionsMany),
-              executeMany(session, balances, insertAddressBalancesMany),
-              executeMany(session, rewards, insertDagRewardTransactionsMany),
-              executeMany(session, blockParents, insertBlockParentsMany),
-              executeMany(session, proofs, insertGlobalSnapshotProofsMany)
-            ).parTupled >>
-            xa.commit.void
-        }
+      retryF(
+        pool.use(session =>
+          session.transaction.use { xa =>
+            val addresses = globalSnapshots.flatMap(AddressExtractor.extract(_))
+            val snapshots = globalSnapshots.map(_.snapshot)
+            val blocks = globalSnapshots.flatMap(_.blocks)
+            val transactions = globalSnapshots.flatMap(_.txs)
+            val balances = globalSnapshots.flatMap(_.balances)
+            val rewards = globalSnapshots.flatMap(_.snapshot.rewards.toList)
+            val blockParents = globalSnapshots.flatMap(_.blocks.flatMap { block =>
+              block.parent.map(parent => (block.hash, parent))
+            })
+            val proofs = globalSnapshots.flatMap(_.proofs.toList)
+            executeMany(session, addresses, insertAddressMany) >>
+              executeMany(session, snapshots, insertGlobalSnapshotsMany) >>
+              executeMany(session, blocks, insertDagBlocksMany) >>
+              (
+                executeMany(session, transactions, insertDagTransactionsMany),
+                executeMany(session, balances, insertAddressBalancesMany),
+                executeMany(session, rewards, insertDagRewardTransactionsMany),
+                executeMany(session, blockParents, insertBlockParentsMany),
+                executeMany(session, proofs, insertGlobalSnapshotProofsMany)
+              ).parTupled >>
+              xa.commit.void
+          }
+        )
       )
 
     def insertMetagraphData(metagraphSnapshots: List[MetagraphData]): F[Unit] =
-      pool.use(session =>
-        session.transaction.use { xa =>
-          val addresses = metagraphSnapshots.flatMap(AddressExtractor.extract(_))
-          val snapshots = metagraphSnapshots.flatMap(_.snapshots)
-          val blocks = metagraphSnapshots.flatMap(_.blocks)
-          val metagraphs = metagraphSnapshots.flatMap(MetagraphExtractor.extract(_).toList)
-          val transactions = metagraphSnapshots.flatMap(_.txs)
-          val feeTransactions = metagraphSnapshots.flatMap(_.feeTxs)
-          val rewards = metagraphSnapshots
-            .flatMap(_.snapshots.flatMap(mgs => mgs.data.rewards.map(r => CurrencyData(mgs.identifier, r))))
-          val balances = metagraphSnapshots.flatMap(_.balances)
-          val blockParents = metagraphSnapshots.flatMap(_.blocks.flatMap { currencyData =>
-            currencyData.data.parent.map(parent => (currencyData.data.hash, parent))
-          })
-          executeMany(session, addresses, insertAddressMany) >>
-            executeMany(session, metagraphs, insertMetagraphsMany) >>
-            executeMany(session, snapshots, insertMetagraphSnapshotsMany) >>
-            executeMany(session, blocks, insertMetagraphBlocksMany) >>
-            (
-              executeMany(session, transactions, insertMetagraphTransactionsMany),
-              executeMany(session, feeTransactions, insertMetagraphFeeTransactionsMany),
-              executeMany(session, rewards, insertMetagraphRewardTransactionsMany),
-              executeMany(session, balances, insertMetagraphAddressBalancesMany),
-              executeMany(session, blockParents, insertBlockParentsMany)
-            ).parTupled >>
-            xa.commit.void
-        }
+      retryF(
+        pool.use(session =>
+          session.transaction.use { xa =>
+            val addresses = metagraphSnapshots.flatMap(AddressExtractor.extract(_))
+            val snapshots = metagraphSnapshots.flatMap(_.snapshots)
+            val blocks = metagraphSnapshots.flatMap(_.blocks)
+            val metagraphs = metagraphSnapshots.flatMap(MetagraphExtractor.extract(_).toList)
+            val transactions = metagraphSnapshots.flatMap(_.txs)
+            val feeTransactions = metagraphSnapshots.flatMap(_.feeTxs)
+            val rewards = metagraphSnapshots
+              .flatMap(_.snapshots.flatMap(mgs => mgs.data.rewards.map(r => CurrencyData(mgs.identifier, r))))
+            val balances = metagraphSnapshots.flatMap(_.balances)
+            val blockParents = metagraphSnapshots.flatMap(_.blocks.flatMap { currencyData =>
+              currencyData.data.parent.map(parent => (currencyData.data.hash, parent))
+            })
+            executeMany(session, addresses, insertAddressMany) >>
+              executeMany(session, metagraphs, insertMetagraphsMany) >>
+              executeMany(session, snapshots, insertMetagraphSnapshotsMany) >>
+              executeMany(session, blocks, insertMetagraphBlocksMany) >>
+              (
+                executeMany(session, transactions, insertMetagraphTransactionsMany),
+                executeMany(session, feeTransactions, insertMetagraphFeeTransactionsMany),
+                executeMany(session, rewards, insertMetagraphRewardTransactionsMany),
+                executeMany(session, balances, insertMetagraphAddressBalancesMany),
+                executeMany(session, blockParents, insertBlockParentsMany)
+              ).parTupled >>
+              xa.commit.void
+          }
+        )
       )
 
   }

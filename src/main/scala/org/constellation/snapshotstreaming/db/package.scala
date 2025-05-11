@@ -1,11 +1,13 @@
 package org.constellation.snapshotstreaming
 
-import cats.{Applicative, Monad}
+import cats.{Applicative, Monad, MonadError}
 import cats.effect.std.Console
-import cats.effect.{Resource, Temporal}
+import cats.effect.{Async, IO, Resource, Temporal}
 import cats.syntax.all._
 import fs2.io.net.Network
+import org.typelevel.log4cats.Logger
 import org.typelevel.otel4s.trace.Tracer
+import skunk.exception.EofException
 import skunk.{Command, PreparedCommand, Session}
 
 package object db {
@@ -34,4 +36,13 @@ package object db {
   def executeMany[T, F[_]: Monad](s: Session[F], entities: List[T], insertMany: Int => Command[List[T]]): F[Unit] =
     entities.grouped(dbChunkSize).toList.traverse(es => s.prepare(insertMany(es.size)).flatMap(_.execute(es))).void
 
+  def retryF[F[_] : Logger , A](effect: F[A], maxRetries: Int = 5)(implicit F: MonadError[F, Throwable], timer: Temporal[F]): F[A] = {
+    effect.handleErrorWith {
+      case err: EofException =>
+        if (maxRetries > 0)
+          Logger[F].warn(s"Error $err from db, retrying... (${maxRetries})") *> retryF(effect, maxRetries - 1)
+        else
+          F.raiseError(err)
+    }
+  }
 }

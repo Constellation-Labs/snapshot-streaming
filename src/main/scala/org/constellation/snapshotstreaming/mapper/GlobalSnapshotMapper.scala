@@ -6,6 +6,8 @@ import eu.timepit.refined.auto._
 import org.constellation.snapshotstreaming.ReindexerSnapshotProcessor.GlobalSnapshotWithState
 import org.constellation.snapshotstreaming.schema.schema.{GlobalData, SignatureProof}
 import org.constellation.snapshotstreaming.schema.{RewardTransaction, Snapshot}
+import org.tessellation.schema.address.Address
+import org.tessellation.schema.balance.Balance
 import org.tessellation.schema.{GlobalIncrementalSnapshot, transaction}
 import org.tessellation.security.{Hashed, Hasher}
 
@@ -27,6 +29,7 @@ abstract class GlobalSnapshotMapper[F[_]: Async] extends SnapshotMapper[F, Globa
       snapshot <- mapSnapshot(globalSnapshot, timestamp, hasher)
       blocks <- mapBlocks(globalSnapshot, timestamp, txHasher, hasher)
       transactions <- mapTransactions(globalSnapshot, timestamp, txHasher, hasher)
+      prevBalances = maybePrevSnapshotInfo.map(prev => prev.balances).getOrElse(Map[Address, Balance]())
       filteredBalances = balanceDiff(
         globalSnapshot.signed.value,
         maybePrevSnapshotInfo.map(prev => prev.balances),
@@ -34,14 +37,17 @@ abstract class GlobalSnapshotMapper[F[_]: Async] extends SnapshotMapper[F, Globa
       )
       balances = mapBalances(globalSnapshot, filteredBalances, timestamp)
 
-    } yield GlobalData(
-      snapshot,
-      blocks,
-      transactions,
-      balances,
-      globalSnapshot.signed.proofs.toSortedSet.toSeq.map(SignatureProof.from(globalSnapshot.hash, _)),
-      currencySnapshots.values.map( _=> ()).size
-    )
+    } yield {
+      GlobalData(
+        snapshot,
+        blocks,
+        transactions,
+        balances,
+        globalSnapshot.signed.proofs.toSortedSet.toSeq.map(SignatureProof.from(globalSnapshot.hash, _)),
+        currencySnapshots.values.map(_ => ()).size,
+        prevBalances ++ filteredBalances
+      )
+    }
   }
 
 }
