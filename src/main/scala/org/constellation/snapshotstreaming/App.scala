@@ -19,11 +19,8 @@ import pureconfig.ConfigSource
 import pureconfig.generic.auto._
 import pureconfig.module.catseffect.syntax._
 import pureconfig.module.enumeratum._
-import org.tessellation.ext.kryo._
-import org.tessellation.node.shared.nodeSharedKryoRegistrar
-import org.tessellation.shared.sharedKryoRegistrar
 
-object AppReindexer extends IOApp {
+object App extends IOApp {
   private val logger = Slf4jLogger.getLogger[IO]
 
   def run(args: List[String]): IO[ExitCode] =
@@ -32,8 +29,7 @@ object AppReindexer extends IOApp {
       .flatMap { appConfig =>
         ConfigSource.default.loadF[IO, SharedConfigReader]().flatMap { sharedCfg =>
           Random.scalaUtilRandom[IO].flatMap { implicit random =>
-            val cryOs = sharedKryoRegistrar.union(kryoRegistrar)
-            KryoSerializer.forAsync[IO](cryOs).use { implicit ks =>
+            KryoSerializer.forAsync[IO](shared.sharedKryoRegistrar ++ kryoRegistrar).use { implicit ks =>
               JsonSerializer.forSync[IO].asResource.use { implicit jsonSerializer =>
                 val hashSelect = makeHashSelect(appConfig, sharedCfg)
                 implicit val hasherSelector =
@@ -42,14 +38,14 @@ object AppReindexer extends IOApp {
                 val txHasher = Hasher.forKryo[IO]
 
                 SecurityProvider.forAsync[IO].use { implicit sp =>
-                  ReindexerSnapshotProcessor
+                  SnapshotProcessor
                     .make[IO](
                       appConfig.snapshotStreaming,
                       sharedCfg,
                       txHasher
                     )
-                    .use { snapshotProcessorS3 =>
-                      snapshotProcessorS3.runtime.compile.drain.recoverWith { case e => logger.error(s"$e") }
+                    .use { snapshotProcessor =>
+                      snapshotProcessor.runtime.compile.drain.recoverWith { case e => logger.error(s"$e") }
                         .flatTap(_ => logger.info("Done!"))
                         .as(ExitCode.Success)
                     }
