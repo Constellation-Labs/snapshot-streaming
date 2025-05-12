@@ -108,8 +108,8 @@ abstract class GlobalSnapshotMapper[F[_]: Async] extends SnapshotMapper[F, Globa
   }
 
   private def mapStakingRewards(snapshot: Hashed[GlobalIncrementalSnapshot]) =
-    snapshot.delegateRewards.toSeq.flatMap(_.flatMap { case (address, values) =>
-      values.toSeq.map { case (peerId, amount) =>
+    snapshot.delegateRewards.toSeq.flatMap(_.flatMap { case (peerId, values) =>
+      values.toSeq.map { case (address, amount) =>
         DelegatedStakingReward(snapshot.hash.value, address.value.value, peerId.value.value, amount.value.value)
       }
     })
