@@ -10,11 +10,18 @@ import org.constellation.snapshotstreaming.SnapshotProcessor.GlobalSnapshotWithS
 import org.constellation.snapshotstreaming.schema.AllowSpends.{AllowSpend, AllowSpendExpiration, SpendTransaction}
 import org.constellation.snapshotstreaming.schema.TokenLocks.{TokenLock, TokenUnlock}
 import org.constellation.snapshotstreaming.schema.schema.{MetagraphData, toIncremental}
-import org.constellation.snapshotstreaming.schema.{AddressBalance, Block, CurrencyData, FeeTransaction, Snapshot, Transaction, CurrencySnapshot => OSCurrencySnapshot}
+import org.constellation.snapshotstreaming.schema.{
+  AddressBalance,
+  Block,
+  CurrencyData,
+  CurrencySnapshot => OSCurrencySnapshot,
+  FeeTransaction,
+  Snapshot,
+  Transaction
+}
 
 import java.time.LocalDateTime
 import scala.collection.immutable.SortedMap
-
 
 trait CurrencySnapshotMapper[F[_]] {
 
@@ -42,18 +49,18 @@ object CurrencySnapshotMapper {
     new CurrencySnapshotMapper[F] {
 
       type Acc = (
-          Seq[CurrencyData[OSCurrencySnapshot]],
-          Seq[CurrencyData[Block]],
-          Seq[CurrencyData[Transaction]],
-          Seq[CurrencyData[FeeTransaction]],
-          Seq[CurrencyData[AddressBalance]],
-          Seq[CurrencyData[AllowSpend]],
-          Seq[CurrencyData[SpendTransaction]],
-          Seq[CurrencyData[AllowSpendExpiration]],
-          Seq[CurrencyData[TokenLock]],
-          Seq[CurrencyData[TokenUnlock]],
-          Map[Address, SortedMap[Address, Balance]],
-        )
+        Seq[CurrencyData[OSCurrencySnapshot]],
+        Seq[CurrencyData[Block]],
+        Seq[CurrencyData[Transaction]],
+        Seq[CurrencyData[FeeTransaction]],
+        Seq[CurrencyData[AddressBalance]],
+        Seq[CurrencyData[AllowSpend]],
+        Seq[CurrencyData[SpendTransaction]],
+        Seq[CurrencyData[AllowSpendExpiration]],
+        Seq[CurrencyData[TokenLock]],
+        Seq[CurrencyData[TokenUnlock]],
+        Map[Address, Map[Address, Balance]]
+      )
 
       type CurrencySnapshotMapperResult = MetagraphData
 
@@ -92,11 +99,23 @@ object CurrencySnapshotMapper {
         currencySnapshots.toList.flatMap { case (i, s) => s.toList.map((i, _)) }
           .foldLeftM[F, Acc](initialAcc) {
             case (
-              (aggCurrencySnap, aggBlocks, aggTxs, aggFeeTxs, aggBalances, aggAllowSpends, aggSpendTxs, aggSpendExpirations, aggTokenLocks, aggTokenUnlocks, aggLastBalances),
-              (identifier, fullOrIncremental)
-              ) =>
+                  (
+                    aggCurrencySnap,
+                    aggBlocks,
+                    aggTxs,
+                    aggFeeTxs,
+                    aggChangedBalances,
+                    aggAllowSpends,
+                    aggSpendTxs,
+                    aggSpendExpirations,
+                    aggTokenLocks,
+                    aggTokenUnlocks,
+                    aggLastBalances
+                  ),
+                  (identifier, fullOrIncremental)
+                ) =>
               val identifierStr = identifier.value.value
-              def toCurrency[A](a:A) = CurrencyData(identifierStr, a)
+              def toCurrency[A](a: A) = CurrencyData(identifierStr, a)
 
               fullOrIncremental match {
                 case Left(full) =>
@@ -111,26 +130,26 @@ object CurrencySnapshotMapper {
                       .mapTransactions(full, timestamp, txHasher, hasher)
                       .map(_.map(CurrencyData(identifierStr, _)))
                     prevBalances = aggLastBalances.get(identifier)
-                    filteredBalances = fullMapper.balanceDiff(
+                    onlyUpdatedBalances = fullMapper.balanceDiff(
                       full,
                       prevBalances,
                       full.info.balances
                     )
-                    balances = fullMapper
-                      .mapBalances(full, filteredBalances, timestamp)
+                    changedAddressBalances = fullMapper
+                      .mapBalances(full, onlyUpdatedBalances, timestamp)
                       .map(CurrencyData(identifierStr, _))
                   } yield (
                     aggCurrencySnap :+ snapshot,
                     aggBlocks ++ blocks,
                     aggTxs ++ transactions,
                     aggFeeTxs,
-                    aggBalances ++ balances,
+                    aggChangedBalances ++ changedAddressBalances,
                     aggAllowSpends,
                     aggSpendTxs,
                     aggSpendExpirations,
                     aggTokenLocks,
                     aggTokenUnlocks,
-                    aggLastBalances + (identifier -> filteredBalances)
+                    aggLastBalances + (identifier -> full.info.balances)
                   )
 
                 case Right((incremental, info, binary)) =>
@@ -154,34 +173,67 @@ object CurrencySnapshotMapper {
                     tokenLocks <- incrementalMapper
                       .mapTokenLocks(incremental, timestamp, hasher)
                     prevBalances = aggLastBalances.get(identifier)
-                    filteredBalances = incrementalMapper.balanceDiff(
+                    // in theory, we won't need this
+                    onlyUpdatedBalances = incrementalMapper.balanceDiff(
                       incremental,
                       prevBalances,
                       info.balances
                     )
-                    balances = incrementalMapper
-                      .mapBalances(incremental, filteredBalances, timestamp)
+                    changedAddressBalances = incrementalMapper
+                      .mapBalances(incremental, onlyUpdatedBalances, timestamp)
                       .map(CurrencyData(identifierStr, _))
                   } yield (
                     aggCurrencySnap :+ snapshot,
                     aggBlocks ++ blocks,
                     aggTxs ++ transactions,
                     aggFeeTxs ++ feeTransactions,
-                    aggBalances ++ balances,
+                    aggChangedBalances ++ changedAddressBalances,
                     aggAllowSpends ++ allowSpends.map(toCurrency),
                     aggSpendTxs ++ spendsTx.map(toCurrency),
                     aggSpendExpirations ++ spendExpirations.map(toCurrency),
                     aggTokenLocks ++ tokenLocks.map(toCurrency),
                     aggTokenUnlocks ++ tokenUnlocks.map(toCurrency),
-                    aggLastBalances + (identifier -> filteredBalances)
+                    updateBalanceMap(identifier, aggLastBalances, onlyUpdatedBalances)
                   )
               }
           }
-          .map { case (aggCurrencySnap, aggBlocks, aggTxs, aggFeeTxs, aggBalances, aggAllowSpends, aggSpendTxs, aggSpendExpirations, aggTokenLocks, aggTokenUnlocks, _) =>
-            MetagraphData(aggCurrencySnap, aggBlocks, aggTxs, aggFeeTxs, aggBalances, aggAllowSpends, aggSpendTxs, aggSpendExpirations, aggTokenLocks, aggTokenUnlocks)
+          .map {
+            case (
+                  aggCurrencySnap,
+                  aggBlocks,
+                  aggTxs,
+                  aggFeeTxs,
+                  changedBalances,
+                  aggAllowSpends,
+                  aggSpendTxs,
+                  aggSpendExpirations,
+                  aggTokenLocks,
+                  aggTokenUnlocks,
+                  newBalanceState
+                ) =>
+              MetagraphData(
+                aggCurrencySnap,
+                aggBlocks,
+                aggTxs,
+                aggFeeTxs,
+                changedBalances,
+                aggAllowSpends,
+                aggSpendTxs,
+                aggSpendExpirations,
+                aggTokenLocks,
+                aggTokenUnlocks,
+                newBalanceState
+              )
           }
       }
 
     }
+
+  def updateBalanceMap(
+    identifier: Address,
+    previous: Map[Address, Map[Address, Balance]],
+    changedBalances: Map[Address, Balance]
+  ) =
+    previous.updatedWith(identifier)(_.map(_ ++ changedBalances).orElse(changedBalances.some))
 
 }

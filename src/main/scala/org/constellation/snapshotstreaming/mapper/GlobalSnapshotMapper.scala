@@ -4,18 +4,11 @@ import cats.effect.Async
 import cats.syntax.all._
 import eu.timepit.refined.auto._
 import io.constellationnetwork.schema.address.Address
+import io.constellationnetwork.schema.balance.Balance
 import io.constellationnetwork.schema.delegatedStake.{DelegatedStakeRecord, PendingDelegatedStakeWithdrawal}
 import io.constellationnetwork.schema.peer.PeerId
 import io.constellationnetwork.schema.round.RoundId
-import io.constellationnetwork.schema.{
-  GlobalIncrementalSnapshot,
-  GlobalSnapshotInfo,
-  SnapshotOrdinal,
-  artifact,
-  swap,
-  tokenLock,
-  transaction
-}
+import io.constellationnetwork.schema.{GlobalIncrementalSnapshot, GlobalSnapshotInfo, SnapshotOrdinal, artifact, swap, tokenLock, transaction}
 import io.constellationnetwork.security.hash.Hash
 import io.constellationnetwork.security.signature.Signed
 import io.constellationnetwork.security.{Hashed, Hasher}
@@ -23,17 +16,7 @@ import org.constellation.snapshotstreaming.SnapshotProcessor.GlobalSnapshotWithS
 import org.constellation.snapshotstreaming.schema.AllowSpends.{AllowSpend, AllowSpendExpiration, SpendTransaction}
 import org.constellation.snapshotstreaming.schema.TokenLocks.{TokenLock, TokenUnlock}
 import org.constellation.snapshotstreaming.schema.schema.GlobalData
-import org.constellation.snapshotstreaming.schema.{
-  DelegatedStakingBalanceChanges,
-  DelegatedStakingCreate,
-  DelegatedStakingReward,
-  DelegatedStakingWithdraw,
-  RewardTransaction,
-  Snapshot,
-  StakingEventCreate,
-  StakingEventWithdraw,
-  TransactionReference
-}
+import org.constellation.snapshotstreaming.schema.{DelegatedStakingBalanceChanges, DelegatedStakingCreate, DelegatedStakingReward, DelegatedStakingWithdraw, RewardTransaction, Snapshot, StakingEventCreate, StakingEventWithdraw, TransactionReference}
 
 import java.time.LocalDateTime
 import scala.collection.immutable.{SortedMap, SortedSet}
@@ -48,12 +31,13 @@ abstract class GlobalSnapshotMapper[F[_]: Async] extends SnapshotMapper[F, Globa
     txHasher: Hasher[F],
     hasher: Hasher[F]
   ): F[GlobalData] = {
-    val GlobalSnapshotWithState(globalSnapshot, maybePrevSnapshotInfo, snapshotInfo, _, ts) =
+    val GlobalSnapshotWithState(globalSnapshot, maybePrevSnapshotInfo, snapshotInfo, currencySnapshots, timestamp) =
       globalSnapshotWithState
     for {
       snapshot <- mapSnapshot(globalSnapshot, timestamp, hasher)
       blocks <- mapBlocks(globalSnapshot, timestamp, txHasher, hasher)
       transactions <- mapTransactions(globalSnapshot, timestamp, txHasher, hasher)
+      prevBalances = maybePrevSnapshotInfo.map(prev => prev.balances).getOrElse(Map[Address, Balance]())
       filteredBalances = balanceDiff(
         globalSnapshot.signed.value,
         maybePrevSnapshotInfo.map(prev => prev.balances),
@@ -103,7 +87,8 @@ abstract class GlobalSnapshotMapper[F[_]: Async] extends SnapshotMapper[F, Globa
       stakingRewards,
       stakingBalances,
       spendTransactions,
-      allowSpendExpirations
+      allowSpendExpirations,
+      prevBalances ++ filteredBalances
     )
   }
 

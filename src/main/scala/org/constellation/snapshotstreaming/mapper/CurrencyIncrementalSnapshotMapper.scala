@@ -17,33 +17,48 @@ import io.constellationnetwork.security.signature.Signed
 import io.constellationnetwork.security.{Hashed, Hasher}
 import io.constellationnetwork.statechannel.StateChannelSnapshotBinary
 import org.constellation.snapshotstreaming.schema.AllowSpends.{AllowSpend, SpendTransaction}
-import org.constellation.snapshotstreaming.schema.{CurrencySnapshot, FeeTransaction, RewardTransaction, TransactionReference}
+import org.constellation.snapshotstreaming.schema.{
+  CurrencySnapshot,
+  FeeTransaction,
+  RewardTransaction,
+  TransactionReference
+}
 
 import java.time.LocalDateTime
 import scala.collection.immutable.SortedSet
 
-abstract class CurrencyIncrementalSnapshotMapper[F[_]: Async]
-  extends SnapshotMapper[F, CurrencyIncrementalSnapshot] {
+abstract class CurrencyIncrementalSnapshotMapper[F[_]: Async] extends SnapshotMapper[F, CurrencyIncrementalSnapshot] {
 
   def mapSnapshot(
-                   snapshot: Hashed[CurrencyIncrementalSnapshot],
-                   binary: Signed[StateChannelSnapshotBinary],
-                   info: CurrencySnapshotInfo,
-                   timestamp: LocalDateTime,
-                   hasher: Hasher[F]
-                 ): F[CurrencySnapshot]
+    snapshot: Hashed[CurrencyIncrementalSnapshot],
+    binary: Signed[StateChannelSnapshotBinary],
+    info: CurrencySnapshotInfo,
+    timestamp: LocalDateTime,
+    hasher: Hasher[F]
+  ): F[CurrencySnapshot]
 
   def mapFeeTransactions(
-                          snapshot: Hashed[CurrencyIncrementalSnapshot],
-                          timestamp: LocalDateTime,
-                          hasher: Hasher[F]
-                        ): F[List[FeeTransaction]]
+    snapshot: Hashed[CurrencyIncrementalSnapshot],
+    timestamp: LocalDateTime,
+    hasher: Hasher[F]
+  ): F[List[FeeTransaction]]
 
-  def mapAllowSpends(snapshot: Hashed[CurrencyIncrementalSnapshot], timestamp: LocalDateTime, hasher: Hasher[F]): F[List[AllowSpend]]
+  def mapAllowSpends(
+    snapshot: Hashed[CurrencyIncrementalSnapshot],
+    timestamp: LocalDateTime,
+    hasher: Hasher[F]
+  ): F[List[AllowSpend]]
 
-  def mapTokenLocks(snapshot: Hashed[CurrencyIncrementalSnapshot], timestamp: LocalDateTime, hasher: Hasher[F]): F[List[TokenLock]]
+  def mapTokenLocks(
+    snapshot: Hashed[CurrencyIncrementalSnapshot],
+    timestamp: LocalDateTime,
+    hasher: Hasher[F]
+  ): F[List[TokenLock]]
 
-  def mapArtifacts(snapshot: Hashed[CurrencyIncrementalSnapshot], hasher: Hasher[F]): F[(List[SpendTransaction], List[TokenUnlock], List[AllowSpendExpiration])]
+  def mapArtifacts(
+    snapshot: Hashed[CurrencyIncrementalSnapshot],
+    hasher: Hasher[F]
+  ): F[(List[SpendTransaction], List[TokenUnlock], List[AllowSpendExpiration])]
 
 }
 
@@ -64,10 +79,10 @@ object CurrencyIncrementalSnapshotMapper {
       }
 
       def mapFeeTransactions(
-                              snapshot: Hashed[CurrencyIncrementalSnapshot],
-                              timestamp: LocalDateTime,
-                              hasher: Hasher[F]
-                            ): F[List[FeeTransaction]] = {
+        snapshot: Hashed[CurrencyIncrementalSnapshot],
+        timestamp: LocalDateTime,
+        hasher: Hasher[F]
+      ): F[List[FeeTransaction]] = {
         implicit val hs: Hasher[F] = hasher
         snapshot.feeTransactions.toList.flatTraverse(
           _.toList.traverse(mapFeeTransaction(snapshot.hash.value, snapshot.ordinal.value, timestamp))
@@ -75,12 +90,12 @@ object CurrencyIncrementalSnapshotMapper {
       }
 
       def mapSnapshot(
-                       snapshot: Hashed[CurrencyIncrementalSnapshot],
-                       binary: Signed[StateChannelSnapshotBinary],
-                       info: CurrencySnapshotInfo,
-                       timestamp: LocalDateTime,
-                       hasher: Hasher[F]
-                     ): F[CurrencySnapshot] = for {
+        snapshot: Hashed[CurrencyIncrementalSnapshot],
+        binary: Signed[StateChannelSnapshotBinary],
+        info: CurrencySnapshotInfo,
+        timestamp: LocalDateTime,
+        hasher: Hasher[F]
+      ): F[CurrencySnapshot] = for {
         blocksHashes <- snapshot.blocks.unsorted.map(_.block).map(hashBlock(_, hasher)).toList.sequence
         sizeInKb <- SizeCalculator.kilobytes(binary)
       } yield CurrencySnapshot(
@@ -143,10 +158,14 @@ object CurrencyIncrementalSnapshotMapper {
           )
         }
 
-      def mapAllowSpends(snapshot: Hashed[CurrencyIncrementalSnapshot], timestamp: LocalDateTime, hasher: Hasher[F]): F[List[AllowSpend]] = {
+      def mapAllowSpends(
+        snapshot: Hashed[CurrencyIncrementalSnapshot],
+        timestamp: LocalDateTime,
+        hasher: Hasher[F]
+      ): F[List[AllowSpend]] = {
         implicit val hs: Hasher[F] = hasher
         snapshot.allowSpendBlocks.toList.flatTraverse(
-          _.toList.flatTraverse( alb => alb.transactions.toList.traverse(mapAllowSpend(snapshot.hash, alb.roundId)))
+          _.toList.flatTraverse(alb => alb.transactions.toList.traverse(mapAllowSpend(snapshot.hash, alb.roundId)))
         )
       }
 
@@ -166,17 +185,21 @@ object CurrencyIncrementalSnapshotMapper {
           )
         }
 
-      def mapTokenLocks(snapshot: Hashed[CurrencyIncrementalSnapshot], timestamp: LocalDateTime, hasher: Hasher[F]): F[List[TokenLock]] = {
+      def mapTokenLocks(
+        snapshot: Hashed[CurrencyIncrementalSnapshot],
+        timestamp: LocalDateTime,
+        hasher: Hasher[F]
+      ): F[List[TokenLock]] = {
         implicit val hs: Hasher[F] = hasher
         snapshot.tokenLockBlocks.toList.flatTraverse(
-          _.toList.flatTraverse( tlb => tlb.tokenLocks.toList.traverse(mapTokenLock(snapshot.hash, tlb.roundId)))
+          _.toList.flatTraverse(tlb => tlb.tokenLocks.toList.traverse(mapTokenLock(snapshot.hash, tlb.roundId)))
         )
       }
 
       def mapSpendTx(snapshotHash: Hash)(
         spendTx: artifact.SpendTransaction
-      )(implicit hasher: Hasher[F]): F[SpendTransaction] = hasher.hash(spendTx).map {
-        hash => SpendTransaction(
+      )(implicit hasher: Hasher[F]): F[SpendTransaction] = hasher.hash(spendTx).map { hash =>
+        SpendTransaction(
           hash.value,
           spendTx.source.value,
           spendTx.destination.value,
@@ -186,46 +209,49 @@ object CurrencyIncrementalSnapshotMapper {
         )
       }
 
-      def mapTokenUnlock( snapshotHash: Hash, tokenUnlock:  artifact.TokenUnlock )
-                        (implicit hasher: Hasher[F]): F[TokenUnlock] = hasher.hash(tokenUnlock).map {
-        hash => TokenUnlock(
+      def mapTokenUnlock(snapshotHash: Hash, tokenUnlock: artifact.TokenUnlock)(implicit
+        hasher: Hasher[F]
+      ): F[TokenUnlock] = hasher.hash(tokenUnlock).map { hash =>
+        TokenUnlock(
           snapshotHash.value,
           hash.value,
           tokenUnlock.tokenLockRef.value,
           tokenUnlock.amount.value,
-          tokenUnlock.source.value,
+          tokenUnlock.source.value
         )
       }
 
-      def mapExpiration(snapshotHash: Hash, expiry:  artifact.AllowSpendExpiration)
-                       (implicit hasher: Hasher[F]): F[AllowSpendExpiration] = hasher.hash(expiry).map {
-        hash => AllowSpendExpiration(
+      def mapExpiration(snapshotHash: Hash, expiry: artifact.AllowSpendExpiration)(implicit
+        hasher: Hasher[F]
+      ): F[AllowSpendExpiration] = hasher.hash(expiry).map { hash =>
+        AllowSpendExpiration(
           snapshotHash.value,
           hash.value,
-          expiry.allowSpendRef.value,
+          expiry.allowSpendRef.value
         )
       }
 
-
-      def mapArtifacts(snapshot: Hashed[CurrencyIncrementalSnapshot], hasher: Hasher[F]): F[(List[SpendTransaction], List[TokenUnlock], List[AllowSpendExpiration])] = {
+      def mapArtifacts(
+        snapshot: Hashed[CurrencyIncrementalSnapshot],
+        hasher: Hasher[F]
+      ): F[(List[SpendTransaction], List[TokenUnlock], List[AllowSpendExpiration])] = {
         implicit val hs: Hasher[F] = hasher
         val events = snapshot.artifacts.toList.flatten
         val spendTxs = events.flatTraverse {
           case artifact.SpendAction(spendTransactions) => spendTransactions.toList.traverse(mapSpendTx(snapshot.hash))
-          case _ =>  List.empty[SpendTransaction].pure
+          case _                                       => List.empty[SpendTransaction].pure
         }
         val tokenUnlocks = events.flatTraverse {
           case tu: artifact.TokenUnlock => mapTokenUnlock(snapshot.hash, tu).map(List(_))
-          case _ =>  List.empty[TokenUnlock].pure
+          case _                        => List.empty[TokenUnlock].pure
         }
         val expirations = events.flatTraverse {
           case exp: artifact.AllowSpendExpiration => mapExpiration(snapshot.hash, exp).map(List(_))
-          case _ =>  List.empty[AllowSpendExpiration].pure
+          case _                                  => List.empty[AllowSpendExpiration].pure
         }
 
         (spendTxs, tokenUnlocks, expirations).tupled
       }
-
 
     }
 
