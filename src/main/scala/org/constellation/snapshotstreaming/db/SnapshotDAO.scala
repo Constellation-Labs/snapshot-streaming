@@ -24,6 +24,7 @@ import org.constellation.snapshotstreaming.schema.{
 }
 import io.constellationnetwork.security.signature.signature.SignatureProof
 import org.constellation.snapshotstreaming.schema.TokenLocks.{TokenLock, TokenUnlock}
+import org.typelevel.log4cats.slf4j.Slf4jLogger
 import skunk._
 import skunk.codec.all._
 import skunk.implicits._
@@ -654,8 +655,10 @@ object SnapshotDAO {
 
   def make[F[_]: Async](pool: Resource[F, Session[F]]): SnapshotDAO[F] = new SnapshotDAO[F] {
 
+    private implicit val logger = Slf4jLogger.getLogger[F]
+
     def insertGlobalData(snapshot: GlobalData, mgSnaphotsCount: Int): F[Unit] =
-      pool.use { session =>
+      retryF(pool.use { session =>
         session.transaction.use { xa =>
           val gsHash = snapshot.snapshot.hash
           val blockParents = snapshot.blocks.toList.flatMap(b => b.parent.map((b.hash, _)))
@@ -697,10 +700,10 @@ object SnapshotDAO {
             _ <- xa.commit
           } yield ()
         }
-      }
+      })
 
     def insertMetagraphData(globalSnapshotHash: String, mgSnapshot: MetagraphData): F[Unit] =
-      pool.use { session =>
+      retryF(pool.use { session =>
         session.transaction.use { xa =>
           val blockParents = mgSnapshot.blocks.flatMap { currencyData =>
             currencyData.data.parent.map(parent => (currencyData.identifier, currencyData.data.hash, parent))
@@ -742,7 +745,7 @@ object SnapshotDAO {
             _ <- xa.commit
           } yield ()
         }
-      }
+      })
 
   }
 
