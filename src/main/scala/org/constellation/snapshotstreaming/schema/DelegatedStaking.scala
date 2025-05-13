@@ -1,7 +1,5 @@
 package org.constellation.snapshotstreaming.schema
 
-import io.estatico.newtype.macros.newtype
-
 case class DelegatedStakingCreate(
   snapshotHash: String,
   hash: String,
@@ -13,7 +11,7 @@ case class DelegatedStakingCreate(
   rewards: Long,
   tokenLockHash: String,
   parentHash: String,
-  isUpdate: Boolean
+  transferFrom: Option[String]
 )
 
 case class DelegatedStakingWithdraw(
@@ -22,21 +20,9 @@ case class DelegatedStakingWithdraw(
   sourceAddress: String,
   stakeCreateHash: String,
   rewards: Long,
-  createdAtEpoch: Long
+  createdAtEpoch: Long,
+  unlockEpoch: Long,
+  completed: Boolean
 )
 
-sealed trait StakingEventRef
-case class StakingEventCreate(hash: String) extends StakingEventRef
-case class StakingEventWithdraw(hash: String) extends StakingEventRef
-
-case class DelegatedStakingBalanceChanges(
-  snapshotHash: String,
-  snapshotOrdinal: Long,
-  address: String,
-  nodeId: String,
-  balance: Long,
-  rewards: Long,
-  stakingCreateEvent: StakingEventRef
-)
-
-case class DelegatedStakingReward(snapshotHash: String, address: String, nodeId: String, amount: Long)
+case class DelegatedStakingReward(snapshotHash: String, stakeHash: String, address: String, nodeId: String, amount: Long)

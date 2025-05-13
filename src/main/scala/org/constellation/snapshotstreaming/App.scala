@@ -8,15 +8,15 @@ import io.constellationnetwork.ext.cats.effect._
 import io.constellationnetwork.json.JsonSerializer
 import io.constellationnetwork.kryo.KryoSerializer
 import io.constellationnetwork.node.shared.config.types.SharedConfigReader
-import io.constellationnetwork.node.shared.ext.pureconfig._
 import io.constellationnetwork.schema.SnapshotOrdinal
 import io.constellationnetwork.security._
-import eu.timepit.refined.pureconfig._
 import org.typelevel.log4cats.slf4j.Slf4jLogger
 import org.typelevel.otel4s.trace.Tracer.Implicits.noop
 import pureconfig.ConfigSource
 import pureconfig.generic.auto._
 import pureconfig.module.catseffect.syntax._
+import io.constellationnetwork.node.shared.ext.pureconfig._
+import eu.timepit.refined.pureconfig._
 import pureconfig.module.enumeratum._
 
 object App extends IOApp {

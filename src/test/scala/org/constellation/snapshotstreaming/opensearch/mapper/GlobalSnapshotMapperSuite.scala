@@ -20,6 +20,7 @@ import io.constellationnetwork.security.KeyPairGenerator
 import io.constellationnetwork.security.SecurityProvider
 import io.constellationnetwork.shared.sharedKryoRegistrar
 import eu.timepit.refined.auto._
+import io.constellationnetwork.env.AppEnvironment
 import org.constellation.snapshotstreaming.data.applyTransactions
 import org.constellation.snapshotstreaming.data.createBalances
 import org.constellation.snapshotstreaming.data.createBlocksWithTransactions
@@ -31,13 +32,22 @@ import org.constellation.snapshotstreaming.mapper.GlobalSnapshotMapper
 import weaver.MutableIOSuite
 import io.constellationnetwork.security.Hasher
 import io.constellationnetwork.json.JsonSerializer
+import io.constellationnetwork.node.shared.config.types.{SharedConfig, SharedConfigReader}
 import io.constellationnetwork.schema.GlobalIncrementalSnapshot
 import io.constellationnetwork.schema.balance.Balance
 import io.constellationnetwork.security.Hashed
 import io.constellationnetwork.security.HasherSelector
+import org.constellation.snapshotstreaming.Configuration
+import pureconfig.ConfigSource
+import pureconfig.generic.auto._
+import pureconfig.module.catseffect.syntax._
+import io.constellationnetwork.node.shared.ext.pureconfig._
+import eu.timepit.refined.pureconfig._
+import pureconfig.module.enumeratum._
 
 object GlobalSnapshotMapperSuite extends MutableIOSuite {
 
+  val sharedCfg = Configuration.nodeSharedConfig(AppEnvironment.Dev, ConfigSource.default.loadOrThrow[SharedConfigReader])
   type Res = (HasherSelector[IO], KryoSerializer[IO], SecurityProvider[IO], KeyPair, KeyPair, KeyPair, KeyPair)
 
   override def sharedResource: Resource[IO, Res] =
@@ -114,7 +124,7 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
       )
 
       result = GlobalSnapshotMapper
-        .make()
+        .make(sharedCfg)
         .balanceDiff(snapshot, initialBalances.some, GlobalSnapshotInfo.empty)
     } yield expect.all(
       initialBalances(address1) === Balance(1000L),
@@ -175,7 +185,7 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
       )
 
       result = GlobalSnapshotMapper
-        .make()
+        .make(sharedCfg)
         .balanceDiff(snapshot, initialBalances.some, updatedInfo)
     } yield expect.same(
       result,
@@ -234,7 +244,7 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
       )
 
       result = GlobalSnapshotMapper
-        .make()
+        .make(sharedCfg)
         .balanceDiff(snapshot, initialBalances.some, updatedInfo)
     } yield expect.same(
       result,
@@ -287,7 +297,7 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
         rewards = rewards
       )
 
-      result = GlobalSnapshotMapper.make().balanceDiff(snapshot, initialBalances.some, updatedInfo)
+      result = GlobalSnapshotMapper.make(sharedCfg).balanceDiff(snapshot, initialBalances.some, updatedInfo)
     } yield expect.same(
       result,
       updatedBalances - address3 - address4

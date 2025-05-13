@@ -81,7 +81,7 @@ object SnapshotProcessor {
       l0Service,
       s3DAO,
       snapshotDAO,
-      GlobalSnapshotMapper.make(),
+      GlobalSnapshotMapper.make(Configuration.nodeSharedConfig(configuration.environment, sharedConfig)),
       CurrencySnapshotMapper.make(),
       txHasher,
       tesselationServices,
