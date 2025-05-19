@@ -72,6 +72,5 @@ lazy val core = (project in file("."))
       Libraries.logback % Runtime,
       Libraries.logstash % Runtime,
       Libraries.tessellationSdk,
-      Libraries.tessellationShared
     )
   )

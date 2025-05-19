@@ -3,10 +3,7 @@ package org.constellation.snapshotstreaming.storage
 import cats.effect.std.Mutex
 import cats.effect.Async
 import cats.syntax.all._
-import cats.Applicative
-import cats.MonadThrow
-import org.tessellation.schema._
-import org.tessellation.security._
+import cats.{Applicative, MonadThrow, Parallel}
 import fs2.io.file._
 import fs2.Stream
 import fs2.text
@@ -14,19 +11,23 @@ import io.circe.syntax._
 import io.circe.Codec
 import io.circe.generic.semiauto.deriveCodec
 import io.circe.jawn
-import org.tessellation.merkletree.StateProofValidator
-import org.tessellation.node.shared.domain.snapshot.storage.LastSnapshotStorage
-import org.tessellation.node.shared.domain.snapshot.Validator.isNextSnapshot
-import org.tessellation.schema.height.Height
+import io.constellationnetwork.ext.kryo._
+import io.constellationnetwork.kryo.KryoSerializer
+import io.constellationnetwork.node.shared.domain.snapshot.Validator._
+import io.constellationnetwork.merkletree.StateProofValidator
+import io.constellationnetwork.node.shared.domain.snapshot.storage.LastSnapshotStorage
+import io.constellationnetwork.schema._
+import io.constellationnetwork.schema.height.Height
+import io.constellationnetwork.security._
 
 object FileBasedLastGlobalIncrementalSnapshotStorage {
 
   private case class SnapshotWithState(snapshot: Hashed[GlobalIncrementalSnapshot], state: GlobalSnapshotInfo)
 
-  def make[F[_]: Async: HasherSelector: Files](path: Path): F[LastSnapshotStorage[F, GlobalIncrementalSnapshot, GlobalSnapshotInfo]] =
+  def make[F[_]: Async: Parallel: HasherSelector: Files](path: Path): F[LastSnapshotStorage[F, GlobalIncrementalSnapshot, GlobalSnapshotInfo]] =
     Mutex[F].map(make(_, path))
 
-  def make[F[_]: Async: HasherSelector: Files](
+  def make[F[_]: Async: Parallel: HasherSelector: Files](
     mutex: Mutex[F],
     path: Path
   ): LastSnapshotStorage[F, GlobalIncrementalSnapshot, GlobalSnapshotInfo] =

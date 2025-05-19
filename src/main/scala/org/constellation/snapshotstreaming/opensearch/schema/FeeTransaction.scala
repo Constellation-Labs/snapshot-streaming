@@ -10,8 +10,7 @@ final case class FeeTransaction(
   amount: Long,
   source: String,
   destination: String,
-  parent: FeeTransactionReference,
-  salt: Long,
+  dataUpdateRef: String,
   snapshotHash: String,
   snapshotOrdinal: Long,
   timestamp: Date
@@ -21,9 +20,3 @@ object FeeTransaction {
   implicit def feeTransactionEncoder: Encoder[FeeTransaction] = deriveEncoder
 }
 
-
-case class FeeTransactionReference(hash: String, ordinal: Long)
-
-object FeeTransactionReference {
-  implicit val feeTransactionReferenceEncoder: Encoder[FeeTransactionReference] = deriveEncoder
-}

@@ -3,19 +3,19 @@ package org.constellation.snapshotstreaming
 import cats.effect._
 import cats.effect.std.Random
 import cats.syntax.all._
-import org.tessellation._
-import org.tessellation.ext.cats.effect._
-import org.tessellation.json.JsonSerializer
-import org.tessellation.kryo.KryoSerializer
-import org.tessellation.node.shared.config.types.SharedConfigReader
-import org.tessellation.node.shared.ext.pureconfig._
-import org.tessellation.schema.SnapshotOrdinal
-import org.tessellation.security._
-import eu.timepit.refined.pureconfig._
+import io.constellationnetwork._
+import io.constellationnetwork.ext.cats.effect._
+import io.constellationnetwork.json.JsonSerializer
+import io.constellationnetwork.kryo.KryoSerializer
+import io.constellationnetwork.node.shared.config.types.SharedConfigReader
+import io.constellationnetwork.schema.SnapshotOrdinal
+import io.constellationnetwork.security._
 import org.typelevel.log4cats.slf4j.Slf4jLogger
 import pureconfig.ConfigSource
 import pureconfig.generic.auto._
 import pureconfig.module.catseffect.syntax._
+import io.constellationnetwork.node.shared.ext.pureconfig._
+import eu.timepit.refined.pureconfig._
 import pureconfig.module.enumeratum._
 
 object App extends IOApp {

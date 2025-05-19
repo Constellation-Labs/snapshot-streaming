@@ -4,13 +4,13 @@ import cats.effect.Async
 import cats.syntax.all._
 
 import scala.collection.immutable.SortedSet
-import org.tessellation.currency.schema.currency.{CurrencySnapshot => OriginalCurrencySnapshot}
-import org.tessellation.schema.transaction
-import org.tessellation.security.Hashed
-import org.tessellation.security.Hasher
+import io.constellationnetwork.currency.schema.currency.{CurrencySnapshot => OriginalCurrencySnapshot}
+import io.constellationnetwork.schema.transaction
+import io.constellationnetwork.security.Hashed
+import io.constellationnetwork.security.Hasher
 import eu.timepit.refined.auto._
 import org.constellation.snapshotstreaming.opensearch.schema._
-import org.tessellation.currency.schema.currency.CurrencySnapshotInfo
+import io.constellationnetwork.currency.schema.currency.CurrencySnapshotInfo
 
 import java.util.Date
 

@@ -3,21 +3,20 @@ package org.constellation.snapshotstreaming.opensearch.mapper
 import cats.effect.Async
 import cats.syntax.all._
 import eu.timepit.refined.auto._
-import org.constellation.snapshotstreaming.opensearch.schema.{CurrencySnapshot, FeeTransaction, FeeTransactionReference, RewardTransaction}
+import org.constellation.snapshotstreaming.opensearch.schema.{CurrencySnapshot, FeeTransaction, RewardTransaction}
 
 import scala.collection.immutable.SortedSet
-import org.tessellation.currency.schema.currency.CurrencyIncrementalSnapshot
-import org.tessellation.currency.schema.currency.CurrencySnapshotInfo
-import org.tessellation.currency.schema.feeTransaction.{FeeTransaction => OriginalFeeTransaction}
-import org.tessellation.currency.schema.feeTransaction.{FeeTransactionReference => OriginalFeeTransactionReference}
-import org.tessellation.json.JsonSerializer
-import org.tessellation.json.SizeCalculator
-import org.tessellation.schema.currencyMessage.MessageType
-import org.tessellation.schema.transaction.{RewardTransaction => OriginalRewardTransaction}
-import org.tessellation.security.signature.Signed
-import org.tessellation.security.Hashed
-import org.tessellation.security.Hasher
-import org.tessellation.statechannel.StateChannelSnapshotBinary
+import io.constellationnetwork.currency.schema.currency.CurrencyIncrementalSnapshot
+import io.constellationnetwork.currency.schema.currency.CurrencySnapshotInfo
+import io.constellationnetwork.currency.dataApplication.{FeeTransaction => OriginalFeeTransaction}
+import io.constellationnetwork.json.JsonSerializer
+import io.constellationnetwork.json.SizeCalculator
+import io.constellationnetwork.schema.currencyMessage.MessageType
+import io.constellationnetwork.schema.transaction.{RewardTransaction => OriginalRewardTransaction}
+import io.constellationnetwork.security.signature.Signed
+import io.constellationnetwork.security.Hashed
+import io.constellationnetwork.security.Hasher
+import io.constellationnetwork.statechannel.StateChannelSnapshotBinary
 
 import java.util.Date
 
@@ -105,16 +104,13 @@ object CurrencyIncrementalSnapshotMapper {
             feeTx.amount.value,
             feeTx.source.value,
             feeTx.destination.value,
-            mapFeeTransactionRef(feeTx.parent),
-            feeTx.salt.value,
+            feeTx.dataUpdateRef.value,
             snapshotHash,
             snapshotOrdinal,
             timestamp
           )
         }
 
-      private def mapFeeTransactionRef(ref: OriginalFeeTransactionReference): FeeTransactionReference =
-        FeeTransactionReference(ref.hash.value, ref.ordinal.value)
 
       private def getMessageAddress(messageType: MessageType, info: CurrencySnapshotInfo): Option[String] =
         info.lastMessages.flatMap(_.get(messageType)).map(_.address.value.value)

@@ -6,10 +6,10 @@ import cats.syntax.contravariantSemigroupal._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
 import cats.syntax.show._
-import org.tessellation.ext.kryo._
-import org.tessellation.kryo.KryoSerializer
-import org.tessellation.schema.GlobalIncrementalSnapshot
-import org.tessellation.security.Hashed
+import io.constellationnetwork.ext.kryo._
+import io.constellationnetwork.kryo.KryoSerializer
+import io.constellationnetwork.schema.GlobalIncrementalSnapshot
+import io.constellationnetwork.security.Hashed
 import com.amazonaws.client.builder.AwsClientBuilder.EndpointConfiguration
 import com.amazonaws.services.s3.model.ObjectMetadata
 import com.amazonaws.services.s3.{AmazonS3, AmazonS3ClientBuilder}
