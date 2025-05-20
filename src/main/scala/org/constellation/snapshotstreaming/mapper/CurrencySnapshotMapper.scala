@@ -119,6 +119,8 @@ object CurrencySnapshotMapper {
                     changedAddressBalances = fullMapper
                       .mapBalances(full, onlyUpdatedBalances, timestamp)
                       .map(CurrencyData(identifierStr, _))
+                    _ = println(s"${changedAddressBalances.size}")
+                    _ = println(aggLastBalances.map { case (k,v) =>  s"$k -> ${v.size}"}.mkString(","))
                   } yield (
                     aggCurrencySnap :+ snapshot,
                     aggBlocks ++ blocks,

@@ -640,19 +640,21 @@ object SnapshotDAO {
             _ <- executeCmd(preparedAddress)(AddressExtractor.extract(snapshot).toSeq)
             _ <- executeCmd(preparedGlobalSnapshot)(Seq((snapshot.snapshot, mgSnaphotsCount)))
             _ <- executeCmd(preparedDagBlock)(snapshot.blocks.toList)
-            _ <- executeCmd(preparedDagTxs)(snapshot.txs)
-            _ <- executeCmd(preparedDagAllowSpend)(snapshot.allowSpends)
-            _ <- executeCmd(preparedDagSpendTxs)(snapshot.spendTransactions)
-            _ <- executeCmd(preparedDagExpiredSpends)(snapshot.allowSpendExpirations)
             _ <- executeCmd(preparedDagTokenLock)(snapshot.tokenLocks)
-            _ <- executeCmd(preparedDagTokenUnlock)(snapshot.tokenUnlocks)
             _ <- executeCmd(preparedDagDelegatedStakingCreate)(snapshot.delegatedStakingCreate)
-            _ <- executeCmd(preparedDagDelegatedStakingWithdraw)(snapshot.delegatedStakingWithdraw)
-            _ <- executeCmd(preparedDagDelegatedStakingRewards)(snapshot.delegatedStakingRewards)
-            _ <- executeCmd(preparedDagAddressBalance)(snapshot.balances)
-            _ <- executeCmd(preparedDagRewardTxs)(pairWith(gsHash, snapshot.snapshot.rewards.toSeq))
-            _ <- executeCmd(preparedBlockParent)(blockParents)
-            _ <- executeCmd(preparedProofs)(pairWith(gsHash, snapshot.proofs.toSeq))
+            _ <- (
+            executeCmd(preparedDagTxs)(snapshot.txs)
+            ,executeCmd(preparedDagAllowSpend)(snapshot.allowSpends)
+            ,executeCmd(preparedDagExpiredSpends)(snapshot.allowSpendExpirations)
+            ,executeCmd(preparedDagSpendTxs)(snapshot.spendTransactions)
+            ,executeCmd(preparedDagTokenUnlock)(snapshot.tokenUnlocks)
+            ,executeCmd(preparedDagDelegatedStakingWithdraw)(snapshot.delegatedStakingWithdraw)
+            ,executeCmd(preparedDagDelegatedStakingRewards)(snapshot.delegatedStakingRewards)
+            ,executeCmd(preparedDagAddressBalance)(snapshot.balances)
+            ,executeCmd(preparedDagRewardTxs)(pairWith(gsHash, snapshot.snapshot.rewards.toSeq))
+            ,executeCmd(preparedBlockParent)(blockParents)
+            ,executeCmd(preparedProofs)(pairWith(gsHash, snapshot.proofs.toSeq))
+            ).parTupled
             _ <- xa.commit
           } yield ()
         }
@@ -680,24 +682,27 @@ object SnapshotDAO {
             preparedMgRewardTxs <- session.prepare(insertMetagraphRewardTxCommand)
             preparedMgAddressBalance <- session.prepare(insertMetagraphAddressBalanceCommand)
             preparedAddress <- session.prepare(insertAddressCommand)
+
             _ <- executeCmd(preparedAddress)(AddressExtractor.extract(mgSnapshot).toSeq)
             _ <- executeCmd(preparedMetagraphs)(MetagraphExtractor.extract(mgSnapshot).toSeq)
             _ <- executeCmd(preparedMetagraphSnapshot)(pairWith(globalSnapshotHash, unifiedSnapshots))
             _ <- executeCmd(preparedMetagraphBlock)(mgSnapshot.blocks)
+
             _ <- executeCmd(preparedMgTxs)(mgSnapshot.txs)
-            _ <- executeCmd(preparedMgAllowSpends)(mgSnapshot.allowSpends)
-            _ <- executeCmd(preparedMgSpendsTxs)(mgSnapshot.spendTransactions)
-            _ <- executeCmd(preparedMgExpiredSpends)(mgSnapshot.allowSpendExpirations)
             _ <- executeCmd(preparedMgTokenLocks)(mgSnapshot.tokenLocks)
-            _ <- executeCmd(preparedMgTokenUnlocks)(mgSnapshot.tokenUnlocks)
-            _ <- executeCmd(preparedMgFeeTxs)(mgSnapshot.feeTxs)
-            _ <- executeCmd(preparedMgRewardTxs)(
+            _ <- executeCmd(preparedMgAllowSpends)(mgSnapshot.allowSpends)
+_ <- (
+            executeCmd(preparedMgSpendsTxs)(mgSnapshot.spendTransactions)
+            ,executeCmd(preparedMgExpiredSpends)(mgSnapshot.allowSpendExpirations)
+            ,executeCmd(preparedMgTokenUnlocks)(mgSnapshot.tokenUnlocks)
+            ,executeCmd(preparedMgFeeTxs)(mgSnapshot.feeTxs)
+            ,executeCmd(preparedMgRewardTxs)(
               unifiedSnapshots.flatMap(mgs =>
                 mgs.data.rewards.map(r => (mgs.data.hash, CurrencyData(mgs.identifier, r)))
               )
             )
-            _ <- executeCmd(preparedBlockParent)(blockParents.map { case (_, hash, parent) => (hash, parent) })
-            _ <- executeCmd(preparedMgAddressBalance)(mgSnapshot.balances)
+            ,executeCmd(preparedBlockParent)(blockParents.map { case (_, hash, parent) => (hash, parent) })
+            ,executeCmd(preparedMgAddressBalance)(mgSnapshot.balances)).parTupled
             _ <- xa.commit
           } yield ()
         }
