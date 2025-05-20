@@ -6,25 +6,25 @@ import cats.effect.Resource
 import cats.syntax.option._
 
 import scala.collection.immutable.SortedMap
-import org.tessellation.ext.cats.effect.ResourceIO
-import org.tessellation.kryo.KryoSerializer
-import org.tessellation.schema._
-import org.tessellation.schema.address.Address
-import org.tessellation.schema.balance.Balance
-import org.tessellation.schema.height.Height
-import org.tessellation.schema.transaction.TransactionReference
-import org.tessellation.node.shared.domain.snapshot.storage.LastSnapshotStorage
-import org.tessellation.security.hash.Hash
-import org.tessellation.shared.sharedKryoRegistrar
+import io.constellationnetwork.ext.cats.effect.ResourceIO
+import io.constellationnetwork.kryo.KryoSerializer
+import io.constellationnetwork.schema._
+import io.constellationnetwork.schema.address.Address
+import io.constellationnetwork.schema.balance.Balance
+import io.constellationnetwork.schema.height.Height
+import io.constellationnetwork.schema.transaction.TransactionReference
+import io.constellationnetwork.node.shared.domain.snapshot.storage.LastSnapshotStorage
+import io.constellationnetwork.security.hash.Hash
+import io.constellationnetwork.shared.sharedKryoRegistrar
 import eu.timepit.refined.auto._
 import fs2.io.file.Files
 import fs2.io.file.Path
 import org.constellation.snapshotstreaming.data.hashSelect
 import org.constellation.snapshotstreaming.data.incrementalGlobalSnapshot
 import weaver.MutableIOSuite
-import org.tessellation.security.Hasher
-import org.tessellation.json.JsonSerializer
-import org.tessellation.security.HasherSelector
+import io.constellationnetwork.security.Hasher
+import io.constellationnetwork.json.JsonSerializer
+import io.constellationnetwork.security.HasherSelector
 
 object FileBasedLastGlobalIncrementalSnapshotStorageSuite extends MutableIOSuite {
 
@@ -56,11 +56,21 @@ object FileBasedLastGlobalIncrementalSnapshotStorageSuite extends MutableIOSuite
     SortedMap(address -> TransactionReference.empty),
     SortedMap(address -> Balance(0L)),
     SortedMap.empty,
-    SortedMap.empty
+    SortedMap.empty,
+    None,
+    None,
+    None,
+    None,
+    None,
+    None,
+    None,
+    None,
+    None,
+    None
   )
 
   private def mkInitialSnapshot()(implicit ks: KryoSerializer[IO], h: HasherSelector[IO]) =
-    incrementalGlobalSnapshot(100L, 10L, 20L, Hash("abc"), Hash("def"), snapshotInfo)
+    incrementalGlobalSnapshot[IO](100L, 10L, 20L, Hash("abc"), Hash("def"), snapshotInfo)
 
   test("get should return None before initial snapshot is set") { res =>
     implicit val (ks, h) = res
@@ -165,7 +175,7 @@ object FileBasedLastGlobalIncrementalSnapshotStorageSuite extends MutableIOSuite
 
     fileBasedStorage.use { storage =>
       mkInitialSnapshot.flatMap { initial =>
-        incrementalGlobalSnapshot(102L, 10L, 22L, Hash("ghi"), Hash("jkl"), snapshotInfo).flatMap { nextWrong =>
+        incrementalGlobalSnapshot[IO](102L, 10L, 22L, Hash("ghi"), Hash("jkl"), snapshotInfo).flatMap { nextWrong =>
           storage.setInitial(initial, snapshotInfo) >>
             storage
               .set(nextWrong, snapshotInfo)
@@ -182,7 +192,7 @@ object FileBasedLastGlobalIncrementalSnapshotStorageSuite extends MutableIOSuite
 
     fileBasedStorage.use { storage =>
       mkInitialSnapshot.flatMap { initial =>
-        incrementalGlobalSnapshot(101L, 10L, 21L, Hash("def"), Hash("ghi"), snapshotInfo).flatMap { nextCorrect =>
+        incrementalGlobalSnapshot[IO](101L, 10L, 21L, Hash("def"), Hash("ghi"), snapshotInfo).flatMap { nextCorrect =>
           storage.setInitial(initial, snapshotInfo) >>
             storage
               .set(nextCorrect, GlobalSnapshotInfo.empty)
@@ -199,7 +209,7 @@ object FileBasedLastGlobalIncrementalSnapshotStorageSuite extends MutableIOSuite
 
     fileBasedStorage.use { storage =>
       mkInitialSnapshot.flatMap { initial =>
-        incrementalGlobalSnapshot(101L, 10L, 21L, Hash("def"), Hash("ghi"), snapshotInfo).flatMap { nextCorrect =>
+        incrementalGlobalSnapshot[IO](101L, 10L, 21L, Hash("def"), Hash("ghi"), snapshotInfo).flatMap { nextCorrect =>
           storage.setInitial(initial, snapshotInfo) >>
             storage
               .set(nextCorrect, snapshotInfo)

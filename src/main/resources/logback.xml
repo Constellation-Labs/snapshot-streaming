@@ -41,7 +41,7 @@
     </appender>
 
     <logger name="org.constellation" level="DEBUG" />
-    <logger name="org.tessellation" level="DEBUG" />
+    <logger name="io.constellationnetwork" level="DEBUG" />
 
     <root level="INFO">
         <appender-ref ref="console" />

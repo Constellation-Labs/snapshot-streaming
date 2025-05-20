@@ -33,7 +33,8 @@ lazy val commonSettings = Seq(
     "-Yrangepos",
     "-Wconf:cat=unused:info",
     "-language:reflectiveCalls",
-    "-Ywarn-unused"
+    "-Ywarn-unused",
+    "-deprecation"
   ),
   resolvers ++= List(
     Resolver.sonatypeRepo("snapshots"),
@@ -71,6 +72,5 @@ lazy val core = (project in file("."))
       Libraries.logback % Runtime,
       Libraries.logstash % Runtime,
       Libraries.tessellationSdk,
-      Libraries.tessellationShared
     )
   )

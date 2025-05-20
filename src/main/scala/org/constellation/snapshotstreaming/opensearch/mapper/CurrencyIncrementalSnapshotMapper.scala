@@ -8,16 +8,17 @@ import org.constellation.snapshotstreaming.opensearch.schema.CurrencySnapshot
 import org.constellation.snapshotstreaming.opensearch.schema.RewardTransaction
 
 import scala.collection.immutable.SortedSet
-import org.tessellation.currency.schema.currency.CurrencyIncrementalSnapshot
-import org.tessellation.currency.schema.currency.CurrencySnapshotInfo
-import org.tessellation.json.JsonSerializer
-import org.tessellation.json.SizeCalculator
-import org.tessellation.schema.currencyMessage.MessageType
-import org.tessellation.schema.transaction.{RewardTransaction => OriginalRewardTransaction}
-import org.tessellation.security.signature.Signed
-import org.tessellation.security.Hashed
-import org.tessellation.security.Hasher
-import org.tessellation.statechannel.StateChannelSnapshotBinary
+import io.constellationnetwork.currency.schema.currency.CurrencyIncrementalSnapshot
+import io.constellationnetwork.currency.schema.currency.CurrencySnapshotInfo
+import io.constellationnetwork.currency.dataApplication.{FeeTransaction => OriginalFeeTransaction}
+import io.constellationnetwork.json.JsonSerializer
+import io.constellationnetwork.json.SizeCalculator
+import io.constellationnetwork.schema.currencyMessage.MessageType
+import io.constellationnetwork.schema.transaction.{RewardTransaction => OriginalRewardTransaction}
+import io.constellationnetwork.security.signature.Signed
+import io.constellationnetwork.security.Hashed
+import io.constellationnetwork.security.Hasher
+import io.constellationnetwork.statechannel.StateChannelSnapshotBinary
 
 import java.util.Date
 

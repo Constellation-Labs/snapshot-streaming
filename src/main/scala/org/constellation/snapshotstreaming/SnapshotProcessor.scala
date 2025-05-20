@@ -9,30 +9,32 @@ import cats.effect._
 import cats.effect.std.Random
 import cats.effect.syntax.all._
 import cats.syntax.all._
-import org.tessellation.currency.schema.currency.CurrencyIncrementalSnapshot
-import org.tessellation.currency.schema.currency.CurrencySnapshot
-import org.tessellation.currency.schema.currency.CurrencySnapshotInfo
-import org.tessellation.ext.cats.syntax.next._
-import org.tessellation.kryo.KryoSerializer
-import org.tessellation.json.JsonSerializer
-import org.tessellation.merkletree.StateProofValidator
-import org.tessellation.node.shared.domain.snapshot.Validator
-import org.tessellation.node.shared.domain.snapshot.services.GlobalL0Service
-import org.tessellation.node.shared.domain.snapshot.storage.LastSnapshotStorage
-import org.tessellation.node.shared.http.p2p.clients.L0GlobalSnapshotClient
-import org.tessellation.node.shared.infrastructure.cluster.storage.L0ClusterStorage
-import org.tessellation.schema.SnapshotReference.{fromHashedSnapshot => getSnapshotReference}
-import org.tessellation.schema.address.Address
-import org.tessellation.schema.peer.L0Peer
-import org.tessellation.schema.peer.PeerId
-import org.tessellation.schema.GlobalIncrementalSnapshot
-import org.tessellation.schema.GlobalSnapshotInfo
-import org.tessellation.schema.GlobalSnapshotInfoV2
-import org.tessellation.security._
-import org.tessellation.security.signature.Signed
+import io.constellationnetwork.currency.schema.currency.CurrencyIncrementalSnapshot
+import io.constellationnetwork.currency.schema.currency.CurrencySnapshot
+import io.constellationnetwork.currency.schema.currency.CurrencySnapshotInfo
+import io.constellationnetwork.ext.cats.syntax.next._
+import io.constellationnetwork.kryo.KryoSerializer
+import io.constellationnetwork.json.JsonSerializer
+import io.constellationnetwork.merkletree.StateProofValidator
+import io.constellationnetwork.node.shared.domain.snapshot.Validator
+import io.constellationnetwork.node.shared.domain.snapshot.services.GlobalL0Service
+import io.constellationnetwork.node.shared.domain.snapshot.storage.LastSnapshotStorage
+import io.constellationnetwork.node.shared.http.p2p.clients.L0GlobalSnapshotClient
+import io.constellationnetwork.node.shared.infrastructure.cluster.storage.L0ClusterStorage
+import io.constellationnetwork.schema.SnapshotReference.{fromHashedSnapshot => getSnapshotReference}
+import io.constellationnetwork.schema.address.Address
+import io.constellationnetwork.schema.peer.L0Peer
+import io.constellationnetwork.schema.peer.PeerId
+import io.constellationnetwork.schema.GlobalIncrementalSnapshot
+import io.constellationnetwork.schema.GlobalSnapshotInfo
+import io.constellationnetwork.schema.GlobalSnapshotInfoV2
+import io.constellationnetwork.security._
+import io.constellationnetwork.security.signature.Signed
 import com.sksamuel.elastic4s.ElasticDsl.bulk
 import com.sksamuel.elastic4s.requests.update.UpdateRequest
 import fs2.Stream
+import fs2.io.file.Files
+import fs2.io.net.Network
 import org.constellation.snapshotstreaming.opensearch.OpensearchDAO
 import org.constellation.snapshotstreaming.opensearch.UpdateRequestBuilder
 import org.constellation.snapshotstreaming.opensearch.mapper.CurrencySnapshotMapper
@@ -41,9 +43,11 @@ import org.constellation.snapshotstreaming.s3.S3DAO
 import org.constellation.snapshotstreaming.storage.FileBasedLastGlobalFullSnapshotStorage
 import org.constellation.snapshotstreaming.storage.FileBasedLastGlobalIncrementalSnapshotStorage
 import org.http4s.ember.client.EmberClientBuilder
-import org.tessellation.schema.GlobalSnapshot
-import org.tessellation.statechannel.StateChannelSnapshotBinary
+import io.constellationnetwork.schema.GlobalSnapshot
+import io.constellationnetwork.statechannel.StateChannelSnapshotBinary
 import org.typelevel.log4cats.slf4j.Slf4jLogger
+
+import java.time.LocalDateTime
 
 trait SnapshotProcessor[F[_]] {
   val runtime: Stream[F, Unit]
@@ -51,7 +55,7 @@ trait SnapshotProcessor[F[_]] {
 
 object SnapshotProcessor {
 
-  def make[F[_]: Async: Parallel: KryoSerializer: JsonSerializer: SecurityProvider: Random: HasherSelector](
+  def make[F[_]: Async: Parallel: KryoSerializer: JsonSerializer: SecurityProvider: Random: HasherSelector: Network: Files](
     configuration: Configuration,
     txHasher: Hasher[F]
   ): Resource[F, SnapshotProcessor[F]] =
@@ -172,15 +176,9 @@ object SnapshotProcessor {
             case Validated.Valid(()) =>
               lastIncrementalGlobalSnapshotStorage.get.flatMap {
                 case Some(last) if Validator.isNextSnapshot(last, snapshot.signed.value) =>
-                  logger.info(s"Sending ${snapshot.ordinal.show} to S3") >>
-                  s3DAO.uploadSnapshot(snapshot) >>
-                    logger.info(s"Finished sending ${snapshot.ordinal.show} to S3") >>
-                    logger.info(s"Sending ${snapshot.ordinal.show} to Opensearch") >>
+                  s3DAO.uploadSnapshot(snapshot, hasher.getLogic(globalSnapshotWithState.snapshot.ordinal)) >>
                     prepareAndExecuteBulkUpdate(state, hasher) >>
-                    logger.info(s"Finished sending ${snapshot.ordinal.show} to Opensearch") >>
-                    logger.info(s"Updating lastIncrementalSnapshotStorage to snapshot ${snapshot.ordinal.show}") >>
-                    lastIncrementalGlobalSnapshotStorage.set(snapshot, snapshotInfo) >>
-                    logger.info(s"Finished updating lastIncrementalSnapshotStorage to snapshot ${snapshot.ordinal.show}")
+                    lastIncrementalGlobalSnapshotStorage.set(snapshot, snapshotInfo)
 
                 case Some(last) =>
                   logger.warn(
@@ -194,7 +192,7 @@ object SnapshotProcessor {
                     })
                     .flatMap {
                       case Some(last) if Validator.isNextSnapshot(last, snapshot.signed.value) =>
-                        s3DAO.uploadSnapshot(snapshot) >>
+                        s3DAO.uploadSnapshot(snapshot, hasher.getLogic(globalSnapshotWithState.snapshot.ordinal)) >>
                           prepareAndExecuteBulkUpdate(state, hasher) >>
                           lastIncrementalGlobalSnapshotStorage
                             .setInitial(snapshot, snapshotInfo)
@@ -236,7 +234,8 @@ object SnapshotProcessor {
                         .createContext(
                           processedSnapshots.lastState,
                           processedSnapshots.lastSnapshot,
-                          snapshot
+                          snapshot,
+                          l0Service.pullGlobalSnapshot,
                         )
                         .map { globalSnapshotsWithState =>
                           ProcessedSnapshots(

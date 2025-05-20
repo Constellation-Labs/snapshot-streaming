@@ -7,22 +7,26 @@ import fs2.compression.Compression
 import fs2.io.file._
 import fs2.{Stream, text}
 import io.circe.generic.semiauto.deriveCodec
-import io.circe.syntax._
 import io.circe.{Codec, jawn}
-import org.tessellation.kryo.KryoSerializer
-import org.tessellation.merkletree.StateProofValidator
-import org.tessellation.node.shared.domain.snapshot.storage.LastSnapshotStorage
-import org.tessellation.schema._
-import org.tessellation.schema.height.Height
-import org.tessellation.security._
+import io.circe.syntax._
+import io.constellationnetwork.ext.kryo._
+import io.constellationnetwork.kryo.KryoSerializer
+import io.constellationnetwork.merkletree.StateProofValidator
+import io.constellationnetwork.node.shared.domain.snapshot.storage.LastSnapshotStorage
+import io.constellationnetwork.schema._
+import io.constellationnetwork.schema.height.Height
+import io.constellationnetwork.security._
 
 
 object FileBasedLastGlobalIncrementalSnapshotStorage {
 
-  private case class SnapshotWithState(snapshot: Hashed[GlobalIncrementalSnapshot], state: GlobalSnapshotInfo)
+  case class SnapshotWithState(snapshot: Hashed[GlobalIncrementalSnapshot], state: GlobalSnapshotInfo)
 
-  private implicit val codec: Codec[Hashed[GlobalIncrementalSnapshot]] = deriveCodec[Hashed[GlobalIncrementalSnapshot]]
-  private implicit val snapshotWithInfoCodec: Codec[SnapshotWithState] = deriveCodec[SnapshotWithState]
+  object SnapshotWithState {
+    implicit val codec: Codec[Hashed[GlobalIncrementalSnapshot]] = deriveCodec[Hashed[GlobalIncrementalSnapshot]]
+    implicit val snapshotWithInfoCodec: Codec[SnapshotWithState] = deriveCodec[SnapshotWithState]
+  }
+
 
   def saveSnapshotWithStateJson[F[_] : Files : Compression : Async](filePath         : Path,
                                                                     snapshotWithState: SnapshotWithState,

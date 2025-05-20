@@ -6,18 +6,18 @@ import cats.syntax.all._
 
 import scala.collection.immutable.SortedMap
 import scala.collection.immutable.SortedSet
-import org.tessellation.schema.address.Address
-import org.tessellation.schema.balance.Balance
-import org.tessellation.schema.snapshot.SnapshotInfo
-import org.tessellation.schema.snapshot.{Snapshot => OriginalSnapshot}
-import org.tessellation.schema.transaction.{TransactionReference => OriginalTransactionReference}
-import org.tessellation.schema.transaction.{Transaction => OriginalTransaction}
-import org.tessellation.schema.transaction.{RewardTransaction => OriginalRewardTransaction}
-import org.tessellation.schema.{Block => OriginalBlock}
-import org.tessellation.security.signature.Signed
-import org.tessellation.security.Hashed
-import org.tessellation.security.Hasher
-import org.tessellation.syntax.sortedCollection._
+import io.constellationnetwork.schema.address.Address
+import io.constellationnetwork.schema.balance.Balance
+import io.constellationnetwork.schema.snapshot.SnapshotInfo
+import io.constellationnetwork.schema.snapshot.{Snapshot => OriginalSnapshot}
+import io.constellationnetwork.schema.transaction.{TransactionReference => OriginalTransactionReference}
+import io.constellationnetwork.schema.transaction.{Transaction => OriginalTransaction}
+import io.constellationnetwork.schema.transaction.{RewardTransaction => OriginalRewardTransaction}
+import io.constellationnetwork.schema.{Block => OriginalBlock}
+import io.constellationnetwork.security.signature.Signed
+import io.constellationnetwork.security.Hashed
+import io.constellationnetwork.security.Hasher
+import io.constellationnetwork.syntax.sortedCollection._
 import eu.timepit.refined.auto._
 import org.constellation.snapshotstreaming.opensearch.schema._
 

@@ -2,8 +2,8 @@ package org.constellation.snapshotstreaming.opensearch.schema
 
 import java.util.Date
 
-import org.tessellation.schema.transaction.{Transaction => OriginalTransaction}
-import org.tessellation.security.signature.Signed
+import io.constellationnetwork.schema.transaction.{Transaction => OriginalTransaction}
+import io.constellationnetwork.security.signature.Signed
 
 import io.circe.Encoder
 import io.circe.generic.semiauto._
