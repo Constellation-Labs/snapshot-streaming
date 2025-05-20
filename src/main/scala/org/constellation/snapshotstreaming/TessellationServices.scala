@@ -34,6 +34,7 @@ object TessellationServices {
   )(implicit hasherSelector: HasherSelector[F]): F[TessellationServices[F]] =
     for {
       _ <- Async[F].unit
+      tessellation3Migration = configuration.tessellation3Migration
       txHasher = Hasher.forKryo
       validators = hasherSelector.withCurrent { implicit hasher =>
         SharedValidators.make[F](

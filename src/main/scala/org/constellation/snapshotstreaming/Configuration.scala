@@ -87,4 +87,8 @@ class Configuration(val sharedConfigReader: SharedConfigReader) {
   val s3ApiRegion: Option[String] = Try(s3.getString("api.region")).toOption
   val s3ApiPathStyleEnabled: Option[Boolean] = Try(s3.getBoolean("api.pathStyleEnabled")).toOption
 
+  val delegatedStakingWithdrawalTimeLimit = sharedConfigReader.delegatedStaking.withdrawalTimeLimit.getOrElse(environment, EpochProgress.MinValue)
+
+  val tessellation3Migration = sharedConfigReader.fieldsAddedOrdinals.tessellation3Migration.getOrElse(environment, SnapshotOrdinal.MinValue)
+
 }

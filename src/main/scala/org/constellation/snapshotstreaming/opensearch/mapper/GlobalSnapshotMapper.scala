@@ -3,12 +3,12 @@ package org.constellation.snapshotstreaming.opensearch.mapper
 import java.util.Date
 import cats.effect.Async
 import cats.syntax.all._
-import org.tessellation.syntax.sortedCollection._
 import eu.timepit.refined.auto._
 import org.constellation.snapshotstreaming.opensearch.schema._
 import eu.timepit.refined.auto._
 import org.constellation.snapshotstreaming.opensearch.schema.Snapshot
 import shapeless.syntax.std.tuple._
+import io.constellationnetwork.kryo.KryoSerializer
 
 import scala.collection.immutable.SortedSet
 import io.constellationnetwork.schema.GlobalIncrementalSnapshot
