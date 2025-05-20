@@ -126,7 +126,7 @@ abstract class GlobalSnapshotMapper[F[_]: Async] extends SnapshotMapper[F, Globa
     })
   }
 
-  private def flatten[T](bag: Option[SortedMap[Address, List[T]]]) =
+  private def flatten[T](bag: Option[SortedMap[Address, Set[T]]]) =
     bag.toSeq.flatMap(_.flatMap { case (address, values) => values.map((address, _)) })
 
   def mapDelegatedStakingWithdraw(snapshotHash: Hash, isCompleted: Boolean)(
@@ -165,6 +165,7 @@ abstract class GlobalSnapshotMapper[F[_]: Async] extends SnapshotMapper[F, Globa
       newPending <- snapshotInfo.delegatedStakesWithdrawals.toList.flatTraverse(_.toList.flatTraverse {
         case (_, stakes) =>
           stakes
+            .toList
             .filterNot(dsr => prePendingWithdrawalsStakeRefs.contains(dsr.event))
             .traverse(mapDelegatedStakingWithdraw(snapshotHash, isCompleted = false))
 
@@ -172,6 +173,7 @@ abstract class GlobalSnapshotMapper[F[_]: Async] extends SnapshotMapper[F, Globa
       completed <- maybePrevSnapshotInfo.toList.flatTraverse(
         _.delegatedStakesWithdrawals.toList.flatTraverse(_.toList.flatTraverse { case (_, stakes) =>
           stakes
+            .toList
             .filterNot(dsr => currentPendingWithdrawalsStakeRefs.contains(dsr.event))
             .traverse(mapDelegatedStakingWithdraw(snapshotHash, isCompleted = true))
         })
@@ -202,7 +204,7 @@ abstract class GlobalSnapshotMapper[F[_]: Async] extends SnapshotMapper[F, Globa
     snapshotInfo: GlobalSnapshotInfo
   )(implicit hs: Hasher[F]): F[List[(DelegatedStakeRecord, Hashed[UpdateDelegatedStake.Create])]] =
     snapshotInfo.activeDelegatedStakes.toList.flatTraverse(_.toList.flatTraverse { case (_, stakes) =>
-      stakes.traverse(dsr => dsr.event.toHashed.map(ev => (dsr, ev)))
+      stakes.toList.traverse(dsr => dsr.event.toHashed.map(ev => (dsr, ev)))
     })
 
   def mapDelegatedStakingCreates(
