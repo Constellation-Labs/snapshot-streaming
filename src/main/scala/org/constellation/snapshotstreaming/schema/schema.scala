@@ -3,6 +3,8 @@ package org.constellation.snapshotstreaming.schema
 import io.circe.Encoder
 import io.constellationnetwork.security.signature.signature.SignatureProof
 import AllowSpends.{AllowSpend, AllowSpendExpiration, SpendTransaction}
+import io.constellationnetwork.schema.address.Address
+import io.constellationnetwork.schema.balance.Balance
 import org.constellation.snapshotstreaming.schema.TokenLocks.{TokenLock, TokenUnlock}
 
 import java.util.Date
@@ -22,7 +24,8 @@ object schema {
                          delegatedStakingWithdraw: Seq[DelegatedStakingWithdraw],
                          delegatedStakingRewards: Seq[DelegatedStakingReward],
                          spendTransactions: Seq[SpendTransaction],
-                         allowSpendExpirations: Seq[AllowSpendExpiration]
+                         allowSpendExpirations: Seq[AllowSpendExpiration],
+                           balanceState: Map[Address, Balance]
   )
 
   case class MetagraphData(
@@ -35,7 +38,8 @@ object schema {
     spendTransactions: Seq[CurrencyData[SpendTransaction]],
     allowSpendExpirations: Seq[CurrencyData[AllowSpendExpiration]],
     tokenLocks: Seq[CurrencyData[TokenLock]] = Seq.empty,
-    tokenUnlocks: Seq[CurrencyData[TokenUnlock]] = Seq.empty
+    tokenUnlocks: Seq[CurrencyData[TokenUnlock]] = Seq.empty,
+    balanceState: Map[Address,Map[Address, Balance ]]
   )
 
   def toIncremental(snapshot: Snapshot): CurrencySnapshot =

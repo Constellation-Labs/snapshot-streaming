@@ -15,7 +15,7 @@ import io.constellationnetwork.syntax.sortedCollection._
 import org.constellation.snapshotstreaming.schema.{AddressBalance, Block, BlockReference, Transaction, TransactionReference}
 
 import java.time.LocalDateTime
-import scala.collection.immutable.{SortedMap, SortedSet}
+import scala.collection.immutable.{HashMap, SortedMap, SortedSet}
 
 case class SnapshotReferredAddresses(source: Set[Address], destination: Set[Address])
 
@@ -121,13 +121,14 @@ abstract class SnapshotMapper[F[_]: Async, S <: OriginalSnapshot] {
 
   def balanceDiff(
                    snapshot: S,
-                   prevBalances: Option[SortedMap[Address, Balance]],
-                   info: SnapshotInfo[_],
-                 ): SortedMap[Address, Balance] =
+                   prevBalances: Option[Map[Address, Balance]],
+                   newBalances: Map[Address, Balance],
+                 ): Map[Address, Balance] =
     prevBalances match {
       case Some(prev) =>
-        val changed = info.balances.filterNot { case (address, balance) =>
-          prev.get(address).exists(_ === balance)
+        val optimizedPrev = HashMap.from(prev)
+        val changed = newBalances.filterNot { case (address, balance) =>
+          optimizedPrev.get(address).exists(_ === balance)
         }
 
         /* NOTE: SnapshotInfo calculation optimization gets rid of addresses that have empty balances.
@@ -136,21 +137,21 @@ abstract class SnapshotMapper[F[_]: Async, S <: OriginalSnapshot] {
          */
         val explicitlyZeroed = {
           val srcTransactions = extractSnapshotReferredAddresses(snapshot).source
-          (srcTransactions -- info.balances.keys)
+          (srcTransactions -- newBalances.keys)
             .map(address => address -> Balance.empty)
             .toSortedMap
         }
 
         changed ++ explicitlyZeroed
       case None =>
-        info.balances
+        newBalances
     }
 
   def extractSnapshotReferredAddresses(snapshot: S): SnapshotReferredAddresses
 
   def mapBalances(
                    globalSnapshot: Hashed[S],
-                   balances: SortedMap[Address, Balance],
+                   balances: Map[Address, Balance],
                    timestamp: LocalDateTime
                  ): Seq[AddressBalance] =
     balances.toSeq.map { case (address, balance) =>
