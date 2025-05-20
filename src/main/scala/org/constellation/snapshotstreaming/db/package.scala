@@ -1,6 +1,6 @@
 package org.constellation.snapshotstreaming
 
-import cats.Applicative
+import cats.{Applicative, Parallel}
 import cats.effect.std.Console
 import cats.effect.{Resource, Temporal}
 import cats.syntax.all._
@@ -23,7 +23,7 @@ package object db {
     )
   }
 
-  def executeCmd[T, F[_]: Applicative](cmd: PreparedCommand[F, T])(entities: Seq[T]): F[Unit] =
-    entities.traverse(e => cmd.execute(e)).whenA(entities.nonEmpty)
+  def executeCmd[T, F[_]: Applicative: Parallel](cmd: PreparedCommand[F, T])(entities: Seq[T]): F[Unit] =
+    entities.parTraverse(e => cmd.execute(e)).whenA(entities.nonEmpty)
 
 }

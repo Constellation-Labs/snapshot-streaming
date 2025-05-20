@@ -1,32 +1,21 @@
 package org.constellation.snapshotstreaming.db
 
+import cats.Parallel
 import cats.effect.{Async, Resource}
 import cats.syntax.all._
+import io.constellationnetwork.security.signature.signature.SignatureProof
 import org.constellation.snapshotstreaming.schema.AllowSpends.{AllowSpend, AllowSpendExpiration, SpendTransaction}
+import org.constellation.snapshotstreaming.schema.TokenLocks.{TokenLock, TokenUnlock}
 import org.constellation.snapshotstreaming.schema.extractors.{AddressExtractor, MetagraphExtractor}
 import org.constellation.snapshotstreaming.schema.schema.{GlobalData, MetagraphData}
-import org.constellation.snapshotstreaming.schema.{
-  AddressBalance,
-  Block,
-  BlockReference,
-  CurrencyData,
-  CurrencySnapshot,
-  DelegatedStakingCreate,
-  DelegatedStakingReward,
-  DelegatedStakingWithdraw,
-  FeeTransaction,
-  RewardTransaction,
-  Snapshot,
-  Transaction => STransaction
-}
-import io.constellationnetwork.security.signature.signature.SignatureProof
-import org.constellation.snapshotstreaming.schema.TokenLocks.{TokenLock, TokenUnlock}
+import org.constellation.snapshotstreaming.schema.{AddressBalance, Block, BlockReference, CurrencyData, CurrencySnapshot, DelegatedStakingCreate, DelegatedStakingReward, DelegatedStakingWithdraw, FeeTransaction, RewardTransaction, Snapshot, Transaction => STransaction}
 import skunk._
 import skunk.codec.all._
 import skunk.implicits._
 
 trait SnapshotDAO[F[_]] {
   def insertGlobalData(snapshot: GlobalData, mgSnaphotsCount: Int): F[Unit]
+
   def insertMetagraphData(globalSnapshotHash: String, mgSnapshot: MetagraphData): F[Unit]
 }
 
@@ -625,7 +614,7 @@ object SnapshotDAO {
 
   private def pairWith[V, T](elem: V, elements: Seq[T]) = elements.map((elem, _))
 
-  def make[F[_]: Async](pool: Resource[F, Session[F]]): SnapshotDAO[F] = new SnapshotDAO[F] {
+  def make[F[_] : Async : Parallel](pool: Resource[F, Session[F]]): SnapshotDAO[F] = new SnapshotDAO[F] {
 
     def insertGlobalData(snapshot: GlobalData, mgSnaphotsCount: Int): F[Unit] =
       pool.use { session =>
@@ -696,20 +685,22 @@ object SnapshotDAO {
             _ <- executeCmd(preparedMetagraphs)(MetagraphExtractor.extract(mgSnapshot).toSeq)
             _ <- executeCmd(preparedMetagraphSnapshot)(pairWith(globalSnapshotHash, unifiedSnapshots))
             _ <- executeCmd(preparedMetagraphBlock)(mgSnapshot.blocks)
-            _ <- executeCmd(preparedMgTxs)(mgSnapshot.txs)
-            _ <- executeCmd(preparedMgAllowSpends)(mgSnapshot.allowSpends)
+            _ <- (
+              executeCmd(preparedMgTxs)(mgSnapshot.txs),
+              executeCmd(preparedMgFeeTxs)(mgSnapshot.feeTxs),
+              executeCmd(preparedMgRewardTxs)(
+                unifiedSnapshots.flatMap(mgs =>
+                  mgs.data.rewards.map(r => (mgs.data.hash, CurrencyData(mgs.identifier, r)))
+                )
+              ),
+              executeCmd(preparedMgAllowSpends)(mgSnapshot.allowSpends),
+              executeCmd(preparedMgAddressBalance)(mgSnapshot.balances),
+              executeCmd(preparedBlockParent)(blockParents.map { case (_, hash, parent) => (hash, parent) }),
+              executeCmd(preparedMgTokenLocks)(mgSnapshot.tokenLocks)
+            ).parTupled
             _ <- executeCmd(preparedMgSpendsTxs)(mgSnapshot.spendTransactions)
             _ <- executeCmd(preparedMgExpiredSpends)(mgSnapshot.allowSpendExpirations)
-            _ <- executeCmd(preparedMgTokenLocks)(mgSnapshot.tokenLocks)
             _ <- executeCmd(preparedMgTokenUnlocks)(mgSnapshot.tokenUnlocks)
-            _ <- executeCmd(preparedMgFeeTxs)(mgSnapshot.feeTxs)
-            _ <- executeCmd(preparedMgRewardTxs)(
-              unifiedSnapshots.flatMap(mgs =>
-                mgs.data.rewards.map(r => (mgs.data.hash, CurrencyData(mgs.identifier, r)))
-              )
-            )
-            _ <- executeCmd(preparedBlockParent)(blockParents.map { case (_, hash, parent) => (hash, parent) })
-            _ <- executeCmd(preparedMgAddressBalance)(mgSnapshot.balances)
             _ <- xa.commit
           } yield ()
         }
