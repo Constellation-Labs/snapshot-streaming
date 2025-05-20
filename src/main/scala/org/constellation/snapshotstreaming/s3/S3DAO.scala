@@ -7,9 +7,10 @@ import cats.syntax.flatMap._
 import cats.syntax.functor._
 import cats.syntax.show._
 import io.constellationnetwork.ext.kryo._
+import io.constellationnetwork.json.JsonSerializer
 import io.constellationnetwork.kryo.KryoSerializer
 import io.constellationnetwork.schema.GlobalIncrementalSnapshot
-import io.constellationnetwork.security.Hashed
+import io.constellationnetwork.security.{HashLogic, Hashed, JsonHash, KryoHash}
 import com.amazonaws.client.builder.AwsClientBuilder.EndpointConfiguration
 import com.amazonaws.services.s3.model.ObjectMetadata
 import com.amazonaws.services.s3.{AmazonS3, AmazonS3ClientBuilder}
@@ -19,12 +20,12 @@ import org.typelevel.log4cats.slf4j.Slf4jLogger
 import java.io.ByteArrayInputStream
 
 trait S3DAO[F[_]] {
-  def uploadSnapshot(snapshot: Hashed[GlobalIncrementalSnapshot]): F[Unit]
+  def uploadSnapshot(snapshot: Hashed[GlobalIncrementalSnapshot], hashLogic: HashLogic): F[Unit]
 }
 
 object S3DAO {
 
-  def make[F[_]: Async: KryoSerializer](config: Configuration): Resource[F, S3DAO[F]] =
+  def make[F[_]: Async: JsonSerializer: KryoSerializer](config: Configuration): Resource[F, S3DAO[F]] =
     Resource.make {
       Applicative[F].pure {
         val emptyBuilder = AmazonS3ClientBuilder
@@ -41,13 +42,17 @@ object S3DAO {
     }(c => Async[F].delay(c.shutdown()))
       .map(make(config, _))
 
-  def make[F[_]: Async: KryoSerializer](config: Configuration, s3Client: AmazonS3): S3DAO[F] = new S3DAO[F] {
+  def make[F[_]: Async: KryoSerializer](config: Configuration, s3Client: AmazonS3)(implicit
+                                                                                   jsonSerializer: JsonSerializer[F]): S3DAO[F] = new S3DAO[F] {
 
     private val logger = Slf4jLogger.getLogger[F]
 
-    def uploadSnapshot(snapshot: Hashed[GlobalIncrementalSnapshot]): F[Unit] =
+    def uploadSnapshot(snapshot: Hashed[GlobalIncrementalSnapshot], hashLogic: HashLogic): F[Unit] =
       for {
-        arr <- snapshot.signed.toBinaryF
+        arr <- hashLogic match {
+          case JsonHash => jsonSerializer.serialize(snapshot.signed)
+          case KryoHash => snapshot.signed.toBinaryF
+        }
         is = new ByteArrayInputStream(arr)
         keyName = s"${config.bucketDir}/${snapshot.hash}"
         _ <- Async[F].delay(s3Client.putObject(config.bucketName, keyName, is, new ObjectMetadata()))

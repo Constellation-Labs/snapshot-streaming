@@ -176,7 +176,7 @@ object SnapshotProcessor {
             case Validated.Valid(()) =>
               lastIncrementalGlobalSnapshotStorage.get.flatMap {
                 case Some(last) if Validator.isNextSnapshot(last, snapshot.signed.value) =>
-                  s3DAO.uploadSnapshot(snapshot) >>
+                  s3DAO.uploadSnapshot(snapshot, hasher.getLogic(globalSnapshotWithState.snapshot.ordinal)) >>
                     prepareAndExecuteBulkUpdate(state, hasher) >>
                     lastIncrementalGlobalSnapshotStorage.set(snapshot, snapshotInfo)
 
@@ -192,7 +192,7 @@ object SnapshotProcessor {
                     })
                     .flatMap {
                       case Some(last) if Validator.isNextSnapshot(last, snapshot.signed.value) =>
-                        s3DAO.uploadSnapshot(snapshot) >>
+                        s3DAO.uploadSnapshot(snapshot, hasher.getLogic(globalSnapshotWithState.snapshot.ordinal)) >>
                           prepareAndExecuteBulkUpdate(state, hasher) >>
                           lastIncrementalGlobalSnapshotStorage
                             .setInitial(snapshot, snapshotInfo)
