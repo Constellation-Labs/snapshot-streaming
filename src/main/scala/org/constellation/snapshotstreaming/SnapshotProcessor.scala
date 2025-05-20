@@ -229,6 +229,7 @@ object SnapshotProcessor {
                 .flatMap { incrementalSnapshots =>
                   incrementalSnapshots.foldM(ProcessedSnapshots(lastSnapshot.signed, lastState, List.empty)) {
                     (processedSnapshots, snapshot) =>
+                      logger.info(s"Processing snapshot: ${snapshot.ordinal}") >>
                       tessellationServices.globalSnapshotContextService
                         .createContext(
                           processedSnapshots.lastState,

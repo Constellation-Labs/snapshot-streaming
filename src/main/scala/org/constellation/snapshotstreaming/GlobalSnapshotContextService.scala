@@ -5,6 +5,7 @@ import cats.syntax.all._
 import io.constellationnetwork.currency.schema.currency.CurrencyIncrementalSnapshot
 import io.constellationnetwork.currency.schema.currency.CurrencySnapshot
 import io.constellationnetwork.currency.schema.currency.CurrencySnapshotInfo
+import io.constellationnetwork.kryo.KryoSerializer
 import io.constellationnetwork.node.shared.infrastructure.snapshot.GlobalSnapshotContextFunctions
 import io.constellationnetwork.node.shared.infrastructure.snapshot.GlobalSnapshotStateChannelEventsProcessor
 import io.constellationnetwork.schema.{GlobalIncrementalSnapshot, GlobalSnapshotInfo, SnapshotOrdinal}
@@ -29,7 +30,7 @@ trait GlobalSnapshotContextService[F[_]] {
 
 object GlobalSnapshotContextService {
 
-  def make[F[_]: Async: HasherSelector](
+  def make[F[_]: Async: KryoSerializer: HasherSelector](
     globalSnapshotStateChannelEventsProcessor: GlobalSnapshotStateChannelEventsProcessor[F],
     globalSnapshotContextFns: GlobalSnapshotContextFunctions[F]
   ): GlobalSnapshotContextService[F] =

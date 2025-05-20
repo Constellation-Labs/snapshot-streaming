@@ -4,6 +4,7 @@ import java.util.Date
 import cats.effect.Async
 import cats.syntax.all._
 import eu.timepit.refined.auto._
+import io.constellationnetwork.kryo.KryoSerializer
 import org.constellation.snapshotstreaming.opensearch.schema._
 import org.constellation.snapshotstreaming.opensearch.schema.Snapshot
 import shapeless.syntax.std.tuple._
@@ -12,10 +13,9 @@ import scala.collection.immutable.SortedSet
 import io.constellationnetwork.schema.GlobalIncrementalSnapshot
 import io.constellationnetwork.schema.GlobalSnapshotInfo
 import io.constellationnetwork.schema.transaction
-import io.constellationnetwork.security.Hashed
-import io.constellationnetwork.security.Hasher
+import io.constellationnetwork.security.{Hashed, Hasher, HasherSelector}
 
-abstract class GlobalSnapshotMapper[F[_]: Async]
+abstract class GlobalSnapshotMapper[F[_]: Async: KryoSerializer: HasherSelector]
     extends SnapshotMapper[F, GlobalIncrementalSnapshot, GlobalSnapshotInfo] {
 
   def mapSnapshot(snapshot: Hashed[GlobalIncrementalSnapshot], timestamp: Date, hasher: Hasher[F]): F[Snapshot]
@@ -44,7 +44,7 @@ abstract class GlobalSnapshotMapper[F[_]: Async]
 
 object GlobalSnapshotMapper {
 
-  def make[F[_]: Async](): GlobalSnapshotMapper[F] =
+  def make[F[_]: Async: KryoSerializer: HasherSelector](): GlobalSnapshotMapper[F] =
     new GlobalSnapshotMapper[F] {
 
       def fetchRewards(snapshot: GlobalIncrementalSnapshot): SortedSet[transaction.RewardTransaction] =
