@@ -1,12 +1,12 @@
 package org.constellation.snapshotstreaming
 
-import cats.{Applicative, Parallel}
+import cats.{Applicative, Monad, Parallel}
 import cats.effect.std.Console
 import cats.effect.{Resource, Temporal}
 import cats.syntax.all._
 import fs2.io.net.Network
 import org.typelevel.otel4s.trace.Tracer
-import skunk.{PreparedCommand, Session}
+import skunk.{Command, PreparedCommand, Session}
 
 package object db {
 
@@ -25,5 +25,10 @@ package object db {
 
   def executeCmd[T, F[_]: Applicative: Parallel](cmd: PreparedCommand[F, T])(entities: Seq[T]): F[Unit] =
     entities.parTraverse(e => cmd.execute(e)).whenA(entities.nonEmpty)
+
+  private val dbChunkSize = 5000
+
+  def executeMany[T, F[_]: Monad](s: Session[F], entities: List[T], insertMany: Int => Command[List[T]]): F[Unit] =
+    entities.grouped(dbChunkSize).toList.traverse(es => s.prepare(insertMany(es.size)).flatMap(_.execute(es))).void
 
 }

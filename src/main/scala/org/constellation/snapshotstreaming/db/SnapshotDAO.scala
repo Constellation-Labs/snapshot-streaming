@@ -594,6 +594,34 @@ object SnapshotDAO {
       (id, ab.snapshotHash, ab.snapshotOrdinal, ab.address, ab.balance, ab.timestamp)
     }
 
+
+  private def insertMetagraphAddressBalancesMany(size: Int): Command[List[CurrencyData[AddressBalance]]] = {
+    val enc = (
+      varchar *: varchar *: int8 *: varchar *: int8 *: timestamp
+      ).values.contramap { cdAb: CurrencyData[AddressBalance] =>
+      (
+        cdAb.identifier,
+        cdAb.data.snapshotHash,
+        cdAb.data.snapshotOrdinal,
+        cdAb.data.address,
+        cdAb.data.balance,
+        cdAb.data.timestamp
+      )
+    }.list(size)
+
+    sql"""
+      INSERT INTO metagraph_balance_changes (
+        metagraph_id,
+        metagraph_snapshot_hash,
+        metagraph_snapshot_ordinal,
+        address,
+        balance,
+        created_at
+      ) VALUES $enc
+      ON CONFLICT (metagraph_id, address, metagraph_snapshot_ordinal) DO NOTHING;
+    """.command
+  }
+
   private val insertAddressCommand: Command[String] =
     sql"""
       INSERT INTO addresses (
@@ -679,7 +707,6 @@ object SnapshotDAO {
             preparedMgTokenUnlocks <- session.prepare(insertMetagraphTokenUnlockCommand)
             preparedMgFeeTxs <- session.prepare(insertMetagraphFeeTransactionCommand)
             preparedMgRewardTxs <- session.prepare(insertMetagraphRewardTxCommand)
-            preparedMgAddressBalance <- session.prepare(insertMetagraphAddressBalanceCommand)
             preparedAddress <- session.prepare(insertAddressCommand)
             _ <- executeCmd(preparedAddress)(AddressExtractor.extract(mgSnapshot).toSeq)
             _ <- executeCmd(preparedMetagraphs)(MetagraphExtractor.extract(mgSnapshot).toSeq)
@@ -694,7 +721,7 @@ object SnapshotDAO {
                 )
               ),
               executeCmd(preparedMgAllowSpends)(mgSnapshot.allowSpends),
-              executeCmd(preparedMgAddressBalance)(mgSnapshot.balances),
+              executeMany(session, mgSnapshot.balances.toList, insertMetagraphAddressBalancesMany),
               executeCmd(preparedBlockParent)(blockParents.map { case (_, hash, parent) => (hash, parent) }),
               executeCmd(preparedMgTokenLocks)(mgSnapshot.tokenLocks)
             ).parTupled
