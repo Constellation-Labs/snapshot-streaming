@@ -127,7 +127,7 @@ abstract class SnapshotMapper[F[_]: Async, S <: OriginalSnapshot] {
     prevBalances match {
       case Some(prev) =>
         val changed = info.balances.filterNot { case (address, balance) =>
-          prev.get(address).exists(_ === balance)
+          prev.get(address).exists(_.value.value === balance.value.value)
         }
 
         /* NOTE: SnapshotInfo calculation optimization gets rid of addresses that have empty balances.
