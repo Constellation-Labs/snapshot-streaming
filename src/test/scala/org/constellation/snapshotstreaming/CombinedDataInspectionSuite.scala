@@ -16,7 +16,7 @@ import weaver.SimpleIOSuite
 import io.constellationnetwork.node.shared.config.types.SharedConfigReader
 import io.constellationnetwork.node.shared.ext.pureconfig._
 import io.constellationnetwork.security.signature.Signed
-
+// wget http://52.53.46.33:9000/global-snapshots/latest/combined -O combined-$(date +%s) 
 object CombinedDataInspectionSuite extends SimpleIOSuite {
 
   // Create the shared config from the configuration
@@ -27,20 +27,29 @@ object CombinedDataInspectionSuite extends SimpleIOSuite {
       // Load and deserialize the combined data
       _ <- IO.println("Reading testdata/combined file...")
       combinedJson <- IO.delay {
-        val file = new File("testdata/combined")
+        val file = new File("testdata/combined-1747870502")
+        val content = new String(Files.readAllBytes(file.toPath))
+        IO.println(s"File size: ${content.length} bytes").unsafeRunSync()
+        content
+      }
+      combinedJson2 <- IO.delay {
+        val file = new File("testdata/combined-1747870508")
         val content = new String(Files.readAllBytes(file.toPath))
         IO.println(s"File size: ${content.length} bytes").unsafeRunSync()
         content
       }
       
       _ <- IO.println("Parsing JSON data...")
-        combinedData <- IO.fromEither(decode[(Signed[GlobalIncrementalSnapshot], GlobalSnapshotInfo)](combinedJson))
+      combinedData <- IO.fromEither(decode[(Signed[GlobalIncrementalSnapshot], GlobalSnapshotInfo)](combinedJson))
       (snapshot, snapshotInfo) = combinedData
+      
+      combinedData2 <- IO.fromEither(decode[(Signed[GlobalIncrementalSnapshot], GlobalSnapshotInfo)](combinedJson2))
+      (snapshot2, snapshotInfo2) = combinedData2
       
       _ <- IO.println("Successfully parsed the snapshot and snapshot info")
       _ <- IO.println(s"Snapshot ordinal: ${snapshot.value.ordinal}")
-      _ <- IO.println(s"Snapshot height: ${snapshot.value.height}")
-      
+      _ <- IO.println(s"Snapshot ordinal2: ${snapshot2.value.ordinal}")
+    
       // Basic validation
       _ <- IO.println("\nInspection complete - The combined data was successfully parsed")
       
