@@ -20,9 +20,9 @@ trait CurrencySnapshotMapper[F[_]] {
 
   def mapCurrencySnapshots(
     globalSnapshotWithState: GlobalSnapshotWithState,
-    timestamp: LocalDateTime,
-    txHasher: Hasher[F],
-    hasher: Hasher[F]
+    timestamp              : LocalDateTime,
+    txHasher               : Hasher[F],
+    hasher                 : Hasher[F]
   ): F[
     MetagraphData
   ]
@@ -42,7 +42,7 @@ object CurrencySnapshotMapper {
     new CurrencySnapshotMapper[F] {
 
       type Acc = (
-          Seq[CurrencyData[OSCurrencySnapshot]],
+        Seq[CurrencyData[OSCurrencySnapshot]],
           Seq[CurrencyData[Block]],
           Seq[CurrencyData[Transaction]],
           Seq[CurrencyData[FeeTransaction]],
