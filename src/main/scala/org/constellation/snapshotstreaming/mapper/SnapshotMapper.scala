@@ -15,7 +15,7 @@ import io.constellationnetwork.syntax.sortedCollection._
 import org.constellation.snapshotstreaming.schema.{AddressBalance, Block, BlockReference, Transaction, TransactionReference}
 
 import java.time.LocalDateTime
-import scala.collection.immutable.{SortedMap, SortedSet}
+import scala.collection.immutable.{HashMap, SortedMap, SortedSet}
 
 case class SnapshotReferredAddresses(source: Set[Address], destination: Set[Address])
 
@@ -126,8 +126,9 @@ abstract class SnapshotMapper[F[_]: Async, S <: OriginalSnapshot] {
                  ): SortedMap[Address, Balance] =
     prevBalances match {
       case Some(prev) =>
+        val optimizedPrev = HashMap.from(prev)
         val changed = info.balances.filterNot { case (address, balance) =>
-          prev.get(address).exists(_.value.value === balance.value.value)
+          optimizedPrev.get(address).exists(_.value.value === balance.value.value)
         }
 
         /* NOTE: SnapshotInfo calculation optimization gets rid of addresses that have empty balances.
