@@ -1,43 +1,41 @@
 package org.constellation.snapshotstreaming
 
+import java.time.{Instant, LocalDateTime, ZoneId}
 import cats.data.{NonEmptyList, Validated}
 import cats.effect._
 import cats.effect.implicits.clockOps
 import cats.effect.std.{Console, Random}
 import cats.syntax.all._
 import cats.{Applicative, Parallel}
-import com.sksamuel.elastic4s.requests.update.UpdateRequest
-import fs2.Stream
-import fs2.io.file.{Files, Flags, Path}
-import fs2.io.net.Network
 import io.constellationnetwork.currency.schema.currency.{CurrencyIncrementalSnapshot, CurrencySnapshot, CurrencySnapshotInfo}
 import io.constellationnetwork.ext.cats.syntax.next._
 import io.constellationnetwork.json.JsonSerializer
 import io.constellationnetwork.kryo.KryoSerializer
-import io.constellationnetwork.merkletree.StateProofValidator
 import io.constellationnetwork.node.shared.config.types.SharedConfigReader
 import io.constellationnetwork.node.shared.domain.snapshot.Validator
 import io.constellationnetwork.node.shared.domain.snapshot.services.GlobalL0Service
 import io.constellationnetwork.node.shared.domain.snapshot.storage.LastSnapshotStorage
 import io.constellationnetwork.node.shared.http.p2p.clients.L0GlobalSnapshotClient
 import io.constellationnetwork.node.shared.infrastructure.cluster.storage.L0ClusterStorage
-import io.constellationnetwork.schema.{GlobalIncrementalSnapshot, GlobalSnapshot, GlobalSnapshotInfo, GlobalSnapshotInfoV2}
 import io.constellationnetwork.schema.SnapshotReference.{fromHashedSnapshot => getSnapshotReference}
 import io.constellationnetwork.schema.address.Address
+import io.constellationnetwork.schema.{GlobalIncrementalSnapshot, GlobalSnapshot, GlobalSnapshotInfo, GlobalSnapshotInfoV2}
 import io.constellationnetwork.security._
 import io.constellationnetwork.security.signature.Signed
 import io.constellationnetwork.statechannel.StateChannelSnapshotBinary
+import fs2.Stream
+import fs2.io.file.{Files, Flags, Path}
+import fs2.io.net.Network
+import io.constellationnetwork.merkletree.StateProofValidator
 import org.constellation.snapshotstreaming.db.SnapshotDAO
 import org.constellation.snapshotstreaming.mapper.{CurrencySnapshotMapper, GlobalSnapshotMapper}
 import org.constellation.snapshotstreaming.opensearch.OpensearchDAO
-import org.constellation.snapshotstreaming.schema.schema.{GlobalData, MetagraphData}
 import org.constellation.snapshotstreaming.s3.S3DAO
+import org.constellation.snapshotstreaming.schema.schema.{GlobalData, MetagraphData}
 import org.constellation.snapshotstreaming.storage.{FileBasedLastGlobalFullSnapshotStorage, FileBasedLastGlobalIncrementalSnapshotStorage, SnapshotWithState}
 import org.http4s.ember.client.EmberClientBuilder
 import org.typelevel.log4cats.slf4j.Slf4jLogger
 import org.typelevel.otel4s.trace.Tracer
-
-import java.time.{Instant, LocalDateTime, ZoneId}
 
 trait SnapshotProcessor[F[_]] {
   val runtime: Stream[F, Unit]
@@ -70,7 +68,7 @@ object SnapshotProcessor {
           configuration.node.l0PeersMap.keys.some
         )
       tesselationServices <- Resource.eval(
-        TessellationServices.make[F](configuration.environment, sharedConfig)
+        TessellationServices.make[F](configuration.environment, sharedConfig, l0Service)
       )
       lastFullGlobalSnapshotStorage = FileBasedLastGlobalFullSnapshotStorage.make[F, GlobalSnapshot](
         configuration.lastSnapshotPath
@@ -210,32 +208,39 @@ object SnapshotProcessor {
         .evalMap { _ =>
           lastIncrementalGlobalSnapshotStorage.getCombined.flatMap {
             case Some((lastSnapshot, lastState)) =>
-              l0Service.pullGlobalSnapshots
-                .map(
-                  _.leftMap(_ => new Throwable(s"Existence of last snapshot has been checked. It shouldn't happen!"))
-                )
-                .flatMap(_.liftTo[F])
-                .flatMap { incrementalSnapshots =>
-                  incrementalSnapshots.foldM(ProcessedSnapshots(lastSnapshot.signed, lastState, List.empty)) {
-                    (processedSnapshots, snapshot) =>
-                      tessellationServices.globalSnapshotContextService
-                        .createContext(
-                          processedSnapshots.lastState,
-                          processedSnapshots.lastSnapshot,
-                          snapshot,
-                          l0Service.pullGlobalSnapshot,
-                          LocalDateTime.now()
-                        )
-                        .map { globalSnapshotsWithState =>
-                          ProcessedSnapshots(
-                            snapshot.signed,
-                            globalSnapshotsWithState.snapshotInfo,
-                            processedSnapshots.snapshotsWithState.appended(globalSnapshotsWithState)
-                          )
-                        }
+              for {
+                _ <- logger.info("Pulling global snapshot")
+                result <- l0Service.pullGlobalSnapshots
+                  .map(
+                    _.leftMap(_ => new Throwable(s"Existence of last snapshot has been checked. It shouldn't happen!"))
+                  )
+                  .flatMap(_.liftTo[F])
+                  .flatMap { incrementalSnapshots =>
+                    logger.info("Global snapshot pulled") >>
+                      incrementalSnapshots.foldM(ProcessedSnapshots(lastSnapshot.signed, lastState, List.empty)) {
+                        (processedSnapshots, snapshot) =>
+                          for {
+                            globalSnapshotsWithState <- tessellationServices.globalSnapshotContextService
+                              .createContext(
+                                processedSnapshots.lastState,
+                                processedSnapshots.lastSnapshot,
+                                snapshot,
+                                l0Service.pullGlobalSnapshot,
+                                LocalDateTime.now()
+                              )
+                            result = ProcessedSnapshots(
+                              snapshot.signed,
+                              globalSnapshotsWithState.snapshotInfo,
+                              processedSnapshots.snapshotsWithState.appended(globalSnapshotsWithState)
+                            )
+
+                            _<- logger.info("globalSnapshotsWithState processed")
+                          } yield result
+                      }
                   }
-                }
-                .map(_.snapshotsWithState)
+                  .map(_.snapshotsWithState)
+                _ <- logger.info("Finished pulling")
+              } yield result
 
             case None =>
               lastFullGlobalSnapshotStorage.get.flatMap {
