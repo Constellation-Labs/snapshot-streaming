@@ -84,13 +84,21 @@ object CombinedDataInspectionSuite extends SimpleIOSuite {
       
       // Create a hashed snapshot for the GlobalSnapshotWithState
       hashedSnapshot2 = Hashed(snapshot2, Hash.empty, ProofsHash(Hash.empty.value))
+
+      snapshot2.value.stateChannelSnapshots
+      res = snapshotInfo2.lastCurrencySnapshots.map{ case (a, s) => {
+        println(s"a: $a")
+        println(s"s: $s")
+        s
+      }
+
       
       // Create the GlobalSnapshotWithState
       globalSnapshotWithState = GlobalSnapshotWithState(
         hashedSnapshot2, 
         Some(snapshotInfo), // Using first snapshot info as the "previous" one
         snapshotInfo2,
-        Map.empty, // We're not using currency snapshots for GlobalData
+      Map.empty, // We're not using currency snapshots for GlobalData
         timestamp
       )
       
