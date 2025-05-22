@@ -3,12 +3,15 @@ package org.constellation.snapshotstreaming.db
 import cats.Parallel
 import cats.effect.{Async, Resource}
 import cats.syntax.all._
+
 import io.constellationnetwork.security.signature.signature.SignatureProof
+
 import org.constellation.snapshotstreaming.schema.AllowSpends.{AllowSpend, AllowSpendExpiration, SpendTransaction}
 import org.constellation.snapshotstreaming.schema.TokenLocks.{TokenLock, TokenUnlock}
 import org.constellation.snapshotstreaming.schema.extractors.{AddressExtractor, MetagraphExtractor}
 import org.constellation.snapshotstreaming.schema.schema.{GlobalData, MetagraphData}
-import org.constellation.snapshotstreaming.schema.{AddressBalance, Block, BlockReference, CurrencyData, CurrencySnapshot, DelegatedStakingCreate, DelegatedStakingReward, DelegatedStakingWithdraw, FeeTransaction, RewardTransaction, Snapshot, Transaction => STransaction}
+import org.constellation.snapshotstreaming.schema.{Transaction => STransaction, _}
+import org.typelevel.log4cats.slf4j.Slf4jLogger
 import skunk._
 import skunk.codec.all._
 import skunk.implicits._
@@ -361,7 +364,26 @@ object SnapshotDAO {
       (identifier, b.hash, b.height, b.snapshotHash, b.timestamp)
     }
 
-  private val insertMetagraphTxCommand: Command[CurrencyData[STransaction]] =
+  private def insertMetagraphTransactionsMany(size: Int): Command[List[CurrencyData[STransaction]]] = {
+    val enc = (
+      varchar *: varchar *: varchar *: varchar *: int8 *: int8 *: int8 *: int8 *: varchar *: int8 *: varchar *: timestamp
+      ).values.contramap { cdTx: CurrencyData[STransaction] =>
+      (
+        cdTx.identifier,
+        cdTx.data.hash,
+        cdTx.data.source,
+        cdTx.data.destination,
+        cdTx.data.amount,
+        cdTx.data.fee,
+        cdTx.data.salt,
+        cdTx.data.parent.ordinal,
+        cdTx.data.parent.hash,
+        cdTx.data.ordinal,
+        cdTx.data.blockHash,
+        cdTx.data.timestamp
+      )
+    }.list(size)
+
     sql"""
       INSERT INTO metagraph_transactions (
         metagraph_id,
@@ -376,24 +398,10 @@ object SnapshotDAO {
         ordinal,
         block_hash,
         created_at
-      ) VALUES ($varchar, $varchar, $varchar, $varchar, $int8, $int8, $int8, $int8, $varchar, $int8, $varchar, $timestamp)
+      ) VALUES $enc
       ON CONFLICT (metagraph_id, hash) DO NOTHING;
-    """.command.contramap { case CurrencyData(id, tx) =>
-      (
-        id,
-        tx.hash,
-        tx.source,
-        tx.destination,
-        tx.amount,
-        tx.fee,
-        tx.salt,
-        tx.parent.ordinal,
-        tx.parent.hash,
-        tx.ordinal,
-        tx.blockHash,
-        tx.timestamp
-      )
-    }
+    """.command
+  }
 
   private val insertMetagraphAllowSpendCommand: Command[CurrencyData[AllowSpend]] =
     sql"""
@@ -631,6 +639,16 @@ object SnapshotDAO {
         updated_at = now();
     """.command
 
+  private def insertAddressMany(size: Int): Command[List[String]] = {
+    val enc = varchar.values.list(size)
+    sql"""
+      INSERT INTO addresses (
+        address
+      ) VALUES $enc
+      ON CONFLICT (address) DO NOTHING;
+    """.command
+  }
+
   private val insertMetagraphsCommand: Command[String] =
     sql"""
       INSERT INTO metagraphs (
@@ -643,7 +661,7 @@ object SnapshotDAO {
   private def pairWith[V, T](elem: V, elements: Seq[T]) = elements.map((elem, _))
 
   def make[F[_] : Async : Parallel](pool: Resource[F, Session[F]]): SnapshotDAO[F] = new SnapshotDAO[F] {
-
+    private val logger = Slf4jLogger.getLoggerFromName[F]("SnapshotDAO")
     def insertGlobalData(snapshot: GlobalData, mgSnaphotsCount: Int): F[Unit] =
       pool.use { session =>
         session.transaction.use { xa =>
@@ -666,21 +684,37 @@ object SnapshotDAO {
             preparedProofs <- session.prepare(insertProofCommand)
             preparedBlockParent <- session.prepare(insertBlockParentCommand)
             preparedAddress <- session.prepare(insertAddressCommand)
+            _ <- logger.info("[GLOBAL]Starting preparedAddress")
             _ <- executeCmd(preparedAddress)(AddressExtractor.extract(snapshot).toSeq)
+            _ <- logger.info("[GLOBAL]Starting preparedGlobalSnapshot")
             _ <- executeCmd(preparedGlobalSnapshot)(Seq((snapshot.snapshot, mgSnaphotsCount)))
+            _ <- logger.info("[GLOBAL]Starting preparedDagBlock")
             _ <- executeCmd(preparedDagBlock)(snapshot.blocks.toList)
+            _ <- logger.info("[GLOBAL]Starting preparedDagTxs")
             _ <- executeCmd(preparedDagTxs)(snapshot.txs)
+            _ <- logger.info("[GLOBAL]Starting preparedDagAllowSpend")
             _ <- executeCmd(preparedDagAllowSpend)(snapshot.allowSpends)
+            _ <- logger.info("[GLOBAL]Starting preparedDagSpendTxs")
             _ <- executeCmd(preparedDagSpendTxs)(snapshot.spendTransactions)
+            _ <- logger.info("[GLOBAL]Starting preparedDagExpiredSpends")
             _ <- executeCmd(preparedDagExpiredSpends)(snapshot.allowSpendExpirations)
+            _ <- logger.info("[GLOBAL]Starting preparedDagTokenLock")
             _ <- executeCmd(preparedDagTokenLock)(snapshot.tokenLocks)
+            _ <- logger.info("[GLOBAL]Starting preparedDagTokenUnlock")
             _ <- executeCmd(preparedDagTokenUnlock)(snapshot.tokenUnlocks)
+            _ <- logger.info("[GLOBAL]Starting preparedDagDelegatedStakingCreate")
             _ <- executeCmd(preparedDagDelegatedStakingCreate)(snapshot.delegatedStakingCreate)
+            _ <- logger.info("[GLOBAL]Starting preparedDagDelegatedStakingWithdraw")
             _ <- executeCmd(preparedDagDelegatedStakingWithdraw)(snapshot.delegatedStakingWithdraw)
+            _ <- logger.info("[GLOBAL]Starting preparedDagDelegatedStakingRewards")
             _ <- executeCmd(preparedDagDelegatedStakingRewards)(snapshot.delegatedStakingRewards)
+            _ <- logger.info(s"[GLOBAL]Starting preparedDagAddressBalance. snapshot.balances ${snapshot.balances.size}")
             _ <- executeCmd(preparedDagAddressBalance)(snapshot.balances)
+            _ <- logger.info("[GLOBAL]Starting preparedDagRewardTxs")
             _ <- executeCmd(preparedDagRewardTxs)(pairWith(gsHash, snapshot.snapshot.rewards.toSeq))
+            _ <- logger.info("[GLOBAL]Starting preparedBlockParent")
             _ <- executeCmd(preparedBlockParent)(blockParents)
+            _ <- logger.info("[GLOBAL]Starting preparedProofs")
             _ <- executeCmd(preparedProofs)(pairWith(gsHash, snapshot.proofs.toSeq))
             _ <- xa.commit
           } yield ()
@@ -699,7 +733,6 @@ object SnapshotDAO {
             preparedMetagraphSnapshot <- session.prepare(insertMetagraphSnapshotCommand)
             preparedBlockParent <- session.prepare(insertBlockParentCommand)
             preparedMetagraphBlock <- session.prepare(insertMetagraphBlockCommand)
-            preparedMgTxs <- session.prepare(insertMetagraphTxCommand)
             preparedMgAllowSpends <- session.prepare(insertMetagraphAllowSpendCommand)
             preparedMgSpendsTxs <- session.prepare(insertMetagraphSpendTransactionCommand)
             preparedMgExpiredSpends <- session.prepare(insertMetagraphExpiredSpendTransactionCommand)
@@ -707,26 +740,37 @@ object SnapshotDAO {
             preparedMgTokenUnlocks <- session.prepare(insertMetagraphTokenUnlockCommand)
             preparedMgFeeTxs <- session.prepare(insertMetagraphFeeTransactionCommand)
             preparedMgRewardTxs <- session.prepare(insertMetagraphRewardTxCommand)
-            preparedAddress <- session.prepare(insertAddressCommand)
-            _ <- executeCmd(preparedAddress)(AddressExtractor.extract(mgSnapshot).toSeq)
+            _ <- logger.info("[METAGRAPH] Starting preparedAddress")
+            _ <- executeMany(session, AddressExtractor.extract(mgSnapshot).toSeq.toList, insertAddressMany)
+            _ <- logger.info("[METAGRAPH]Starting preparedMetagraphs")
             _ <- executeCmd(preparedMetagraphs)(MetagraphExtractor.extract(mgSnapshot).toSeq)
+            _ <- logger.info("[METAGRAPH]Starting preparedMetagraphSnapshot")
             _ <- executeCmd(preparedMetagraphSnapshot)(pairWith(globalSnapshotHash, unifiedSnapshots))
+            _ <- logger.info("[METAGRAPH]Starting preparedMetagraphBlock")
             _ <- executeCmd(preparedMetagraphBlock)(mgSnapshot.blocks)
-            _ <- (
-              executeCmd(preparedMgTxs)(mgSnapshot.txs),
-              executeCmd(preparedMgFeeTxs)(mgSnapshot.feeTxs),
-              executeCmd(preparedMgRewardTxs)(
-                unifiedSnapshots.flatMap(mgs =>
-                  mgs.data.rewards.map(r => (mgs.data.hash, CurrencyData(mgs.identifier, r)))
-                )
-              ),
-              executeCmd(preparedMgAllowSpends)(mgSnapshot.allowSpends),
-              executeMany(session, mgSnapshot.balances.toList, insertMetagraphAddressBalancesMany),
-              executeCmd(preparedBlockParent)(blockParents.map { case (_, hash, parent) => (hash, parent) }),
-              executeCmd(preparedMgTokenLocks)(mgSnapshot.tokenLocks)
-            ).parTupled
+            _ <- logger.info(s"[METAGRAPH]Starting mgSnapshot.txs. MG TXNS SIZE: ${mgSnapshot.txs.size}")
+            _ <- executeMany(session, mgSnapshot.txs.toList, insertMetagraphTransactionsMany)
+            _ <- logger.info(s"[METAGRAPH]Starting preparedMgFeeTxs")
+            _ <- executeCmd(preparedMgFeeTxs)(mgSnapshot.feeTxs)
+            _ <- logger.info(s"[METAGRAPH]Starting preparedMgRewardTxs")
+            _ <- executeCmd(preparedMgRewardTxs)(
+              unifiedSnapshots.flatMap(mgs =>
+                mgs.data.rewards.map(r => (mgs.data.hash, CurrencyData(mgs.identifier, r)))
+              )
+            )
+            _ <- logger.info(s"[METAGRAPH]Starting preparedMgAllowSpends")
+            _ <- executeCmd(preparedMgAllowSpends)(mgSnapshot.allowSpends)
+            _ <- logger.info(s"[METAGRAPH]Starting mgSnapshot.balances: ${mgSnapshot.balances.size}")
+            _ <- executeMany(session, mgSnapshot.balances.toList, insertMetagraphAddressBalancesMany)
+            _ <- logger.info(s"[METAGRAPH]Starting preparedBlockParent")
+            _ <- executeCmd(preparedBlockParent)(blockParents.map { case (_, hash, parent) => (hash, parent) })
+            _ <- logger.info(s"[METAGRAPH]Starting preparedMgTokenLocks")
+            _ <- executeCmd(preparedMgTokenLocks)(mgSnapshot.tokenLocks)
+            _ <- logger.info(s"[METAGRAPH]Starting preparedMgSpendsTxs")
             _ <- executeCmd(preparedMgSpendsTxs)(mgSnapshot.spendTransactions)
+            _ <- logger.info(s"[METAGRAPH]Starting preparedMgExpiredSpends")
             _ <- executeCmd(preparedMgExpiredSpends)(mgSnapshot.allowSpendExpirations)
+            _ <- logger.info(s"[METAGRAPH]Starting preparedMgTokenUnlocks")
             _ <- executeCmd(preparedMgTokenUnlocks)(mgSnapshot.tokenUnlocks)
             _ <- xa.commit
           } yield ()

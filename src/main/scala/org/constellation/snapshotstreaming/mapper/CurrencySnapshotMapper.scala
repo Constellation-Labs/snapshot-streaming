@@ -156,6 +156,11 @@ object CurrencySnapshotMapper {
                     balances = incrementalMapper
                       .mapBalances(incremental, filteredBalances, timestamp)
                       .map(CurrencyData(identifierStr, _))
+
+                    lastBalancesUpdated = prevBalances match {
+                      case Some(prev) => SortedMap.from(prev ++ filteredBalances)
+                      case None       => SortedMap.from(filteredBalances)
+                    }
                   } yield (
                     aggCurrencySnap :+ snapshot,
                     aggBlocks ++ blocks,
@@ -167,7 +172,7 @@ object CurrencySnapshotMapper {
                     aggSpendExpirations ++ spendExpirations.map(toCurrency),
                     aggTokenLocks ++ tokenLocks.map(toCurrency),
                     aggTokenUnlocks ++ tokenUnlocks.map(toCurrency),
-                    aggLastBalances + (identifier -> filteredBalances)
+                    aggLastBalances + (identifier -> lastBalancesUpdated)
                   )
               }
           }

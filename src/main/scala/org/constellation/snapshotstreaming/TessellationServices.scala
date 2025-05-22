@@ -24,6 +24,7 @@ import eu.timepit.refined.types.numeric.{NonNegLong, PosInt}
 import io.constellationnetwork.env.AppEnvironment
 import io.constellationnetwork.node.shared.domain.delegatedStake.UpdateDelegatedStakeAcceptanceManager
 import io.constellationnetwork.node.shared.domain.nodeCollateral.UpdateNodeCollateralAcceptanceManager
+import io.constellationnetwork.node.shared.domain.snapshot.services.GlobalL0Service
 import io.constellationnetwork.schema.SnapshotOrdinal
 import io.constellationnetwork.schema.epoch.EpochProgress
 
@@ -31,7 +32,8 @@ object TessellationServices {
 
   def make[F[_] : Async : Parallel: JsonSerializer : KryoSerializer : SecurityProvider](
                                                                                env: AppEnvironment,
-                                                                               configuration: SharedConfigReader
+                                                                               configuration: SharedConfigReader,
+                                                                               l0Service: GlobalL0Service[F]
   )(implicit hasherSelector: HasherSelector[F]): F[TessellationServices[F]] =
     for {
       _ <- Async[F].unit
@@ -119,7 +121,7 @@ object TessellationServices {
           configuration.delegatedStaking.withdrawalTimeLimit.getOrElse(env, EpochProgress.MinValue),
           tessellation3Migration
         )
-        GlobalSnapshotContextService.make(globalSnapshotStateChannelEventsProcessor, globalSnapshotContextFns)
+        GlobalSnapshotContextService.make(globalSnapshotStateChannelEventsProcessor, globalSnapshotContextFns, l0Service)
       }
       }
     } yield new TessellationServices[F](globalSnapshotContextService) {}

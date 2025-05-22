@@ -28,7 +28,7 @@ package object db {
 
   private val dbChunkSize = 5000
 
-  def executeMany[T, F[_]: Monad](s: Session[F], entities: List[T], insertMany: Int => Command[List[T]]): F[Unit] =
-    entities.grouped(dbChunkSize).toList.traverse(es => s.prepare(insertMany(es.size)).flatMap(_.execute(es))).void
+  def executeMany[T, F[_]: Monad: Parallel](s: Session[F], entities: List[T], insertMany: Int => Command[List[T]]): F[Unit] =
+    entities.grouped(dbChunkSize).toList.parTraverse(es => s.prepare(insertMany(es.size)).flatMap(_.execute(es))).void
 
 }
