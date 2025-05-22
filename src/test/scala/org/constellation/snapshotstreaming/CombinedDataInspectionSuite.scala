@@ -5,12 +5,10 @@ import java.nio.file.Files
 import java.time.LocalDateTime
 import cats.effect.IO
 import cats.effect.unsafe.implicits.global
-import io.circe.{Decoder, Encoder, Json}
-import io.constellationnetwork.json.JsonSerializer
-import io.constellationnetwork.ext.cats.effect.ResourceIO
 import io.circe.parser.decode
 import io.constellationnetwork.env.AppEnvironment
-import io.constellationnetwork.schema.{GlobalIncrementalSnapshot, GlobalSnapshotInfo, SnapshotOrdinal}
+import io.constellationnetwork.json.JsonSerializer
+import io.constellationnetwork.schema.{GlobalIncrementalSnapshot, GlobalSnapshotInfo}
 import pureconfig.ConfigSource
 import pureconfig.generic.auto._
 import pureconfig.module.enumeratum._
@@ -19,16 +17,13 @@ import weaver.SimpleIOSuite
 import io.constellationnetwork.node.shared.config.types.SharedConfigReader
 import io.constellationnetwork.node.shared.ext.pureconfig._
 import io.constellationnetwork.security.signature.Signed
-import org.constellation.snapshotstreaming.SnapshotProcessor.GlobalSnapshotWithState
+import org.constellation.snapshotstreaming.SnapshotProcessor
 import org.constellation.snapshotstreaming.mapper.{CurrencySnapshotMapper, GlobalSnapshotMapper}
-import org.constellation.snapshotstreaming.schema.schema.{GlobalData, MetagraphData}
-import io.constellationnetwork.security.{HashLogic, Hashed, Hasher, HasherSelector}
+import io.constellationnetwork.security.{HashLogic, Hashed, Hasher}
 import io.constellationnetwork.security.hash.{Hash, ProofsHash}
 import cats.data.NonEmptyList
-import io.constellationnetwork.currency.schema.currency.CurrencySnapshot
-import io.constellationnetwork.schema.address.Address
 
-// wget http://52.53.46.33:9000/global-snapshots/latest/combined -O combined-$(date +%s) 
+// wget http://52.53.46.33:9000/global-snapshots/latest/combined -O combined-$(date +%s)
 object CombinedDataInspectionSuite extends SimpleIOSuite {
 
   // Create the shared config from the configuration
@@ -36,16 +31,17 @@ object CombinedDataInspectionSuite extends SimpleIOSuite {
 
   // Create a mock hasher for testing - only implement required methods
   implicit val hasher: Hasher[IO] = new Hasher[IO] {
-    override def hash[A](data: A)(implicit encoder: Encoder[A]): IO[Hash] = IO.pure(Hash.empty)
-    override def compare[A](data: A, expectedHash: Hash)(implicit encoder: Encoder[A]): IO[Boolean] = IO.pure(true)
-    override def getLogic(ordinal: SnapshotOrdinal): HashLogic = io.constellationnetwork.security.JsonHash
+    override def hash[A](data: A)(implicit encoder: io.circe.Encoder[A]): IO[Hash] = IO.pure(Hash.empty)
+    override def compare[A](data: A, expectedHash: Hash)(implicit encoder: io.circe.Encoder[A]): IO[Boolean] = IO.pure(true)
+    override def getLogic(ordinal: io.constellationnetwork.schema.SnapshotOrdinal): HashLogic = io.constellationnetwork.security.JsonHash
   }
+  
+  // Implicit JsonSerializer instance for IO
+  implicit val jsonSerializer: JsonSerializer[IO] = JsonSerializer.forSync[IO].unsafeRunSync()
   
   // Create the mappers
   val globalMapper = GlobalSnapshotMapper.make[IO](sharedCfg)
-  val currencyMapper = JsonSerializer.forSync[IO]
-    .map(implicit serializer => CurrencySnapshotMapper.make[IO]())
-    .unsafeRunSync()
+  val currencyMapper = CurrencySnapshotMapper.make[IO]()
 
   test("Load, map and inspect GlobalData from combined snapshots") {
     for {
@@ -86,24 +82,41 @@ object CombinedDataInspectionSuite extends SimpleIOSuite {
       // Create a hashed snapshot for the GlobalSnapshotWithState
       hashedSnapshot2 = Hashed(snapshot2, Hash.empty, ProofsHash(Hash.empty.value))
 
-      // Debug lastCurrencySnapshots
+      // Debug lastCurrencySnapshots in more detail
       _ <- IO.delay {
         snapshotInfo2.lastCurrencySnapshots.foreach { case (a, s) =>
           println(s"Address: $a")
           println(s"Snapshot: $s")
+          println(s"Snapshot class: ${s.getClass.getName}")
+          println(s"Snapshot fields: ${s.getClass.getDeclaredFields.map(_.getName).mkString(", ")}")
         }
       }
       
-      // Create the currency snapshots map
+      // Create the currency snapshots map using the same approach as in the real processor
+      _ <- IO.println("\n--- Creating currency snapshots map using proper function ---")
+      
+      // This is similar to what happens in the real processor's foldM function
+      // We're creating a list of currency snapshots for each address
       currencySnapshots = snapshotInfo2.lastCurrencySnapshots.map { case (address, snapInfo) =>
-        val hashedSnapshot = Hashed(snapInfo.signed.value, Hash.empty, ProofsHash(Hash.empty.value))
-        (address, NonEmptyList.one(Left(hashedSnapshot)))
+        // Create a list of snapshots for each address
+        // In the real processor, this might contain multiple snapshots
+        // We're simulating that by creating a NonEmptyList with the snapshot
+        
+        // Handle the Either type - snapInfo can be either a Signed[CurrencySnapshot] or a tuple
+        val hashedSnapshot = snapInfo match {
+          case Left(signed) => Hashed(signed.value, Hash.empty, ProofsHash(Hash.empty.value))
+          case Right((signed, _)) => Hashed(signed.value, Hash.empty, ProofsHash(Hash.empty.value))
+        }
+        
+        // Create a NonEmptyList with the snapshot
+        // This is similar to what the real processor would do when processing multiple snapshots
+        (address, NonEmptyList.of(Left(hashedSnapshot)))
       }
       
       // Create the GlobalSnapshotWithState
       _ <- IO.println("\n--- Creating GlobalSnapshotWithState ---")
-      globalSnapshotWithState = GlobalSnapshotWithState(
-        hashedSnapshot2, 
+      globalSnapshotWithState = SnapshotProcessor.GlobalSnapshotWithState(
+        hashedSnapshot2,
         Some(snapshotInfo), // Using first snapshot info as the "previous" one
         snapshotInfo2,
         currencySnapshots, // Using populated currency snapshots map
