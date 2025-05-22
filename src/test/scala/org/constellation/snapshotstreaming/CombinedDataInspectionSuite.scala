@@ -22,8 +22,11 @@ import io.constellationnetwork.security.signature.Signed
 import org.constellation.snapshotstreaming.SnapshotProcessor.GlobalSnapshotWithState
 import org.constellation.snapshotstreaming.mapper.{CurrencySnapshotMapper, GlobalSnapshotMapper}
 import org.constellation.snapshotstreaming.schema.schema.{GlobalData, MetagraphData}
-import io.constellationnetwork.security.{HashLogic, Hashed, Hasher}
+import io.constellationnetwork.security.{HashLogic, Hashed, Hasher, HasherSelector}
 import io.constellationnetwork.security.hash.{Hash, ProofsHash}
+import cats.data.NonEmptyList
+import io.constellationnetwork.currency.schema.currency.CurrencySnapshot
+import io.constellationnetwork.schema.address.Address
 
 // wget http://52.53.46.33:9000/global-snapshots/latest/combined -O combined-$(date +%s) 
 object CombinedDataInspectionSuite extends SimpleIOSuite {
@@ -38,16 +41,14 @@ object CombinedDataInspectionSuite extends SimpleIOSuite {
     override def getLogic(ordinal: SnapshotOrdinal): HashLogic = io.constellationnetwork.security.JsonHash
   }
   
-  // Implicit JsonSerializer using factory method
-  // implicit val jsonSerializer: JsonSerializer[IO] = 
   // Create the mappers
   val globalMapper = GlobalSnapshotMapper.make[IO](sharedCfg)
   val currencyMapper = JsonSerializer.forSync[IO]
-  .map(implicit serializer => CurrencySnapshotMapper.make[IO]())
+    .map(implicit serializer => CurrencySnapshotMapper.make[IO]())
+    .unsafeRunSync()
 
   test("Load, map and inspect GlobalData from combined snapshots") {
     for {
-      currencyMapper <- currencyMapper
       // Load and deserialize the first combined file
       _ <- IO.println("Reading first combined file...")
       combinedJson <- IO.delay {
@@ -85,22 +86,31 @@ object CombinedDataInspectionSuite extends SimpleIOSuite {
       // Create a hashed snapshot for the GlobalSnapshotWithState
       hashedSnapshot2 = Hashed(snapshot2, Hash.empty, ProofsHash(Hash.empty.value))
 
-      snapshot2.value.stateChannelSnapshots
-      res = snapshotInfo2.lastCurrencySnapshots.map{ case (a, s) => {
-        println(s"a: $a")
-        println(s"s: $s")
-        s
+      // Debug lastCurrencySnapshots
+      _ <- IO.delay {
+        snapshotInfo2.lastCurrencySnapshots.foreach { case (a, s) =>
+          println(s"Address: $a")
+          println(s"Snapshot: $s")
+        }
       }
-
+      
+      // Create the currency snapshots map
+      currencySnapshots = snapshotInfo2.lastCurrencySnapshots.map { case (address, snapInfo) =>
+        val hashedSnapshot = Hashed(snapInfo.signed.value, Hash.empty, ProofsHash(Hash.empty.value))
+        (address, NonEmptyList.one(Left(hashedSnapshot)))
+      }
       
       // Create the GlobalSnapshotWithState
+      _ <- IO.println("\n--- Creating GlobalSnapshotWithState ---")
       globalSnapshotWithState = GlobalSnapshotWithState(
         hashedSnapshot2, 
         Some(snapshotInfo), // Using first snapshot info as the "previous" one
         snapshotInfo2,
-      Map.empty, // We're not using currency snapshots for GlobalData
+        currencySnapshots, // Using populated currency snapshots map
         timestamp
       )
+      
+      _ <- IO.println(s"Created GlobalSnapshotWithState with ${globalSnapshotWithState.currencySnapshots.size} currency snapshots")
       
       // Create the GlobalData
       _ <- IO.println("\n--- Creating GlobalData ---")
