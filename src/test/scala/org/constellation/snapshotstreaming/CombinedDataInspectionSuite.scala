@@ -94,32 +94,14 @@ object CombinedDataInspectionSuite extends SimpleIOSuite {
       
       // Create the currency snapshots map using the same approach as in the real processor
       _ <- IO.println("\n--- Creating currency snapshots map using proper function ---")
-      
-      // This is similar to what happens in the real processor's foldM function
-      // We're creating a list of currency snapshots for each address
-      currencySnapshots = snapshotInfo2.lastCurrencySnapshots.map { case (address, snapInfo) =>
-        // Create a list of snapshots for each address
-        // In the real processor, this might contain multiple snapshots
-        // We're simulating that by creating a NonEmptyList with the snapshot
-        
-        // Handle the Either type - snapInfo can be either a Signed[CurrencySnapshot] or a tuple
-        val hashedSnapshot = snapInfo match {
-          case Left(signed) => Hashed(signed.value, Hash.empty, ProofsHash(Hash.empty.value))
-          case Right((signed, _)) => Hashed(signed.value, Hash.empty, ProofsHash(Hash.empty.value))
-        }
-        
-        // Create a NonEmptyList with the snapshot
-        // This is similar to what the real processor would do when processing multiple snapshots
-        (address, NonEmptyList.of(Left(hashedSnapshot)))
-      }
-      
+
       // Create the GlobalSnapshotWithState
       _ <- IO.println("\n--- Creating GlobalSnapshotWithState ---")
       globalSnapshotWithState = SnapshotProcessor.GlobalSnapshotWithState(
         hashedSnapshot2,
         Some(snapshotInfo), // Using first snapshot info as the "previous" one
         snapshotInfo2,
-        currencySnapshots, // Using populated currency snapshots map
+        Map.empty, // Using populated currency snapshots map
         timestamp
       )
       
