@@ -89,7 +89,7 @@ object SnapshotProcessor {
         txHasher: Hasher[F]
       )
       tesselationServices <- Resource.eval(
-        TessellationServices.make[F](configuration)
+        TessellationServices.make[F](configuration, l0Service)
       )
       lastFullGlobalSnapshotStorage = FileBasedLastGlobalFullSnapshotStorage.make[F, GlobalSnapshot](
         configuration.lastFullSnapshotPath
