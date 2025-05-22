@@ -7,12 +7,11 @@ import cats.effect.Resource
 import cats.implicits.catsSyntaxOptionId
 import cats.syntax.all._
 
-import scala.collection.immutable.SortedMap
-import scala.collection.immutable.SortedSet
+import scala.collection.immutable.{SortedMap, SortedSet}
 import io.constellationnetwork.ext.cats.effect.ResourceIO
 import io.constellationnetwork.kryo.KryoSerializer
 import io.constellationnetwork.schema.transaction._
-import io.constellationnetwork.schema.GlobalSnapshotInfo
+import io.constellationnetwork.schema.{GlobalIncrementalSnapshot, GlobalSnapshotInfo, SnapshotOrdinal}
 import io.constellationnetwork.node.shared.nodeSharedKryoRegistrar
 import io.constellationnetwork.security.hash.Hash
 import io.constellationnetwork.security.key.ops.PublicKeyOps
@@ -33,8 +32,7 @@ import weaver.MutableIOSuite
 import io.constellationnetwork.security.Hasher
 import io.constellationnetwork.json.JsonSerializer
 import io.constellationnetwork.node.shared.config.types.{SharedConfig, SharedConfigReader}
-import io.constellationnetwork.schema.GlobalIncrementalSnapshot
-import io.constellationnetwork.schema.balance.Balance
+import io.constellationnetwork.schema.balance.{Amount, Balance}
 import io.constellationnetwork.security.Hashed
 import io.constellationnetwork.security.HasherSelector
 import org.constellation.snapshotstreaming.Configuration
@@ -43,11 +41,22 @@ import pureconfig.generic.auto._
 import pureconfig.module.catseffect.syntax._
 import io.constellationnetwork.node.shared.ext.pureconfig._
 import eu.timepit.refined.pureconfig._
+import io.constellationnetwork.schema.ID.Id
+import io.constellationnetwork.schema.address.Address
+import io.constellationnetwork.schema.delegatedStake.{DelegatedStakeAmount, DelegatedStakeRecord, UpdateDelegatedStake}
+import io.constellationnetwork.schema.peer.PeerId
+import io.constellationnetwork.security.hex.Hex
+import io.constellationnetwork.security.signature.Signed
+import io.constellationnetwork.security.signature.signature.{Signature, SignatureProof}
+import org.constellation.snapshotstreaming.schema.DelegatedStakingCreate
 import pureconfig.module.enumeratum._
+import eu.timepit.refined.types.all._
 
 object GlobalSnapshotMapperSuite extends MutableIOSuite {
 
-  val sharedCfg = Configuration.nodeSharedConfig(AppEnvironment.Dev, ConfigSource.default.loadOrThrow[SharedConfigReader])
+  val sharedCfg =
+    Configuration.nodeSharedConfig(AppEnvironment.Dev, ConfigSource.default.loadOrThrow[SharedConfigReader])
+
   type Res = (HasherSelector[IO], KryoSerializer[IO], SecurityProvider[IO], KeyPair, KeyPair, KeyPair, KeyPair)
 
   override def sharedResource: Resource[IO, Res] =
@@ -301,6 +310,128 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
     } yield expect.same(
       result,
       updatedBalances - address3 - address4
+    )
+  }
+
+  test("extract only new and updated stake references") { res =>
+    implicit val (hs, ks, sp, key1, key2, key3, key4) = res
+    val address1 = key1.getPublic.toAddress
+    val address2 = key2.getPublic.toAddress
+
+    val signature = NonEmptySet.one(SignatureProof(Id(Hex("")), Signature(Hex(""))))
+
+    def buildDSR(
+      address: Address,
+      peerId: String,
+      amount: NonNegLong,
+      tokenLockRef: String,
+      createdAt: NonNegLong,
+      rewards: NonNegLong
+    ) = DelegatedStakeRecord(
+      event = Signed(
+        UpdateDelegatedStake.Create(
+          source = address,
+          nodeId = PeerId(Hex(peerId)),
+          amount = DelegatedStakeAmount(amount),
+          tokenLockRef = Hash(tokenLockRef)
+        ),
+        signature
+      ),
+      createdAt = SnapshotOrdinal(createdAt),
+      rewards = Amount(rewards)
+    )
+
+    val oldStakes = Seq(
+      address1 -> SortedSet(
+        buildDSR(address1, "Peer1", 150L, "TokenRef1", 10L, 5L),
+        buildDSR(address1, "Peer2", 150L, "TokenRef2", 11L, 10L)
+      ),
+      address2 -> SortedSet(buildDSR(address2, "Peer3", 150L, "TokenRef3", 12L, 15L))
+    )
+
+    val newStakes = Seq(
+      address1 -> SortedSet(
+        buildDSR(address1, "Peer2", 150L, "TokenRef2", 11L, 15L),
+        buildDSR(address1, "Peer2a", 150L, "TokenRef22", 12L, 10L)
+      ),
+      address2 -> SortedSet(buildDSR(address2, "Peer4", 150L, "TokenRef3", 12L, 20L))
+    )
+
+    val oldSnapshotInfo = GlobalSnapshotInfo(
+      SortedMap.empty,
+      SortedMap.empty,
+      SortedMap.empty,
+      SortedMap.empty,
+      SortedMap.empty,
+      None,
+      None,
+      None,
+      None,
+      None,
+      None,
+      Some(SortedMap.from(oldStakes)),
+      None,
+      None,
+      None
+    )
+
+    val newSnapshotInfo = GlobalSnapshotInfo(
+      SortedMap.empty,
+      SortedMap.empty,
+      SortedMap.empty,
+      SortedMap.empty,
+      SortedMap.empty,
+      None,
+      None,
+      None,
+      None,
+      None,
+      None,
+      Some(SortedMap.from(newStakes)),
+      None,
+      None,
+      None
+    )
+    val hasher = hs.getCurrent
+    val gsm = GlobalSnapshotMapper.make(sharedCfg)
+    for {
+      activeHashedDelegatedStakes <- gsm.activeHashedDelegatedStakes(newSnapshotInfo)(hasher)
+      result <- gsm.mapDelegatedStakingCreates(
+        Hash("SnapshotHash1"),
+        activeHashedDelegatedStakes,
+        Some(oldSnapshotInfo),
+        hasher
+      )
+    } yield expect.same(
+      result,
+      Vector(
+        DelegatedStakingCreate(
+          "SnapshotHash1",
+          "0acc93dd554b09f57d6d607665acdadb7032ea3ae23c88ca1d3e5d20e3a1417e",
+          12L,
+          address2.value,
+          "Peer4",
+          150L,
+          0L,
+          15L,
+          "TokenRef3",
+          "",
+          Some("x")
+        ),
+        DelegatedStakingCreate(
+          "SnapshotHash1",
+          "d9c369338ce9963c48d304060a9f8f33933c900b650bba9ec92e9ce01aed15c9",
+          1L,
+          address1.value,
+          "Peer2a",
+          150L,
+          0L,
+          15L,
+          "TokenRef22",
+          "",
+          None
+        )
+      )
     )
   }
 

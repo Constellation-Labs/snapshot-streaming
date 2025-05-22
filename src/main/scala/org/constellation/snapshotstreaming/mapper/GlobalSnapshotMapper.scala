@@ -2,6 +2,7 @@ package org.constellation.snapshotstreaming.mapper
 
 import cats.effect.Async
 import cats.syntax.all._
+import org.typelevel.log4cats.Logger
 import eu.timepit.refined.auto._
 import io.constellationnetwork.node.shared.config.types.SharedConfig
 import io.constellationnetwork.schema.address.Address
@@ -104,30 +105,35 @@ abstract class GlobalSnapshotMapper[F[_]: Async] extends SnapshotMapper[F, Globa
     )
   }
 
+  private def flatten[K, T](bag: Option[SortedMap[K, Iterable[T]]]) = bag.toSeq.flatMap(_.toSeq.flatMap {
+    case (k, values) => values.toSeq.map((k, _))
+  })
+
   private def mapStakingRewards(
     snapshot: Hashed[GlobalIncrementalSnapshot],
-    activeDelegatedStakes: List[(DelegatedStakeRecord, Hashed[UpdateDelegatedStake.Create])]
+    activeDelegatedStakes: Seq[(DelegatedStakeRecord, Hashed[UpdateDelegatedStake.Create])]
   ) = {
     val activeStakeRefs = activeDelegatedStakes.map { case (_, createStake) =>
       (createStake.nodeId, createStake.source) -> createStake.hash
     }.toMap
-    println(snapshot.delegateRewards)
-    snapshot.delegateRewards.toSeq.flatMap(_.flatMap { case (peerId, values) =>
-      values.toSeq.flatMap { case (address, amount) =>
-        activeStakeRefs.get((peerId, address)).map( stakeHash =>
-        DelegatedStakingReward(
-          snapshot.hash.value,
-          stakeHash.value,
-          address.value.value,
-          peerId.value.value,
-          amount.value.value
-        )).orElse { if (amount.value.value >0) println(s"Non zero reward for inactive stake ${(address, peerId, amount)}"); None }
-      }
-    })
+    flatten(snapshot.delegateRewards).flatMap { case (peerId, (address, amount)) =>
+      activeStakeRefs
+        .get((peerId, address))
+        .map(stakeHash =>
+          DelegatedStakingReward(
+            snapshot.hash.value,
+            stakeHash.value,
+            address.value.value,
+            peerId.value.value,
+            amount.value.value
+          )
+        )
+        .orElse {
+          if (amount.value.value > 0) println(s"Non zero reward for inactive stake ${(address, peerId, amount)}")
+          None
+        }
+    }
   }
-
-  private def flatten[T](bag: Option[SortedMap[Address, Set[T]]]) =
-    bag.toSeq.flatMap(_.flatMap { case (address, values) => values.map((address, _)) })
 
   def mapDelegatedStakingWithdraw(snapshotHash: Hash, isCompleted: Boolean)(
     pendingWithdrawal: PendingDelegatedStakeWithdrawal
@@ -164,16 +170,14 @@ abstract class GlobalSnapshotMapper[F[_]: Async] extends SnapshotMapper[F, Globa
     for {
       newPending <- snapshotInfo.delegatedStakesWithdrawals.toList.flatTraverse(_.toList.flatTraverse {
         case (_, stakes) =>
-          stakes
-            .toList
+          stakes.toList
             .filterNot(dsr => prePendingWithdrawalsStakeRefs.contains(dsr.event))
             .traverse(mapDelegatedStakingWithdraw(snapshotHash, isCompleted = false))
 
       })
       completed <- maybePrevSnapshotInfo.toList.flatTraverse(
         _.delegatedStakesWithdrawals.toList.flatTraverse(_.toList.flatTraverse { case (_, stakes) =>
-          stakes
-            .toList
+          stakes.toList
             .filterNot(dsr => currentPendingWithdrawalsStakeRefs.contains(dsr.event))
             .traverse(mapDelegatedStakingWithdraw(snapshotHash, isCompleted = true))
         })
@@ -182,7 +186,7 @@ abstract class GlobalSnapshotMapper[F[_]: Async] extends SnapshotMapper[F, Globa
   }
 
   private def mapDelegatedStakingCreate(snapshotHash: Hash, prevActiveTokenLocks: Map[Hash, Hash])(
-    dsr: DelegatedStakeRecord,
+    dsr: DelegatedStakeRecord
   )(implicit hasher: Hasher[F]): F[DelegatedStakingCreate] =
     dsr.event.toHashed.map { staking =>
       DelegatedStakingCreate(
@@ -202,17 +206,17 @@ abstract class GlobalSnapshotMapper[F[_]: Async] extends SnapshotMapper[F, Globa
 
   def activeHashedDelegatedStakes(
     snapshotInfo: GlobalSnapshotInfo
-  )(implicit hs: Hasher[F]): F[List[(DelegatedStakeRecord, Hashed[UpdateDelegatedStake.Create])]] =
-    snapshotInfo.activeDelegatedStakes.toList.flatTraverse(_.toList.flatTraverse { case (_, stakes) =>
-      stakes.toList.traverse(dsr => dsr.event.toHashed.map(ev => (dsr, ev)))
-    })
+  )(implicit hs: Hasher[F]): F[Seq[(DelegatedStakeRecord, Hashed[UpdateDelegatedStake.Create])]] =
+    flatten(snapshotInfo.activeDelegatedStakes).traverse { case (_, stake) =>
+      stake.event.toHashed.map(ev => (stake, ev))
+    }
 
   def mapDelegatedStakingCreates(
     snapshotHash: Hash,
-    activeDelegatedStakes: List[(DelegatedStakeRecord, Hashed[UpdateDelegatedStake.Create])],
+    activeDelegatedStakes: Seq[(DelegatedStakeRecord, Hashed[UpdateDelegatedStake.Create])],
     maybePrevSnapshotInfo: Option[GlobalSnapshotInfo],
     hasher: Hasher[F]
-  ): F[List[DelegatedStakingCreate]] = {
+  ): F[Seq[DelegatedStakingCreate]] = {
     implicit val hs: Hasher[F] = hasher
     for {
       prevActiveTokenLocks <- maybePrevSnapshotInfo.toSeq
@@ -232,7 +236,7 @@ abstract class GlobalSnapshotMapper[F[_]: Async] extends SnapshotMapper[F, Globa
             else
               Some(dsr, Some(ev.hash)) // update staking
         }
-      }.traverse { case (dsr, prevRef) =>
+      }.traverse { case (dsr, _) =>
         mapDelegatedStakingCreate(snapshotHash, prevActiveTokenLocks)(dsr)
       }
     } yield result
