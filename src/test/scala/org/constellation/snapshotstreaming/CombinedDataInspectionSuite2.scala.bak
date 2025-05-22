@@ -1,0 +1,387 @@
+package org.constellation.snapshotstreaming
+
+import java.io.File
+import java.nio.file.Files
+import java.time.LocalDateTime
+import cats.effect.IO
+import cats.effect.unsafe.implicits.global
+import io.circe.{Decoder, Encoder, Json}
+import io.constellationnetwork.json.JsonSerializer
+import io.constellationnetwork.ext.cats.effect.ResourceIO
+import io.circe.parser.decode
+import io.constellationnetwork.env.AppEnvironment
+import io.constellationnetwork.schema.{GlobalIncrementalSnapshot, GlobalSnapshotInfo, SnapshotOrdinal}
+import pureconfig.ConfigSource
+import pureconfig.generic.auto._
+import pureconfig.module.enumeratum._
+import eu.timepit.refined.pureconfig._
+import weaver.SimpleIOSuite
+import io.constellationnetwork.node.shared.config.types.SharedConfigReader
+import io.constellationnetwork.node.shared.ext.pureconfig._
+import io.constellationnetwork.node.shared.domain.snapshot.services.GlobalL0Service
+import io.constellationnetwork.node.shared.infrastructure.snapshot._
+import io.constellationnetwork.security.signature.Signed
+import org.constellation.snapshotstreaming.SnapshotProcessor.GlobalSnapshotWithState
+import org.constellation.snapshotstreaming.mapper.{CurrencySnapshotMapper, GlobalSnapshotMapper}
+import org.constellation.snapshotstreaming.schema.schema.{GlobalData, MetagraphData}
+import io.constellationnetwork.security.{HashLogic, Hashed, Hasher, HasherSelector}
+import io.constellationnetwork.security.hash.{Hash, ProofsHash}
+import cats.data.NonEmptyList
+import io.constellationnetwork.currency.schema.currency.CurrencySnapshot
+import io.constellationnetwork.schema.address.Address
+
+// wget http://52.53.46.33:9000/global-snapshots/latest/combined -O combined-$(date +%s) 
+object CombinedDataInspectionSuite2 extends SimpleIOSuite {
+
+  // Create the shared config from the configuration
+  val sharedCfg = Configuration.nodeSharedConfig(AppEnvironment.Dev, ConfigSource.default.loadOrThrow[SharedConfigReader])
+
+  // Create a mock hasher for testing - only implement required methods
+  implicit val hasher: Hasher[IO] = new Hasher[IO] {
+    override def hash[A](data: A)(implicit encoder: Encoder[A]): IO[Hash] = IO.pure(Hash.empty)
+    override def compare[A](data: A, expectedHash: Hash)(implicit encoder: Encoder[A]): IO[Boolean] = IO.pure(true)
+    override def getLogic(ordinal: SnapshotOrdinal): HashLogic = io.constellationnetwork.security.JsonHash
+  }
+  
+  // Create the mappers
+  val globalMapper = GlobalSnapshotMapper.make[IO](sharedCfg)
+  val currencyMapper = JsonSerializer.forSync[IO]
+
+  test("Load, map and inspect GlobalData from combined snapshots") {
+    for {
+      // Load and deserialize the first combined file
+      _ <- IO.println("Reading first combined file...")
+      combinedJson <- IO.delay {
+        val file = new File("testdata/combined-1747870502")
+        val content = new String(Files.readAllBytes(file.toPath))
+        IO.println(s"File size: ${content.length} bytes").unsafeRunSync()
+        content
+      }
+      
+      // Load and deserialize the second combined file
+      _ <- IO.println("Reading second combined file...")
+      combinedJson2 <- IO.delay {
+        val file = new File("testdata/combined-1747870508")
+        val content = new String(Files.readAllBytes(file.toPath))
+        IO.println(s"File size: ${content.length} bytes").unsafeRunSync()
+        content
+      }
+      
+      // Parse the JSON data
+      _ <- IO.println("Parsing JSON data...")
+      combinedData <- IO.fromEither(decode[(Signed[GlobalIncrementalSnapshot], GlobalSnapshotInfo)](combinedJson))
+      (snapshot, snapshotInfo) = combinedData
+      
+      combinedData2 <- IO.fromEither(decode[(Signed[GlobalIncrementalSnapshot], GlobalSnapshotInfo)](combinedJson2))
+      (snapshot2, snapshotInfo2) = combinedData2
+      
+      // Print basic info about the snapshots
+      _ <- IO.println("Successfully parsed the snapshot and snapshot info")
+      _ <- IO.println(s"Snapshot ordinal: ${snapshot.value.ordinal}")
+      _ <- IO.println(s"Snapshot ordinal2: ${snapshot2.value.ordinal}")
+      
+      // Create the timestamp for the snapshots
+      timestamp = LocalDateTime.now()
+      
+      // Create a hashed snapshot for the GlobalSnapshotWithState
+      hashedSnapshot2 = Hashed(snapshot2, Hash.empty, ProofsHash(Hash.empty.value))
+
+      // Debug lastCurrencySnapshots
+      _ <- IO.delay {
+        snapshotInfo2.lastCurrencySnapshots.foreach { case (a, s) =>
+          println(s"Address: $a")
+          println(s"Snapshot: $s")
+        }
+      }
+      
+      // Create the currency snapshots map
+      currencySnapshots = snapshotInfo2.lastCurrencySnapshots.map { case (address, snapInfo) =>
+        val hashedSnapshot = Hashed(snapInfo.signed.value, Hash.empty, ProofsHash(Hash.empty.value))
+        (address, NonEmptyList.one(Left(hashedSnapshot)))
+      }
+      
+      // Create the GlobalSnapshotWithState
+      _ <- IO.println("\n--- Creating GlobalSnapshotWithState ---")
+      globalSnapshotWithState = GlobalSnapshotWithState(
+        hashedSnapshot2, 
+        Some(snapshotInfo), // Using first snapshot info as the "previous" one
+        snapshotInfo2,
+        currencySnapshots, // Using populated currency snapshots map
+        timestamp
+      )
+      
+      _ <- IO.println(s"Created GlobalSnapshotWithState with ${globalSnapshotWithState.currencySnapshots.size} currency snapshots")
+      
+      // Create the GlobalData
+      _ <- IO.println("\n--- Creating GlobalData ---")
+      globalData <- globalMapper.mapGlobalSnapshot(
+        globalSnapshotWithState,
+        timestamp,
+        hasher,
+        hasher
+      )
+      
+      // Print information about the GlobalData
+      _ <- IO.println("\n--- GlobalData Details ---")
+      _ <- IO.println(s"Snapshot: ordinal=${globalData.snapshot.ordinal}, height=${globalData.snapshot.height}, hash=${globalData.snapshot.hash}")
+      _ <- IO.println(s"Blocks: count=${globalData.blocks.size}")
+      _ <- IO.println(s"Transactions: count=${globalData.txs.size}")
+      _ <- IO.println(s"Balances: count=${globalData.balances.size}")
+      _ <- IO.println(s"Proofs: count=${globalData.proofs.size}")
+      _ <- IO.println(s"AllowSpends: count=${globalData.allowSpends.size}")
+      _ <- IO.println(s"TokenLocks: count=${globalData.tokenLocks.size}")
+      _ <- IO.println(s"TokenUnlocks: count=${globalData.tokenUnlocks.size}")
+      _ <- IO.println(s"DelegatedStakingCreate: count=${globalData.delegatedStakingCreate.size}")
+      _ <- IO.println(s"DelegatedStakingWithdraw: count=${globalData.delegatedStakingWithdraw.size}")
+      _ <- IO.println(s"DelegatedStakingRewards: count=${globalData.delegatedStakingRewards.size}")
+      _ <- IO.println(s"SpendTransactions: count=${globalData.spendTransactions.size}")
+      _ <- IO.println(s"AllowSpendExpirations: count=${globalData.allowSpendExpirations.size}")
+      
+      // Print details about the snapshot
+      _ <- IO.println("\n--- GlobalData Content Details ---")
+      _ <- IO.println(s"Snapshot: ${globalData.snapshot}")
+      
+      // Print information about blocks if there are any
+      _ <- if (globalData.blocks.nonEmpty) {
+        for {
+          _ <- IO.println(s"\nBlocks (showing up to 3):")
+          _ <- IO.delay(globalData.blocks.take(3).foreach(block => println(s"  - ${block}")))
+        } yield ()
+      } else IO.unit
+      
+      // Print information about transactions if there are any
+      _ <- if (globalData.txs.nonEmpty) {
+        for {
+          _ <- IO.println(s"\nTransactions (showing up to 3):")
+          _ <- IO.delay(globalData.txs.take(3).foreach(tx => println(s"  - ${tx}")))
+        } yield ()
+      } else IO.unit
+      
+      // Print information about balances if there are any
+      _ <- if (globalData.balances.nonEmpty) {
+        for {
+          _ <- IO.println(s"\nBalances (showing up to 3):")
+          _ <- IO.delay(globalData.balances.take(3).foreach(balance => println(s"  - ${balance}")))
+        } yield ()
+      } else IO.unit
+      
+      _ <- IO.println("globalSnapshotWithState.currencySnapshots.size: " + globalSnapshotWithState.currencySnapshots.size)
+      // Now we'll use the currencyMapper to iterate over all metagraphs in the global snapshot
+      _ <- IO.println("\n=== Metagraph Data Inspection ===")
+      _ <- IO.println("Iterating over metagraph snapshots in the global snapshot...")
+      
+      // Map the currency snapshots to get MetagraphData
+      metagraphData <- currencyMapper.mapCurrencySnapshots(
+        globalSnapshotWithState,
+        timestamp,
+        hasher,
+        hasher
+      )
+      
+      // Print detailed information about the MetagraphData
+      _ <- IO.println("\n--- MetagraphData Overview ---")
+      _ <- IO.println(s"Number of currency snapshots: ${metagraphData.snapshots.size}")
+      _ <- IO.println(s"Number of blocks: ${metagraphData.blocks.size}")
+      _ <- IO.println(s"Number of transactions: ${metagraphData.txs.size}")
+      _ <- IO.println(s"Number of fee transactions: ${metagraphData.feeTxs.size}")
+      _ <- IO.println(s"Number of balances: ${metagraphData.balances.size}")
+      _ <- IO.println(s"Number of allowSpends: ${metagraphData.allowSpends.size}")
+      _ <- IO.println(s"Number of spendTransactions: ${metagraphData.spendTransactions.size}")
+      _ <- IO.println(s"Number of allowSpendExpirations: ${metagraphData.allowSpendExpirations.size}")
+      _ <- IO.println(s"Number of tokenLocks: ${metagraphData.tokenLocks.size}")
+      _ <- IO.println(s"Number of tokenUnlocks: ${metagraphData.tokenUnlocks.size}")
+      
+      // Print detailed info for each field in the MetagraphData class
+      _ <- IO.println("\n--- MetagraphData Detailed Information ---")
+      
+      // Snapshots
+      _ <- IO.println("\n=== Currency Snapshots ===")
+      _ <- IO.delay(metagraphData.snapshots.foreach { snap =>
+        println(s"Metagraph ID: ${snap.identifier}")
+        println(s"  Hash: ${snap.data.hash}")
+        println(s"  Ordinal: ${snap.data.ordinal}")
+        println(s"  Height: ${snap.data.height}")
+        println(s"  SubHeight: ${snap.data.subHeight}")
+        println(s"  LastSnapshotHash: ${snap.data.lastSnapshotHash}")
+        println(s"  Epoch Progress: ${snap.data.epochProgress}")
+        println(s"  Blocks count: ${snap.data.blocks.size}")
+        println(s"  Rewards count: ${snap.data.rewards.size}")
+        println(s"  Version: ${snap.data.version}")
+        println(s"  Size in KB: ${snap.data.sizeInKB}")
+        println(s"  Fee: ${snap.data.fee}")
+        println(s"  Timestamp: ${snap.data.timestamp}")
+        println(s"  Owner Address: ${snap.data.ownerAddress.getOrElse("N/A")}")
+        println(s"  Staking Address: ${snap.data.stakingAddress.getOrElse("N/A")}")
+        println("  ---")
+      })
+      
+      // Blocks
+      _ <- if (metagraphData.blocks.nonEmpty) {
+        for {
+          _ <- IO.println("\n=== Blocks ===")
+          _ <- IO.delay(metagraphData.blocks.take(3).foreach { block =>
+            println(s"Metagraph ID: ${block.identifier}")
+            println(s"  Hash: ${block.data.hash}")
+            println(s"  Height: ${block.data.height}")
+            println(s"  Parent: ${block.data.parent}")
+            println(s"  Transaction count: ${block.data.transactions.size}")
+            println(s"  Timestamp: ${block.data.timestamp}")
+            println("  ---")
+          })
+          _ <- if (metagraphData.blocks.size > 3) IO.println(s"  ... and ${metagraphData.blocks.size - 3} more blocks") else IO.unit
+        } yield ()
+      } else IO.println("\n=== No Blocks found ===")
+      
+      // Transactions
+      _ <- if (metagraphData.txs.nonEmpty) {
+        for {
+          _ <- IO.println("\n=== Transactions ===")
+          _ <- IO.delay(metagraphData.txs.take(3).foreach { tx =>
+            println(s"Metagraph ID: ${tx.identifier}")
+            println(s"  Hash: ${tx.data.hash}")
+            println(s"  Source: ${tx.data.source}")
+            println(s"  Destination: ${tx.data.destination}")
+            println(s"  Amount: ${tx.data.amount}")
+            println(s"  Fee: ${tx.data.fee}")
+            println(s"  Block hash: ${tx.data.blockHash}")
+            println(s"  Timestamp: ${tx.data.timestamp}")
+            println("  ---")
+          })
+          _ <- if (metagraphData.txs.size > 3) IO.println(s"  ... and ${metagraphData.txs.size - 3} more transactions") else IO.unit
+        } yield ()
+      } else IO.println("\n=== No Transactions found ===")
+      
+      // Fee Transactions
+      _ <- if (metagraphData.feeTxs.nonEmpty) {
+        for {
+          _ <- IO.println("\n=== Fee Transactions ===")
+          _ <- IO.delay(metagraphData.feeTxs.take(3).foreach { feeTx =>
+            println(s"Metagraph ID: ${feeTx.identifier}")
+            println(s"  Hash: ${feeTx.data.hash}")
+            println(s"  Source: ${feeTx.data.source}")
+            println(s"  Destination: ${feeTx.data.destination}")
+            println(s"  Amount: ${feeTx.data.amount}")
+            println(s"  Data update ref: ${feeTx.data.dataUpdateRef}")
+            println(s"  Snapshot hash: ${feeTx.data.snapshotHash}")
+            println(s"  Snapshot ordinal: ${feeTx.data.snapshotOrdinal}")
+            println(s"  Timestamp: ${feeTx.data.timestamp}")
+            println("  ---")
+          })
+          _ <- if (metagraphData.feeTxs.size > 3) IO.println(s"  ... and ${metagraphData.feeTxs.size - 3} more fee transactions") else IO.unit
+        } yield ()
+      } else IO.println("\n=== No Fee Transactions found ===")
+      
+      // Balances
+      _ <- if (metagraphData.balances.nonEmpty) {
+        for {
+          _ <- IO.println("\n=== Balances ===")
+          _ <- IO.delay(metagraphData.balances.take(3).foreach { balance =>
+            println(s"Metagraph ID: ${balance.identifier}")
+            println(s"  Address: ${balance.data.address}")
+            println(s"  Balance: ${balance.data.balance}")
+            println(s"  Snapshot hash: ${balance.data.snapshotHash}")
+            println(s"  Timestamp: ${balance.data.timestamp}")
+            println("  ---")
+          })
+          _ <- if (metagraphData.balances.size > 3) IO.println(s"  ... and ${metagraphData.balances.size - 3} more balances") else IO.unit
+        } yield ()
+      } else IO.println("\n=== No Balances found ===")
+      
+      // AllowSpends
+      _ <- if (metagraphData.allowSpends.nonEmpty) {
+        for {
+          _ <- IO.println("\n=== AllowSpends ===")
+          _ <- IO.delay(metagraphData.allowSpends.take(3).foreach { allowSpend =>
+            println(s"Metagraph ID: ${allowSpend.identifier}")
+            println(s"  Hash: ${allowSpend.data.hash}")
+            println(s"  Source: ${allowSpend.data.source}")
+            println(s"  Destination: ${allowSpend.data.destination}")
+            println(s"  Amount: ${allowSpend.data.amount}")
+            println(s"  Fee: ${allowSpend.data.fee}")
+            println(s"  Parent: ${allowSpend.data.parent}")
+            println(s"  Last valid epoch: ${allowSpend.data.lastValidEpochProgress}")
+            println(s"  Round ID: ${allowSpend.data.roundId}")
+            println(s"  Ordinal: ${allowSpend.data.ordinal}")
+            println(s"  Approvers: ${allowSpend.data.approvers.mkString(", ")}")
+            println(s"  Snapshot hash: ${allowSpend.data.snapshotHash}")
+            println("  ---")
+          })
+          _ <- if (metagraphData.allowSpends.size > 3) IO.println(s"  ... and ${metagraphData.allowSpends.size - 3} more allow spends") else IO.unit
+        } yield ()
+      } else IO.println("\n=== No AllowSpends found ===")
+      
+      // SpendTransactions
+      _ <- if (metagraphData.spendTransactions.nonEmpty) {
+        for {
+          _ <- IO.println("\n=== SpendTransactions ===")
+          _ <- IO.delay(metagraphData.spendTransactions.take(3).foreach { spendTx =>
+            println(s"Metagraph ID: ${spendTx.identifier}")
+            println(s"  Hash: ${spendTx.data.hash}")
+            println(s"  Source: ${spendTx.data.source}")
+            println(s"  Destination: ${spendTx.data.destination}")
+            println(s"  Amount: ${spendTx.data.amount}")
+            println(s"  AllowSpend ref: ${spendTx.data.allowSpendRef.getOrElse("N/A")}")
+            println(s"  Snapshot hash: ${spendTx.data.snapshotHash}")
+            println("  ---")
+          })
+          _ <- if (metagraphData.spendTransactions.size > 3) IO.println(s"  ... and ${metagraphData.spendTransactions.size - 3} more spend transactions") else IO.unit
+        } yield ()
+      } else IO.println("\n=== No SpendTransactions found ===")
+      
+      // AllowSpendExpirations
+      _ <- if (metagraphData.allowSpendExpirations.nonEmpty) {
+        for {
+          _ <- IO.println("\n=== AllowSpendExpirations ===")
+          _ <- IO.delay(metagraphData.allowSpendExpirations.take(3).foreach { expiration =>
+            println(s"Metagraph ID: ${expiration.identifier}")
+            println(s"  Snapshot hash: ${expiration.data.snapshotHash}")
+            println(s"  Hash: ${expiration.data.hash}")
+            println(s"  AllowSpend ref: ${expiration.data.allowSpendRef}")
+            println("  ---")
+          })
+          _ <- if (metagraphData.allowSpendExpirations.size > 3) IO.println(s"  ... and ${metagraphData.allowSpendExpirations.size - 3} more allow spend expirations") else IO.unit
+        } yield ()
+      } else IO.println("\n=== No AllowSpendExpirations found ===")
+      
+      // TokenLocks
+      _ <- if (metagraphData.tokenLocks.nonEmpty) {
+        for {
+          _ <- IO.println("\n=== TokenLocks ===")
+          _ <- IO.delay(metagraphData.tokenLocks.take(3).foreach { tokenLock =>
+            println(s"Metagraph ID: ${tokenLock.identifier}")
+            println(s"  Snapshot hash: ${tokenLock.data.snapshotHash}")
+            println(s"  Hash: ${tokenLock.data.hash}")
+            println(s"  Source: ${tokenLock.data.source}")
+            println(s"  Amount: ${tokenLock.data.amount}")
+            println(s"  Unlock epoch: ${tokenLock.data.unlockEpoch.getOrElse("N/A")}")
+            println(s"  Ordinal: ${tokenLock.data.ordinal}")
+            println(s"  Round ID: ${tokenLock.data.roundId}")
+            println(s"  Parent hash: ${tokenLock.data.parentHash}")
+            println("  ---")
+          })
+          _ <- if (metagraphData.tokenLocks.size > 3) IO.println(s"  ... and ${metagraphData.tokenLocks.size - 3} more token locks") else IO.unit
+        } yield ()
+      } else IO.println("\n=== No TokenLocks found ===")
+      
+      // TokenUnlocks
+      _ <- if (metagraphData.tokenUnlocks.nonEmpty) {
+        for {
+          _ <- IO.println("\n=== TokenUnlocks ===")
+          _ <- IO.delay(metagraphData.tokenUnlocks.take(3).foreach { tokenUnlock =>
+            println(s"Metagraph ID: ${tokenUnlock.identifier}")
+            println(s"  Snapshot hash: ${tokenUnlock.data.snapshotHash}")
+            println(s"  Hash: ${tokenUnlock.data.hash}")
+            println(s"  TokenLock ref: ${tokenUnlock.data.lockReference}")
+            println(s"  Amount: ${tokenUnlock.data.amount}")
+            println(s"  Address: ${tokenUnlock.data.address}")
+            println("  ---")
+          })
+          _ <- if (metagraphData.tokenUnlocks.size > 3) IO.println(s"  ... and ${metagraphData.tokenUnlocks.size - 3} more token unlocks") else IO.unit
+        } yield ()
+      } else IO.println("\n=== No TokenUnlocks found ===")
+      
+      // Print completion message
+      _ <- IO.println("\nInspection complete - Successfully created and printed GlobalData and MetagraphData")
+    } yield success
+  }
+}
