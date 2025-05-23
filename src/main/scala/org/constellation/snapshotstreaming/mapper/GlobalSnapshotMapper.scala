@@ -180,23 +180,22 @@ abstract class GlobalSnapshotMapper[F[_]: Async] extends SnapshotMapper[F, Globa
   }
 
   private def mapDelegatedStakingCreate(snapshotHash: Hash, fromHash: Option[Hash])(
-    dsr: DelegatedStakeRecord
-  )(implicit hasher: Hasher[F]): F[DelegatedStakingCreate] =
-    dsr.event.toHashed.map { staking =>
-      DelegatedStakingCreate(
-        snapshotHash.value,
-        staking.hash.value,
-        dsr.createdAt.value,
-        staking.source.value,
-        staking.nodeId.value.value,
-        staking.amount.value,
-        staking.fee.value,
-        dsr.rewards.value,
-        staking.tokenLockRef.value,
-        staking.parent.hash.value,
-        fromHash.map(_.value)
-      )
-    }
+    dsr: DelegatedStakeRecord,
+    ev: Hashed[UpdateDelegatedStake.Create]
+  ): DelegatedStakingCreate =
+    DelegatedStakingCreate(
+      snapshotHash.value,
+      ev.hash.value,
+      dsr.createdAt.value,
+      dsr.event.source.value,
+      dsr.event.nodeId.value.value,
+      dsr.event.amount.value,
+      dsr.event.fee.value,
+      dsr.rewards.value,
+      dsr.event.tokenLockRef.value,
+      dsr.event.parent.hash.value,
+      fromHash.map(_.value)
+    )
 
   def activeHashedDelegatedStakes(
     snapshotInfo: GlobalSnapshotInfo
@@ -212,29 +211,28 @@ abstract class GlobalSnapshotMapper[F[_]: Async] extends SnapshotMapper[F, Globa
     hasher: Hasher[F]
   ): F[Seq[DelegatedStakingCreate]] = {
     implicit val hs: Hasher[F] = hasher
-    for {
-      prevActiveTokenLocks <- maybePrevSnapshotInfo.toSeq
-        .flatTraverse(s =>
-          flatten(s.activeDelegatedStakes).traverse { case (_, dsr) =>
-            dsr.event.toHashed.map(hashed => dsr.event.tokenLockRef -> hashed.hash)
-          }
-        )
-        .map(_.toMap)
-
-      result <- activeDelegatedStakes.mapFilter { case (dsr, ev) => // keep only the new or the updated
-        prevActiveTokenLocks.get(dsr.event.tokenLockRef) match {
-          case None => Some((dsr, None)) // new stake
-          case Some(oldStakeHash) =>
-            if (oldStakeHash == ev.hash)
-              None // active staking already included
-            else {
-              Some(dsr, Some(oldStakeHash))
-            } // update staking
+    maybePrevSnapshotInfo.toSeq
+      .flatTraverse(s =>
+        flatten(s.activeDelegatedStakes).traverse { case (_, dsr) =>
+          dsr.event.toHashed.map(hashed => dsr.event.tokenLockRef -> hashed.hash)
         }
-      }.traverse { case (dsr, oFromStake) =>
-        mapDelegatedStakingCreate(snapshotHash, oFromStake)(dsr)
+      )
+      .map { prevActiveTokenLocks =>
+        val prevActiveTokenLocksMap = prevActiveTokenLocks.toMap
+        activeDelegatedStakes.mapFilter { case (dsr, ev) => // keep only the new or the updated
+          prevActiveTokenLocksMap.get(dsr.event.tokenLockRef) match {
+            case None => Some((dsr, ev, None)) // new stake
+            case Some(oldStakeHash) =>
+              if (oldStakeHash == ev.hash)
+                None // active staking already included
+              else {
+                Some(dsr, ev, Some(oldStakeHash))
+              } // update staking
+          }
+        }.map { case (dsr, ev, oFromStake) =>
+          mapDelegatedStakingCreate(snapshotHash, oFromStake)(dsr, ev)
+        }
       }
-    } yield result
   }
 
   def mapAllowSpend(snapshotHash: Hash, roundId: RoundId)(
