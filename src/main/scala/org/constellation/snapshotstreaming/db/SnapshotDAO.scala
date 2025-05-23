@@ -635,8 +635,7 @@ object SnapshotDAO {
       INSERT INTO addresses (
         address
       ) VALUES ($varchar)
-      ON CONFLICT (address) DO UPDATE SET
-        updated_at = now();
+      ON CONFLICT (address) DO NOTHING;
     """.command
 
   private def insertAddressMany(size: Int): Command[List[String]] = {

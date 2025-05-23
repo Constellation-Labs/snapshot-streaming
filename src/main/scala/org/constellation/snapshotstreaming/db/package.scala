@@ -24,11 +24,11 @@ package object db {
   }
 
   def executeCmd[T, F[_]: Applicative: Parallel](cmd: PreparedCommand[F, T])(entities: Seq[T]): F[Unit] =
-    entities.parTraverse(e => cmd.execute(e)).whenA(entities.nonEmpty)
+    entities.traverse(e => cmd.execute(e)).whenA(entities.nonEmpty)
 
   private val dbChunkSize = 5000
 
   def executeMany[T, F[_]: Monad: Parallel](s: Session[F], entities: List[T], insertMany: Int => Command[List[T]]): F[Unit] =
-    entities.grouped(dbChunkSize).toList.parTraverse(es => s.prepare(insertMany(es.size)).flatMap(_.execute(es))).void
+    entities.grouped(dbChunkSize).toList.traverse(es => s.prepare(insertMany(es.size)).flatMap(_.execute(es))).void
 
 }
