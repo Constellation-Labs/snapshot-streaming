@@ -331,9 +331,11 @@ object SnapshotProcessor {
               )
             }
           }
-          .evalMap { snapshot =>
+          .parEvalMap(configuration.reindexer.map(_.dbParallelism).getOrElse(20)) { snapshot =>
             val hasher = HasherSelector[F].getForOrdinal(snapshot.snapshot.ordinal)
-            store(snapshot, hasher) >>
+            store(snapshot, hasher) >> Async[F].pure(snapshot)
+          }
+          .evalMap( snapshot =>
             lastIncrementalGlobalSnapshotStorage.set(snapshot.snapshot, snapshot.snapshotInfo) >> {
               val snapshotWithState = SnapshotWithState(snapshot.snapshot, snapshot.snapshotInfo)
               val snapshotOrdinal = snapshot.snapshot.ordinal.value.value
@@ -345,8 +347,7 @@ object SnapshotProcessor {
                     Flags.Write
                   )
                   .whenA(snapshotOrdinal % configuration.checkpointEvery == 0)
-            }
-          }
+            })
           .drain
 
         // Run all streams concurrently
