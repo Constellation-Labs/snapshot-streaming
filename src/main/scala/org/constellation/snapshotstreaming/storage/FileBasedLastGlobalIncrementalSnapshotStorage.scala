@@ -4,6 +4,7 @@ import cats.{Applicative, Parallel}
 import cats.effect._
 import cats.syntax.all._
 import fs2.compression.Compression
+import fs2.io.file.CopyFlag.{AtomicMove, ReplaceExisting}
 import fs2.io.file._
 import fs2.{Stream, text}
 import io.circe.jawn
@@ -22,7 +23,7 @@ object FileBasedLastGlobalIncrementalSnapshotStorage {
 
   def saveSnapshotWithStateJson[F[_]: Files: Compression: Async]( filePath: Path,
                                  snapshotWithState: SnapshotWithState,
-                                 flags: Flags = Flags(Flag.Write, Flag.Truncate)
+                                 flags: Flags = Flags(Flag.Create,Flag.Write, Flag.Truncate)
                                ): F[Unit] =
     Stream
       .emit(snapshotWithState.asJson.spaces2)
@@ -76,6 +77,11 @@ object FileBasedLastGlobalIncrementalSnapshotStorage {
           cachedSnapshot.get.flatMap { x =>
             x.map { _ =>
               val snapshotWithState = SnapshotWithState(snapshot, state)
+              //move previous bk file
+              Files[F].move(path,Path(path.toString + ".bk"),  CopyFlags(ReplaceExisting, AtomicMove)).handleErrorWith {
+                case _: java.nio.file.NoSuchFileException => Async[F].pure(None)
+                case other => Async[F].raiseError(other) // Re-raise other errors
+              } >>
               saveSnapshotWithStateJson(path, snapshotWithState) >> cachedSnapshot.set(Some(snapshotWithState))
             }.getOrElse(setInitial(snapshot, state))
           }
