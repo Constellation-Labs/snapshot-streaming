@@ -193,7 +193,7 @@ object SnapshotDAO {
         round_id,
         parent_hash
       ) VALUES ($varchar, $varchar, $varchar, $int8, ${int8.opt}, $int8, $uuid, $varchar)
-      ON CONFLICT (hash) DO NOTHING;
+      ON CONFLICT DO NOTHING;
     """.command.contramap { tx: TokenLock =>
       (tx.snapshotHash, tx.hash, tx.source, tx.amount, tx.unlockEpoch, tx.ordinal, tx.roundId, tx.parentHash)
     }
