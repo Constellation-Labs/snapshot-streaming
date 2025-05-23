@@ -2,21 +2,17 @@ package org.constellation.snapshotstreaming.mapper
 
 import cats.effect.Async
 import cats.syntax.all._
-import org.typelevel.log4cats.Logger
 import eu.timepit.refined.auto._
 import io.constellationnetwork.node.shared.config.types.SharedConfig
-import io.constellationnetwork.schema.address.Address
 import io.constellationnetwork.schema.delegatedStake.{
   DelegatedStakeRecord,
   PendingDelegatedStakeWithdrawal,
   UpdateDelegatedStake
 }
-import io.constellationnetwork.schema.peer.PeerId
 import io.constellationnetwork.schema.round.RoundId
 import io.constellationnetwork.schema.{
   GlobalIncrementalSnapshot,
   GlobalSnapshotInfo,
-  SnapshotOrdinal,
   artifact,
   swap,
   tokenLock,
@@ -158,41 +154,39 @@ abstract class GlobalSnapshotMapper[F[_]: Async] extends SnapshotMapper[F, Globa
     snapshotInfo: GlobalSnapshotInfo,
     maybePrevSnapshotInfo: Option[GlobalSnapshotInfo],
     hasher: Hasher[F]
-  ): F[List[DelegatedStakingWithdraw]] = {
+  ): F[Seq[DelegatedStakingWithdraw]] = {
     implicit val hs: Hasher[F] = hasher
 
-    val prePendingWithdrawalsStakeRefs =
-      maybePrevSnapshotInfo.toSeq.flatMap(s => flatten(s.delegatedStakesWithdrawals).map(_._2.event))
+    val prePendingWithdrawals =
+      maybePrevSnapshotInfo.toSeq.flatMap(s => flatten(s.delegatedStakesWithdrawals).map(_._2))
 
-    val currentPendingWithdrawalsStakeRefs =
-      flatten(snapshotInfo.delegatedStakesWithdrawals).map(_._2.event)
+    val currentPendingWithdrawals =
+      flatten(snapshotInfo.delegatedStakesWithdrawals).map(_._2)
+
+    val prePendingWithdrawalsStakeRefsSet =
+      prePendingWithdrawals.map(_.event).toSet
+
+    val currentPendingWithdrawalsStakeRefsSet =
+      currentPendingWithdrawals.map(_.event).toSet
 
     for {
-      newPending <- snapshotInfo.delegatedStakesWithdrawals.toList.flatTraverse(_.toList.flatTraverse {
-        case (_, stakes) =>
-          stakes.toList
-            .filterNot(dsr => prePendingWithdrawalsStakeRefs.contains(dsr.event))
-            .traverse(mapDelegatedStakingWithdraw(snapshotHash, isCompleted = false))
-
-      })
-      completed <- maybePrevSnapshotInfo.toList.flatTraverse(
-        _.delegatedStakesWithdrawals.toList.flatTraverse(_.toList.flatTraverse { case (_, stakes) =>
-          stakes.toList
-            .filterNot(dsr => currentPendingWithdrawalsStakeRefs.contains(dsr.event))
-            .traverse(mapDelegatedStakingWithdraw(snapshotHash, isCompleted = true))
-        })
-      )
-    } yield (newPending ++ completed)
+      newPending <- currentPendingWithdrawals
+        .filterNot(dsr => prePendingWithdrawalsStakeRefsSet.contains(dsr.event))
+        .traverse(mapDelegatedStakingWithdraw(snapshotHash, isCompleted = false))
+      completed <- prePendingWithdrawals
+        .filterNot(dsr => currentPendingWithdrawalsStakeRefsSet.contains(dsr.event))
+        .traverse(mapDelegatedStakingWithdraw(snapshotHash, isCompleted = true))
+    } yield newPending ++ completed
   }
 
-  private def mapDelegatedStakingCreate(snapshotHash: Hash, prevActiveTokenLocks: Map[Hash, Hash])(
+  private def mapDelegatedStakingCreate(snapshotHash: Hash, fromHash: Option[Hash])(
     dsr: DelegatedStakeRecord
   )(implicit hasher: Hasher[F]): F[DelegatedStakingCreate] =
     dsr.event.toHashed.map { staking =>
       DelegatedStakingCreate(
         snapshotHash.value,
         staking.hash.value,
-        staking.ordinal.value,
+        dsr.createdAt.value,
         staking.source.value,
         staking.nodeId.value.value,
         staking.amount.value,
@@ -200,7 +194,7 @@ abstract class GlobalSnapshotMapper[F[_]: Async] extends SnapshotMapper[F, Globa
         dsr.rewards.value,
         staking.tokenLockRef.value,
         staking.parent.hash.value,
-        prevActiveTokenLocks.get(staking.tokenLockRef).map(_.value)
+        fromHash.map(_.value)
       )
     }
 
@@ -233,11 +227,12 @@ abstract class GlobalSnapshotMapper[F[_]: Async] extends SnapshotMapper[F, Globa
           case Some(oldStakeHash) =>
             if (oldStakeHash == ev.hash)
               None // active staking already included
-            else
-              Some(dsr, Some(ev.hash)) // update staking
+            else {
+              Some(dsr, Some(oldStakeHash))
+            } // update staking
         }
-      }.traverse { case (dsr, _) =>
-        mapDelegatedStakingCreate(snapshotHash, prevActiveTokenLocks)(dsr)
+      }.traverse { case (dsr, oFromStake) =>
+        mapDelegatedStakingCreate(snapshotHash, oFromStake)(dsr)
       }
     } yield result
   }
