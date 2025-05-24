@@ -303,17 +303,6 @@ object SnapshotProcessor {
               }
           }
           .flatMap(Stream.emits)
-          .evalMap { snapshot =>
-            val hasher = HasherSelector[F].getForOrdinal(snapshot.snapshot.ordinal)
-            logger.info(s"Producer: Processing snapshot ${getSnapshotReference(snapshot.snapshot)}") >>
-              process(snapshot, hasher).handleErrorWith { e =>
-                logger.error(e)(
-                  s"Producer: Error processing snapshot ${getSnapshotReference(snapshot.snapshot)}, skipping"
-                ) >>
-                  ().pure[F]
-              }
-                .as(snapshot)
-          }
           .evalTap { snapshot =>
             queue.offer(snapshot).flatMap { _ =>
               logger.info(s"Producer: Added snapshot to queue (offered ${getSnapshotReference(snapshot.snapshot)})")
@@ -333,19 +322,14 @@ object SnapshotProcessor {
           }
           .evalMap { snapshot =>
             val hasher = HasherSelector[F].getForOrdinal(snapshot.snapshot.ordinal)
-            store(snapshot, hasher) >>
-            lastIncrementalGlobalSnapshotStorage.set(snapshot.snapshot, snapshot.snapshotInfo) >> {
-              val snapshotWithState = SnapshotWithState(snapshot.snapshot, snapshot.snapshotInfo)
-              val snapshotOrdinal = snapshot.snapshot.ordinal.value.value
-              logger.info(s"Consumer: Storing snapshot ${getSnapshotReference(snapshot.snapshot)}") >>
-                FileBasedLastGlobalIncrementalSnapshotStorage
-                  .saveSnapshotWithStateJson(
-                    Path(s"snapshotWithState.$snapshotOrdinal.json.gz"),
-                    snapshotWithState,
-                    Flags.Write
-                  )
-                  .whenA(snapshotOrdinal % configuration.checkpointEvery == 0)
-            }
+            logger.info(s"Producer: Processing snapshot ${getSnapshotReference(snapshot.snapshot)}") >>
+              process(snapshot, hasher).handleErrorWith { e =>
+                  logger.error(e)(
+                    s"Producer: Error processing snapshot ${getSnapshotReference(snapshot.snapshot)}, skipping"
+                  ) >>
+                    ().pure[F]
+                }
+                .as(snapshot)
           }
           .drain
 
