@@ -104,7 +104,5 @@ object GlobalSnapshotContextService {
 
           _ <- lastNGlobalSnapshotStorage.set(result.snapshot, result.snapshotInfo)
         } yield result
-      }
     }
-
 }
