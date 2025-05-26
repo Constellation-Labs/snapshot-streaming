@@ -322,7 +322,7 @@ object SnapshotProcessor {
           }
           .evalMap { snapshot =>
             val hasher = HasherSelector[F].getForOrdinal(snapshot.snapshot.ordinal)
-            logger.info(s"Producer: Processing snapshot ${getSnapshotReference(snapshot.snapshot)}") >>
+            logger.info(s"Consumer: Processing snapshot ${getSnapshotReference(snapshot.snapshot)}") >>
               process(snapshot, hasher).handleErrorWith { e =>
                   logger.error(e)(
                     s"Producer: Error processing snapshot ${getSnapshotReference(snapshot.snapshot)}, skipping"
