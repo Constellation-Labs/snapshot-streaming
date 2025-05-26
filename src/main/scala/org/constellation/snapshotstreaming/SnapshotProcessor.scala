@@ -70,7 +70,7 @@ object SnapshotProcessor {
           configuration.node.l0PeersMap.keys.some
         )
       tesselationServices <- Resource.eval(
-        TessellationServices.make[F](configuration.environment, sharedConfig)
+        TessellationServices.make[F](configuration.environment, sharedConfig, l0Service)
       )
       lastFullGlobalSnapshotStorage = FileBasedLastGlobalFullSnapshotStorage.make[F, GlobalSnapshot](
         configuration.lastSnapshotPath
