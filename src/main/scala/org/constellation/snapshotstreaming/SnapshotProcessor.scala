@@ -252,7 +252,11 @@ object SnapshotProcessor {
                                 snapshot,
                                 l0Service.pullGlobalSnapshot,
                                 LocalDateTime.now()
-                              )
+                              ).flatMap { globalSnapshotsWithState =>
+                                queue.offer(globalSnapshotsWithState).flatMap { _ =>
+                                  logger.info(s"Producer: Added snapshot to queue (offered ${getSnapshotReference(globalSnapshotsWithState.snapshot)})")
+                                } >> globalSnapshotsWithState.pure
+                              }
                               .map { globalSnapshotsWithState =>
                                 ProcessedSnapshots(
                                   snapshot.signed,
@@ -277,7 +281,7 @@ object SnapshotProcessor {
                       logger.info(s"Producer: Found full snapshot ${signedFullGlobalSnapshot.value.ordinal}") >>
                         l0Service
                           .pullGlobalSnapshot(signedFullGlobalSnapshot.value.ordinal.next)
-                          .map(
+                          .flatMap(
                             _.map(nextSnapshot =>
                               GlobalSnapshotWithState(
                                 nextSnapshot,
@@ -286,7 +290,11 @@ object SnapshotProcessor {
                                 Map.empty,
                                 LocalDateTime.now()
                               )
-                            )
+                            ).traverse { globalSnapshotsWithState =>
+                              queue.offer(globalSnapshotsWithState).flatMap { _ =>
+                                logger.info(s"Producer: Added snapshot to queue (offered ${getSnapshotReference(globalSnapshotsWithState.snapshot)})")
+                              } >> globalSnapshotsWithState.pure
+                            }
                           )
                           .map(s => (s.map { gsws => (gsws.snapshot.signed, gsws.snapshotInfo)} , s.toList))
                           .handleErrorWith { e =>
@@ -297,20 +305,7 @@ object SnapshotProcessor {
                       logger.error("Producer: No snapshots found at all!") >>
                         (Option.empty[(Signed[GlobalIncrementalSnapshot],GlobalSnapshotInfo)],List.empty[GlobalSnapshotWithState]).pure[F]
                   }
-            }
-          .evalMap { case (_,snapshots) =>
-            logger.info(s"Producer: Processing ${snapshots.size} snapshots") >>
-              snapshots.traverse { case GlobalSnapshotWithState(snapshot, _, _, _, _) =>
-                logger.info(s"Producer: Offering snapshot to queue: ${getSnapshotReference(snapshot).show}")
-              } >> snapshots.pure
-          }
-          .flatMap(Stream.emits)
-          .evalTap { snapshot =>
-            queue.offer(snapshot).flatMap { _ =>
-              logger.info(s"Producer: Added snapshot to queue (offered ${getSnapshotReference(snapshot.snapshot)})")
-            }
-          }
-          .drain
+            }.drain
 
         // Consumer stream - stores snapshots
         consumer = Stream
