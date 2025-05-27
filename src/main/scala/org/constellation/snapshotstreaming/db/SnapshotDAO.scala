@@ -366,7 +366,7 @@ object SnapshotDAO {
 
   private def insertMetagraphTransactionsMany(size: Int): Command[List[CurrencyData[STransaction]]] = {
     val enc = (
-      varchar *: varchar *: varchar *: varchar *: int8 *: int8 *: int8 *: int8 *: varchar *: int8 *: varchar *: timestamp
+      varchar *: varchar *: varchar *: varchar *: int8 *: int8 *: int8 *: int8 *: varchar *: int8 *: varchar *: varchar *: timestamp
       ).values.contramap { cdTx: CurrencyData[STransaction] =>
       (
         cdTx.identifier,
@@ -379,6 +379,7 @@ object SnapshotDAO {
         cdTx.data.parent.ordinal,
         cdTx.data.parent.hash,
         cdTx.data.ordinal,
+        cdTx.data.snapshotHash,
         cdTx.data.blockHash,
         cdTx.data.timestamp
       )
@@ -396,6 +397,7 @@ object SnapshotDAO {
         parent_ordinal,
         parent_hash,
         ordinal,
+        snapshot_hash,
         block_hash,
         created_at
       ) VALUES $enc
