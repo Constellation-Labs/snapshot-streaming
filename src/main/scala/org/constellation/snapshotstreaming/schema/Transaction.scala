@@ -1,9 +1,7 @@
 package org.constellation.snapshotstreaming.schema
 
-import io.circe.Encoder
 import io.circe.generic.semiauto._
-import io.constellationnetwork.schema.transaction.{Transaction => OriginalTransaction}
-import io.constellationnetwork.security.signature.Signed
+import io.circe.{Encoder, Json}
 
 import java.time.LocalDateTime
 
@@ -18,7 +16,7 @@ final case class Transaction(
   blockHash: String,
   snapshotHash: String,
   snapshotOrdinal: Long,
-  transactionOriginal: Signed[OriginalTransaction],
+  transactionOriginal: Json,
   ordinal: Long,
   timestamp: LocalDateTime
 )

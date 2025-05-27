@@ -3,16 +3,15 @@ package org.constellation.snapshotstreaming.db
 import cats.Parallel
 import cats.effect.{Async, Resource}
 import cats.syntax.all._
-
 import io.constellationnetwork.security.signature.signature.SignatureProof
-
 import org.constellation.snapshotstreaming.schema.AllowSpends.{AllowSpend, AllowSpendExpiration, SpendTransaction}
 import org.constellation.snapshotstreaming.schema.TokenLocks.{TokenLock, TokenUnlock}
 import org.constellation.snapshotstreaming.schema.extractors.{AddressExtractor, MetagraphExtractor}
 import org.constellation.snapshotstreaming.schema.schema.{GlobalData, MetagraphData}
-import org.constellation.snapshotstreaming.schema.{Transaction => STransaction, _}
+import org.constellation.snapshotstreaming.schema.{AddressBalance, Block, BlockReference, CurrencyData, CurrencySnapshot, DelegatedStakingCreate, DelegatedStakingReward, DelegatedStakingWithdraw, FeeTransaction, RewardTransaction, Snapshot, Transaction => STransaction}
 import org.typelevel.log4cats.slf4j.Slf4jLogger
 import skunk._
+import skunk.circe.codec.all.jsonb
 import skunk.codec.all._
 import skunk.implicits._
 
@@ -79,8 +78,9 @@ object SnapshotDAO {
         ordinal,
         block_hash,
         snapshot_hash,
+        transaction_original,
         created_at
-      ) VALUES ($varchar, $varchar, $varchar, $int8, $int8, $int8, $int8, $varchar, $int8, $varchar, $varchar, $timestamp)
+      ) VALUES ($varchar, $varchar, $varchar, $int8, $int8, $int8, $int8, $varchar, $int8, $varchar, $varchar, $jsonb, $timestamp)
       ON CONFLICT (hash) DO NOTHING;
     """.command.contramap { tx: STransaction =>
       (
@@ -95,6 +95,7 @@ object SnapshotDAO {
         tx.ordinal,
         tx.blockHash,
         tx.snapshotHash,
+        tx.transactionOriginal,
         tx.timestamp
       )
     }
@@ -366,7 +367,7 @@ object SnapshotDAO {
 
   private def insertMetagraphTransactionsMany(size: Int): Command[List[CurrencyData[STransaction]]] = {
     val enc = (
-      varchar *: varchar *: varchar *: varchar *: int8 *: int8 *: int8 *: int8 *: varchar *: int8 *: varchar *: varchar *: timestamp
+      varchar *: varchar *: varchar *: varchar *: int8 *: int8 *: int8 *: int8 *: varchar *: int8 *: varchar *: varchar *: jsonb *: timestamp
       ).values.contramap { cdTx: CurrencyData[STransaction] =>
       (
         cdTx.identifier,
@@ -381,6 +382,7 @@ object SnapshotDAO {
         cdTx.data.ordinal,
         cdTx.data.snapshotHash,
         cdTx.data.blockHash,
+        cdTx.data.transactionOriginal,
         cdTx.data.timestamp
       )
     }.list(size)
@@ -399,6 +401,7 @@ object SnapshotDAO {
         ordinal,
         snapshot_hash,
         block_hash,
+        transaction_original,
         created_at
       ) VALUES $enc
       ON CONFLICT (metagraph_id, hash) DO NOTHING;
