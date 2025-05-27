@@ -220,7 +220,9 @@ object SnapshotProcessor {
     val runtime: Stream[F, Unit] = {
       for {
         queue <- Stream.eval(Queue.bounded[F, GlobalSnapshotWithState](configuration.node.pullLimit.value.toInt * 2))
-
+//Option[Hashed[GLobalIncrementalSnapshot], GlobalSnapshotInfo]]
+        incrementalCombined <- Stream.eval(lastIncrementalGlobalSnapshotStorage.getCombined)
+        initialState = incrementalCombined.map { case (hashedSnapshot, state) => (hashedSnapshot.signed, state) }
         // Producer stream - pulls and processes snapshots
         producer = Stream
           .awakeEvery(configuration.node.pullInterval)
@@ -229,11 +231,10 @@ object SnapshotProcessor {
               logger.info(s"Producer: Starting pull cycle. Pulling: ${configuration.node.pullLimit.value}. Current queue size: $size")
             }
           }
-          .evalMap { _ =>
-            lastIncrementalGlobalSnapshotStorage.getCombined.flatMap {
-              case Some((lastSnapshot, lastState)) =>
-                logger.info(s"Producer: Found last snapshot ${getSnapshotReference(lastSnapshot)}") >>
-                  l0Service.pullGlobalSnapshots
+          .evalMapAccumulate(initialState) {
+              case (Some((lastSnapshot, lastState)), _) =>
+
+                  l0Service.pullGlobalSnapshots(lastSnapshot.ordinal)
                     .map(
                       _.leftMap(_ =>
                         new Throwable(s"Existence of last snapshot has been checked. It shouldn't happen!")
@@ -242,7 +243,7 @@ object SnapshotProcessor {
                     .flatMap(_.liftTo[F])
                     .flatMap { incrementalSnapshots =>
                       logger.info(s"Producer: Pulled ${incrementalSnapshots.size} snapshots") >>
-                        incrementalSnapshots.foldM(ProcessedSnapshots(lastSnapshot.signed, lastState, List.empty)) {
+                        incrementalSnapshots.foldM(ProcessedSnapshots(lastSnapshot, lastState, List.empty)) {
                           (processedSnapshots, snapshot) =>
                             tessellationServices.globalSnapshotContextService
                               .createContext(
@@ -261,13 +262,15 @@ object SnapshotProcessor {
                               }
                         }
                     }
-                    .map(_.snapshotsWithState)
+                    .map{ s =>
+                      (Option(s.lastSnapshot, s.lastState), s.snapshotsWithState)
+                    }
                     .handleErrorWith { e =>
                       logger.error(e)("Producer: Error pulling snapshots, will retry in next cycle") >>
-                        List.empty[GlobalSnapshotWithState].pure[F]
+                        ((lastSnapshot, lastState).some, List.empty[GlobalSnapshotWithState]).pure[F]
                     }
 
-              case None =>
+              case (None, _) =>
                 logger.info("Producer: No last snapshot found, checking full snapshot") >>
                   lastFullGlobalSnapshotStorage.get.flatMap {
                     case Some(signedFullGlobalSnapshot) =>
@@ -285,22 +288,21 @@ object SnapshotProcessor {
                               )
                             )
                           )
-                          .map(_.toList)
+                          .map(s => (s.map { gsws => (gsws.snapshot.signed, gsws.snapshotInfo)} , s.toList))
                           .handleErrorWith { e =>
                             logger.error(e)("Producer: Error pulling initial snapshot, will retry in next cycle") >>
-                              List.empty[GlobalSnapshotWithState].pure[F]
+                              (Option.empty[(Signed[GlobalIncrementalSnapshot],GlobalSnapshotInfo)] , List.empty[GlobalSnapshotWithState]).pure[F]
                           }
                     case None =>
                       logger.error("Producer: No snapshots found at all!") >>
-                        List.empty[GlobalSnapshotWithState].pure[F]
+                        (Option.empty[(Signed[GlobalIncrementalSnapshot],GlobalSnapshotInfo)],List.empty[GlobalSnapshotWithState]).pure[F]
                   }
             }
-          }
-          .evalTap { snapshots =>
+          .evalMap { case (_,snapshots) =>
             logger.info(s"Producer: Processing ${snapshots.size} snapshots") >>
               snapshots.traverse { case GlobalSnapshotWithState(snapshot, _, _, _, _) =>
                 logger.info(s"Producer: Offering snapshot to queue: ${getSnapshotReference(snapshot).show}")
-              }
+              } >> snapshots.pure
           }
           .flatMap(Stream.emits)
           .evalTap { snapshot =>
