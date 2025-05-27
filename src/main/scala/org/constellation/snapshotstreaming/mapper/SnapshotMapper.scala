@@ -13,6 +13,7 @@ import io.constellationnetwork.security.{Hashed, Hasher}
 import io.constellationnetwork.security.signature.Signed
 import io.constellationnetwork.syntax.sortedCollection._
 import org.constellation.snapshotstreaming.schema.{AddressBalance, Block, BlockReference, Transaction, TransactionReference}
+import io.circe.syntax._
 
 import java.time.LocalDateTime
 import scala.collection.immutable.{HashMap, SortedMap, SortedSet}
@@ -111,7 +112,7 @@ abstract class SnapshotMapper[F[_]: Async, S <: OriginalSnapshot] {
     blockHash = blockHash,
     snapshotHash = snapshotHash,
     snapshotOrdinal = snapshotOrdinal,
-    transactionOriginal = transaction,
+    transactionOriginal = transaction.value.asJson,
     ordinal = transaction.value.ordinal.value.value,
     timestamp = timestamp
   )
