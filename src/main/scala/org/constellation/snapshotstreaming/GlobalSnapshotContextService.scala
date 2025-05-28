@@ -5,6 +5,7 @@ import cats.effect.kernel.Async
 import cats.syntax.all._
 import io.constellationnetwork.currency.schema.currency.{CurrencyIncrementalSnapshot, CurrencySnapshot, CurrencySnapshotInfo}
 import io.constellationnetwork.node.shared.domain.snapshot.services.GlobalL0Service
+import io.constellationnetwork.node.shared.domain.snapshot.storage.LastNGlobalSnapshotStorage
 import io.constellationnetwork.node.shared.infrastructure.snapshot.{GlobalSnapshotContextFunctions, GlobalSnapshotStateChannelEventsProcessor}
 import io.constellationnetwork.schema.{GlobalIncrementalSnapshot, GlobalSnapshotInfo, SnapshotOrdinal}
 import io.constellationnetwork.security.signature.Signed
@@ -28,35 +29,13 @@ trait GlobalSnapshotContextService[F[_]] {
 }
 
 object GlobalSnapshotContextService {
-  var lastArtifactsHashed: List[Hashed[GlobalIncrementalSnapshot]] = List.empty[Hashed[GlobalIncrementalSnapshot]]
-  val maxLastArtifacts = 10
-
   def make[F[_] : Async : Parallel : HasherSelector](
     globalSnapshotStateChannelEventsProcessor: GlobalSnapshotStateChannelEventsProcessor[F],
     globalSnapshotContextFns                 : GlobalSnapshotContextFunctions[F],
     l0Service                                : GlobalL0Service[F],
+    lastNGlobalSnapshotStorage               : LastNGlobalSnapshotStorage[F],
   ): GlobalSnapshotContextService[F] =
     new GlobalSnapshotContextService[F] {
-      private val logger = Slf4jLogger.getLoggerFromName[F]("GlobalSnapshotContextService")
-
-      def fillLastArtifactsHashed(lastArtifact: Hashed[GlobalIncrementalSnapshot]): F[Unit] = {
-        val ordinalsToFetch =
-          (1 to maxLastArtifacts).map(lastArtifact.ordinal.value.value - _).toList
-
-        ordinalsToFetch
-          .parTraverse { ordinal =>
-            l0Service.pullGlobalSnapshot(SnapshotOrdinal.unsafeApply(ordinal))
-          }
-          .map(_.flatten)
-          .map(_.sortBy(_.ordinal.value.value))
-          .flatMap { sortedArtifacts =>
-            Async[F].delay {
-              lastArtifactsHashed = sortedArtifacts
-            }
-          }
-      }
-
-
       def createContext(
         context                   : GlobalSnapshotInfo,
         lastArtifact              : Signed[GlobalIncrementalSnapshot],
@@ -66,13 +45,12 @@ object GlobalSnapshotContextService {
       ):
       F[GlobalSnapshotWithState] = {
         for {
+          lastNGlobalSnapshots <- lastNGlobalSnapshotStorage.getLastN
           lastArtifactHashed <- HasherSelector[F].forOrdinal(artifact.ordinal) { implicit hasher => lastArtifact.toHashed }
-          _ <- if (lastArtifactsHashed.isEmpty) {
-            fillLastArtifactsHashed(lastArtifactHashed)
+          _ <- if(lastNGlobalSnapshots.isEmpty) {
+            lastNGlobalSnapshotStorage.setInitial(lastArtifactHashed, context)
           } else {
-            Async[F].delay {
-              lastArtifactsHashed = (lastArtifactsHashed :+ lastArtifactHashed).takeRight(maxLastArtifacts)
-            }
+            ().pure
           }
 
           newContext <- HasherSelector[F].forOrdinal(artifact.ordinal) { implicit hasher =>
@@ -80,7 +58,7 @@ object GlobalSnapshotContextService {
               context,
               lastArtifact,
               artifact.signed,
-              lastArtifactsHashed.some,
+              lastNGlobalSnapshotStorage.getLastN,
               getGlobalSnapshotByOrdinal
             )
           }
@@ -94,7 +72,7 @@ object GlobalSnapshotContextService {
                 artifact.ordinal,
                 context,
                 reversedStateChannelSnapshots,
-                lastArtifactsHashed.some,
+                lastNGlobalSnapshotStorage.getLastN,
                 getGlobalSnapshotByOrdinal
               )
               .flatMap { response =>
@@ -123,6 +101,8 @@ object GlobalSnapshotContextService {
               }
               .map(GlobalSnapshotWithState(artifact, context.some, newContext, _, dt))
           }
+
+          _ <- lastNGlobalSnapshotStorage.set(result.snapshot, result.snapshotInfo)
         } yield result
       }
     }
