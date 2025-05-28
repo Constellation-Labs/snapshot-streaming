@@ -2,8 +2,7 @@ package org.constellation.snapshotstreaming
 
 import cats.Parallel
 import cats.effect.Async
-import cats.syntax.flatMap._
-import cats.syntax.functor._
+import cats.syntax.all._
 import io.constellationnetwork.json.{JsonBrotliBinarySerializer, JsonSerializer}
 import io.constellationnetwork.kryo.KryoSerializer
 import io.constellationnetwork.node.shared.config.types.{AddressesConfig, DelegatedStakingConfig, LastGlobalSnapshotsSyncConfig, SharedConfigReader}
@@ -25,6 +24,7 @@ import io.constellationnetwork.env.AppEnvironment
 import io.constellationnetwork.node.shared.domain.delegatedStake.UpdateDelegatedStakeAcceptanceManager
 import io.constellationnetwork.node.shared.domain.nodeCollateral.UpdateNodeCollateralAcceptanceManager
 import io.constellationnetwork.node.shared.domain.snapshot.services.GlobalL0Service
+import io.constellationnetwork.node.shared.infrastructure.snapshot.storage.LastNGlobalSnapshotStorage
 import io.constellationnetwork.schema.SnapshotOrdinal
 import io.constellationnetwork.schema.epoch.EpochProgress
 
@@ -60,20 +60,18 @@ object TessellationServices {
       stateChannelManager <- GlobalSnapshotStateChannelAcceptanceManager.make(None)
       jsonBrotliBinarySerializer <- JsonBrotliBinarySerializer.forSync[F]
       feeCalculator = FeeCalculator.make(configuration.feeConfigs)
-
+      currencySnapshotAcceptanceManager <- CurrencySnapshotAcceptanceManager.make(
+          tessellation3Migration,
+          configuration.sharedConfigReader.lastGlobalSnapshotsSync,
+          BlockAcceptanceManager.make[F](validators.currencyBlockValidator, txHasher),
+          TokenLockBlockAcceptanceManager.make(validators.tokenLockBlockValidator),
+          AllowSpendBlockAcceptanceManager.make(validators.allowSpendBlockValidator),
+          Amount(0L),
+          validators.currencyMessageValidator,
+          validators.feeTransactionValidator,
+          validators.globalSnapshotSyncValidator
+        )
       currencySnapshotContextFns <- {
-        val currencySnapshotAcceptanceManager: CurrencySnapshotAcceptanceManager[F] =
-          CurrencySnapshotAcceptanceManager.make(
-            tessellation3Migration,
-            LastGlobalSnapshotsSyncConfig(NonNegLong(2L), PosInt(10)),
-            BlockAcceptanceManager.make[F](validators.currencyBlockValidator, txHasher),
-            TokenLockBlockAcceptanceManager.make(validators.tokenLockBlockValidator),
-            AllowSpendBlockAcceptanceManager.make(validators.allowSpendBlockValidator),
-            Amount(0L),
-            validators.currencyMessageValidator,
-            validators.feeTransactionValidator,
-            validators.globalSnapshotSyncValidator
-          )
         val currencyEventsCutter = CurrencyEventsCutter.make[F](None)
         hasherSelector.withCurrent { implicit hasher =>
           CurrencySnapshotEventValidationErrorStorage.make(PosInt(10)).map { validationErrorStorage =>
@@ -96,7 +94,12 @@ object TessellationServices {
       updateNodeParametersAcceptanceManager = UpdateNodeParametersAcceptanceManager.make[F](validators.updateNodeParametersValidator)
       updateDelegatedStakeAcceptanceManager = UpdateDelegatedStakeAcceptanceManager.make[F](validators.updateDelegatedStakeValidator)
       updateNodeCollateralAcceptanceManager = UpdateNodeCollateralAcceptanceManager.make[F](validators.updateNodeCollateralValidator)
-
+      lastNGlobalSnapshotStorage <-  hasherSelector.withCurrent { implicit hasher =>
+        LastNGlobalSnapshotStorage.make[F](
+          configuration.sharedConfigReader.lastGlobalSnapshotsSync,
+          l0Service.asLeft
+        )
+      }
       globalSnapshotContextService = hasherSelector.withCurrent { implicit hasher => {
 
         val globalSnapshotStateChannelEventsProcessor =
@@ -126,7 +129,8 @@ object TessellationServices {
           configuration.delegatedStakingWithdrawalTimeLimit,
           tessellation3Migration
         )
-        GlobalSnapshotContextService.make(globalSnapshotStateChannelEventsProcessor, globalSnapshotContextFns, l0Service)
+
+        GlobalSnapshotContextService.make(globalSnapshotStateChannelEventsProcessor, globalSnapshotContextFns, lastNGlobalSnapshotStorage)
       }
       }
     } yield new TessellationServices[F](globalSnapshotContextService) {}
