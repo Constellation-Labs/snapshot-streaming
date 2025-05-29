@@ -3,10 +3,17 @@ package org.constellation.snapshotstreaming
 import cats.Parallel
 import cats.effect.kernel.Async
 import cats.syntax.all._
-import io.constellationnetwork.currency.schema.currency.{CurrencyIncrementalSnapshot, CurrencySnapshot, CurrencySnapshotInfo}
+import io.constellationnetwork.currency.schema.currency.{
+  CurrencyIncrementalSnapshot,
+  CurrencySnapshot,
+  CurrencySnapshotInfo
+}
 import io.constellationnetwork.node.shared.domain.snapshot.services.GlobalL0Service
 import io.constellationnetwork.node.shared.domain.snapshot.storage.LastNGlobalSnapshotStorage
-import io.constellationnetwork.node.shared.infrastructure.snapshot.{GlobalSnapshotContextFunctions, GlobalSnapshotStateChannelEventsProcessor}
+import io.constellationnetwork.node.shared.infrastructure.snapshot.{
+  GlobalSnapshotContextFunctions,
+  GlobalSnapshotStateChannelEventsProcessor
+}
 import io.constellationnetwork.schema.{GlobalIncrementalSnapshot, GlobalSnapshotInfo, SnapshotOrdinal}
 import io.constellationnetwork.security.signature.Signed
 import io.constellationnetwork.security.{Hashed, HasherSelector}
@@ -19,39 +26,43 @@ import java.time.LocalDateTime
 trait GlobalSnapshotContextService[F[_]] {
 
   def createContext(
-    context                   : GlobalSnapshotInfo,
-    lastArtifact              : Signed[GlobalIncrementalSnapshot],
-    artifact                  : Hashed[GlobalIncrementalSnapshot],
+    context: GlobalSnapshotInfo,
+    lastArtifact: Signed[GlobalIncrementalSnapshot],
+    artifact: Hashed[GlobalIncrementalSnapshot],
     getGlobalSnapshotByOrdinal: SnapshotOrdinal => F[Option[Hashed[GlobalIncrementalSnapshot]]],
-    dt                        : LocalDateTime
+    dt: LocalDateTime
   ): F[GlobalSnapshotWithState]
 
 }
 
 object GlobalSnapshotContextService {
-  def make[F[_] : Async : Parallel : HasherSelector](
+
+  def make[F[_]: Async: Parallel: HasherSelector](
     globalSnapshotStateChannelEventsProcessor: GlobalSnapshotStateChannelEventsProcessor[F],
-    globalSnapshotContextFns                 : GlobalSnapshotContextFunctions[F],
-    l0Service                                : GlobalL0Service[F],
-    lastNGlobalSnapshotStorage               : LastNGlobalSnapshotStorage[F],
+    globalSnapshotContextFns: GlobalSnapshotContextFunctions[F],
+    l0Service: GlobalL0Service[F],
+    lastNGlobalSnapshotStorage: LastNGlobalSnapshotStorage[F]
   ): GlobalSnapshotContextService[F] =
     new GlobalSnapshotContextService[F] {
+
       def createContext(
-        context                   : GlobalSnapshotInfo,
-        lastArtifact              : Signed[GlobalIncrementalSnapshot],
-        artifact                  : Hashed[GlobalIncrementalSnapshot],
+        context: GlobalSnapshotInfo,
+        lastArtifact: Signed[GlobalIncrementalSnapshot],
+        artifact: Hashed[GlobalIncrementalSnapshot],
         getGlobalSnapshotByOrdinal: SnapshotOrdinal => F[Option[Hashed[GlobalIncrementalSnapshot]]],
-        dt                        : LocalDateTime
-      ):
-      F[GlobalSnapshotWithState] = {
+        dt: LocalDateTime
+      ): F[GlobalSnapshotWithState] =
         for {
           lastNGlobalSnapshots <- lastNGlobalSnapshotStorage.getLastN
-          lastArtifactHashed <- HasherSelector[F].forOrdinal(artifact.ordinal) { implicit hasher => lastArtifact.toHashed }
-          _ <- if(lastNGlobalSnapshots.isEmpty) {
-            lastNGlobalSnapshotStorage.setInitial(lastArtifactHashed, context)
-          } else {
-            ().pure
+          lastArtifactHashed <- HasherSelector[F].forOrdinal(artifact.ordinal) { implicit hasher =>
+            lastArtifact.toHashed
           }
+          _ <-
+            if (lastNGlobalSnapshots.isEmpty) {
+              lastNGlobalSnapshotStorage.setInitial(lastArtifactHashed, context)
+            } else {
+              ().pure
+            }
 
           newContext <- HasherSelector[F].forOrdinal(artifact.ordinal) { implicit hasher =>
             globalSnapshotContextFns.createContext(
@@ -62,8 +73,8 @@ object GlobalSnapshotContextService {
               getGlobalSnapshotByOrdinal
             )
           }
-          reversedStateChannelSnapshots = artifact.signed.value.stateChannelSnapshots.map {
-            case (address, snapshots) => address -> snapshots.reverse
+          reversedStateChannelSnapshots = artifact.signed.value.stateChannelSnapshots.map { case (address, snapshots) =>
+            address -> snapshots.reverse
           }
 
           result <- HasherSelector[F].forOrdinal(artifact.ordinal) { implicit hasher =>
@@ -88,9 +99,9 @@ object GlobalSnapshotContextService {
                           _.asLeft[
                             (
                               Hashed[CurrencyIncrementalSnapshot],
-                                CurrencySnapshotInfo,
-                                Signed[StateChannelSnapshotBinary]
-                              )
+                              CurrencySnapshotInfo,
+                              Signed[StateChannelSnapshotBinary]
+                            )
                           ]
                         )
                       case Right((inc, info)) =>
@@ -104,5 +115,7 @@ object GlobalSnapshotContextService {
 
           _ <- lastNGlobalSnapshotStorage.set(result.snapshot, result.snapshotInfo)
         } yield result
+
     }
+
 }
