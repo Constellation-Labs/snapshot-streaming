@@ -124,6 +124,7 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
         None,
         None,
         None,
+        None,
         None
       )
 
@@ -176,6 +177,7 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
         updatedBalances,
         SortedMap.empty,
         SortedMap.empty,
+        None,
         None,
         None,
         None,
@@ -246,6 +248,7 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
         None,
         None,
         None,
+        None,
       )
       snapshot <- incrementalGlobalSnapshot[IO](
         100L,
@@ -288,6 +291,7 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
       updatedBalances,
       SortedMap.empty,
       SortedMap.empty,
+      None,
       None,
       None,
       None,
@@ -380,6 +384,7 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
       Some(SortedMap.from(oldStakes)),
       None,
       None,
+      None,
       None
     )
 
@@ -396,6 +401,7 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
       None,
       None,
       Some(SortedMap.from(newStakes)),
+      None,
       None,
       None,
       None,
@@ -502,6 +508,7 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
       Some(SortedMap.from(oldWithdrawalStakes)),
       None,
       None,
+      None,
     )
 
     val newSnapshotInfo = GlobalSnapshotInfo(
@@ -518,6 +525,7 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
       None,
       None,
       Some(SortedMap.from(newWithdrawalStakes)),
+      None,
       None,
       None,
     )

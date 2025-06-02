@@ -107,7 +107,8 @@ object TessellationServices {
             feeCalculator
           )
         val globalSnapshotAcceptanceManager: GlobalSnapshotAcceptanceManager[F] = GlobalSnapshotAcceptanceManager.make(
-          tessellation3Migration,
+          configuration.fieldsAddedOrdinals,
+          env,
           BlockAcceptanceManager.make[F](validators.blockValidator, txHasher),
           AllowSpendBlockAcceptanceManager.make[F](validators.allowSpendBlockValidator),
           TokenLockBlockAcceptanceManager.make[F](validators.tokenLockBlockValidator),
