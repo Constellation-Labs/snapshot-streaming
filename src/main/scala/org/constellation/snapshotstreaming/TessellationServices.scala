@@ -3,10 +3,16 @@ package org.constellation.snapshotstreaming
 import cats.Parallel
 import cats.effect.Async
 import cats.syntax.all._
+import eu.timepit.refined.auto._
+import eu.timepit.refined.types.numeric.PosInt
+import io.constellationnetwork.env.AppEnvironment
 import io.constellationnetwork.json.{JsonBrotliBinarySerializer, JsonSerializer}
 import io.constellationnetwork.kryo.KryoSerializer
-import io.constellationnetwork.node.shared.config.types.{AddressesConfig, DelegatedStakingConfig, LastGlobalSnapshotsSyncConfig, SharedConfigReader}
+import io.constellationnetwork.node.shared.config.types.{AddressesConfig, DelegatedStakingConfig, SharedConfigReader}
+import io.constellationnetwork.node.shared.domain.delegatedStake.UpdateDelegatedStakeAcceptanceManager
 import io.constellationnetwork.node.shared.domain.node.UpdateNodeParametersAcceptanceManager
+import io.constellationnetwork.node.shared.domain.nodeCollateral.UpdateNodeCollateralAcceptanceManager
+import io.constellationnetwork.node.shared.domain.snapshot.services.GlobalL0Service
 import io.constellationnetwork.node.shared.domain.statechannel.FeeCalculator
 import io.constellationnetwork.node.shared.domain.swap.SpendActionValidator
 import io.constellationnetwork.node.shared.domain.swap.block.AllowSpendBlockAcceptanceManager
@@ -14,26 +20,20 @@ import io.constellationnetwork.node.shared.domain.tokenlock.block.TokenLockBlock
 import io.constellationnetwork.node.shared.infrastructure.block.processing.BlockAcceptanceManager
 import io.constellationnetwork.node.shared.infrastructure.consensus.CurrencySnapshotEventValidationErrorStorage
 import io.constellationnetwork.node.shared.infrastructure.snapshot._
+import io.constellationnetwork.node.shared.infrastructure.snapshot.storage.LastNGlobalSnapshotStorage
 import io.constellationnetwork.node.shared.modules.SharedValidators
+import io.constellationnetwork.schema.SnapshotOrdinal
 import io.constellationnetwork.schema.balance.Amount
+import io.constellationnetwork.schema.epoch.EpochProgress
 import io.constellationnetwork.security.signature.SignedValidator
 import io.constellationnetwork.security.{Hasher, HasherSelector, SecurityProvider}
-import eu.timepit.refined.auto._
-import eu.timepit.refined.types.numeric.{NonNegLong, PosInt}
-import io.constellationnetwork.env.AppEnvironment
-import io.constellationnetwork.node.shared.domain.delegatedStake.UpdateDelegatedStakeAcceptanceManager
-import io.constellationnetwork.node.shared.domain.nodeCollateral.UpdateNodeCollateralAcceptanceManager
-import io.constellationnetwork.node.shared.domain.snapshot.services.GlobalL0Service
-import io.constellationnetwork.node.shared.infrastructure.snapshot.storage.LastNGlobalSnapshotStorage
-import io.constellationnetwork.schema.SnapshotOrdinal
-import io.constellationnetwork.schema.epoch.EpochProgress
 
 object TessellationServices {
 
-  def make[F[_] : Async : Parallel: JsonSerializer : KryoSerializer : SecurityProvider](
-                                                                               env: AppEnvironment,
-                                                                               configuration: SharedConfigReader,
-                                                                               l0Service: GlobalL0Service[F]
+  def make[F[_] : Async : Parallel : JsonSerializer : KryoSerializer : SecurityProvider](
+    env          : AppEnvironment,
+    configuration: SharedConfigReader,
+    l0Service    : GlobalL0Service[F]
   )(implicit hasherSelector: HasherSelector[F]): F[TessellationServices[F]] =
     for {
       _ <- Async[F].unit
@@ -57,16 +57,17 @@ object TessellationServices {
       jsonBrotliBinarySerializer <- JsonBrotliBinarySerializer.forSync[F]
       feeCalculator = FeeCalculator.make(nodeConfig.feeConfigs)
       currencySnapshotAcceptanceManager <- CurrencySnapshotAcceptanceManager.make(
-          tessellation3Migration,
-          configuration.lastGlobalSnapshotsSync,
-          BlockAcceptanceManager.make[F](validators.currencyBlockValidator, txHasher),
-          TokenLockBlockAcceptanceManager.make(validators.tokenLockBlockValidator),
-          AllowSpendBlockAcceptanceManager.make(validators.allowSpendBlockValidator),
-          Amount(0L),
-          validators.currencyMessageValidator,
-          validators.feeTransactionValidator,
-          validators.globalSnapshotSyncValidator
-        )
+        configuration.fieldsAddedOrdinals,
+        env,
+        configuration.lastGlobalSnapshotsSync,
+        BlockAcceptanceManager.make[F](validators.currencyBlockValidator, txHasher),
+        TokenLockBlockAcceptanceManager.make(validators.tokenLockBlockValidator),
+        AllowSpendBlockAcceptanceManager.make(validators.allowSpendBlockValidator),
+        Amount(0L),
+        validators.currencyMessageValidator,
+        validators.feeTransactionValidator,
+        validators.globalSnapshotSyncValidator
+      )
       currencySnapshotContextFns <- {
         val currencyEventsCutter = CurrencyEventsCutter.make[F](None)
         hasherSelector.withCurrent { implicit hasher =>
@@ -90,7 +91,7 @@ object TessellationServices {
       updateNodeParametersAcceptanceManager = UpdateNodeParametersAcceptanceManager.make[F](validators.updateNodeParametersValidator)
       updateDelegatedStakeAcceptanceManager = UpdateDelegatedStakeAcceptanceManager.make[F](validators.updateDelegatedStakeValidator)
       updateNodeCollateralAcceptanceManager = UpdateNodeCollateralAcceptanceManager.make[F](validators.updateNodeCollateralValidator)
-      lastNGlobalSnapshotStorage <-  hasherSelector.withCurrent { implicit hasher =>
+      lastNGlobalSnapshotStorage <- hasherSelector.withCurrent { implicit hasher =>
         LastNGlobalSnapshotStorage.make[F](
           configuration.lastGlobalSnapshotsSync,
           l0Service.asLeft
@@ -106,7 +107,8 @@ object TessellationServices {
             feeCalculator
           )
         val globalSnapshotAcceptanceManager: GlobalSnapshotAcceptanceManager[F] = GlobalSnapshotAcceptanceManager.make(
-          tessellation3Migration,
+          configuration.fieldsAddedOrdinals,
+          env,
           BlockAcceptanceManager.make[F](validators.blockValidator, txHasher),
           AllowSpendBlockAcceptanceManager.make[F](validators.allowSpendBlockValidator),
           TokenLockBlockAcceptanceManager.make[F](validators.tokenLockBlockValidator),
