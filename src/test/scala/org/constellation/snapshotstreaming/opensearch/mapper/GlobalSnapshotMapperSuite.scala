@@ -521,16 +521,18 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
       None,
       None
     )
-    val hasher = hs.getCurrent
+    implicit val hasher = hs.getCurrent
     val gsm = GlobalSnapshotMapper.make(sharedCfg)
     for {
-      result <- gsm.mapDelegatedStakingWithdraws(
+      result <- gsm.mapDelegatedStakingWithdrawals(
         Hash("SnapshotHash1"),
         newSnapshotInfo,
         Some(oldSnapshotInfo),
         hasher
       )
-      sorted = result.sortBy(_.createdAtEpoch)
+      completedWithdrawalHash <- gsm.delegatedStakingWithdrawHash(addr1P1)
+      (newWithdrawals, completedWithdrawals) = result
+      sorted = newWithdrawals.sortBy(_.createdAtEpoch)
 
     } yield expect.same(
       sorted,
@@ -540,16 +542,6 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
           sorted(0).hash,
           address1.value,
           sorted(0).hash,
-          111L,
-          10L,
-          (addr1P1.createdAt |+| withdrawalTimeLimit).value.value,
-          completed = true
-        ),
-        DelegatedStakingWithdraw(
-          "SnapshotHash1",
-          sorted(1).hash,
-          address1.value,
-          sorted(1).hash,
           555L,
           12L,
           (addr1P5.createdAt |+| withdrawalTimeLimit).value.value,
@@ -557,16 +549,16 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
         ),
         DelegatedStakingWithdraw(
           "SnapshotHash1",
-          sorted(2).hash,
+          sorted(1).hash,
           address2.value,
-          sorted(2).hash,
+          sorted(1).hash,
           444L,
           24L,
           (addr2P4.createdAt |+| withdrawalTimeLimit).value.value,
           completed = false
         )
       )
-    )
+    ) and expect.same(completedWithdrawals.toSet, Set(completedWithdrawalHash.value) )
   }
 
 }
