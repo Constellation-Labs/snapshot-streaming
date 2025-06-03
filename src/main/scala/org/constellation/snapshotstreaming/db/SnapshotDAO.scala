@@ -263,7 +263,7 @@ object SnapshotDAO {
     sql"""
       UPDATE delegate_stake_withdraw_events
       SET is_completed = true
-      WHERE hash IN ${varchar.list(n)})
+      WHERE hash IN (${varchar.list(n)})
     """.command
 
   private val insertDelegatedStakingRewardsCommand: Command[DelegatedStakingReward] =
