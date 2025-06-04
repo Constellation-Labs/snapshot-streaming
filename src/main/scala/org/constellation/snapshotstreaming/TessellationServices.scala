@@ -61,7 +61,8 @@ object TessellationServices {
       jsonBrotliBinarySerializer <- JsonBrotliBinarySerializer.forSync[F]
       feeCalculator = FeeCalculator.make(configuration.feeConfigs)
       currencySnapshotAcceptanceManager <- CurrencySnapshotAcceptanceManager.make(
-          tessellation3Migration,
+          configuration.sharedConfigReader.fieldsAddedOrdinals,
+          configuration.environment,
           configuration.sharedConfigReader.lastGlobalSnapshotsSync,
           BlockAcceptanceManager.make[F](validators.currencyBlockValidator, txHasher),
           TokenLockBlockAcceptanceManager.make(validators.tokenLockBlockValidator),
