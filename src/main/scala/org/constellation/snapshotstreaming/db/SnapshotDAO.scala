@@ -259,6 +259,13 @@ object SnapshotDAO {
       (tx.hash, tx.sourceAddress, tx.stakeCreateHash, tx.snapshotHash, tx.createdAtEpoch, tx.unlockEpoch, tx.completed)
     }
 
+  private def updateCompletedDelegatedStakingWithdrawCommand(n: Int): Command[List[String]] =
+    sql"""
+      UPDATE delegate_stake_withdraw_events
+      SET is_completed = true
+      WHERE hash IN ${varchar.list(n)})
+    """.command
+
   private val insertDelegatedStakingRewardsCommand: Command[DelegatedStakingReward] =
     sql"""
       INSERT INTO delegate_stake_rewards (
@@ -710,6 +717,7 @@ object SnapshotDAO {
             _ <- executeCmd(preparedDagDelegatedStakingCreate)(snapshot.delegatedStakingCreate)
             _ <- logger.info("[GLOBAL]Starting preparedDagDelegatedStakingWithdraw")
             _ <- executeCmd(preparedDagDelegatedStakingWithdraw)(snapshot.delegatedStakingWithdraw)
+            _ <- executeMany(session, snapshot.completedDelegatedStakingWithdrawHashes.toList, updateCompletedDelegatedStakingWithdrawCommand)
             _ <- logger.info("[GLOBAL]Starting preparedDagDelegatedStakingRewards")
             _ <- executeCmd(preparedDagDelegatedStakingRewards)(snapshot.delegatedStakingRewards)
             _ <- logger.info(s"[GLOBAL]Starting preparedDagAddressBalance. snapshot.balances ${snapshot.balances.size}")

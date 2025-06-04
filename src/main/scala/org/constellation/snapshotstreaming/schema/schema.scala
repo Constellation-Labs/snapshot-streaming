@@ -20,6 +20,7 @@ object schema {
                          tokenUnlocks: Seq[TokenUnlock] = Seq.empty,
                          delegatedStakingCreate: Seq[DelegatedStakingCreate],
                          delegatedStakingWithdraw: Seq[DelegatedStakingWithdraw],
+                         completedDelegatedStakingWithdrawHashes: Seq[String],
                          delegatedStakingRewards: Seq[DelegatedStakingReward],
                          spendTransactions: Seq[SpendTransaction],
                          allowSpendExpirations: Seq[AllowSpendExpiration]
