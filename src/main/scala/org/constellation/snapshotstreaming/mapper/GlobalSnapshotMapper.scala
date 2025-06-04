@@ -74,12 +74,13 @@ abstract class GlobalSnapshotMapper[F[_]: Async] extends SnapshotMapper[F, Globa
         maybePrevSnapshotInfo,
         hasher
       )
-      delegatedStakingWithdraw <- mapDelegatedStakingWithdraws(
+      dsWithdrawsWithUpdates <- mapDelegatedStakingWithdrawals(
         globalSnapshot.hash,
         snapshotInfo,
         maybePrevSnapshotInfo,
         hasher
       )
+      (delegatedStakingWithdraw, completedDelegatedStakingWithdrawHashes) = dsWithdrawsWithUpdates
       stakingRewards = mapStakingRewards(
         globalSnapshot,
         activeHashedDelegatedStakes
@@ -95,6 +96,7 @@ abstract class GlobalSnapshotMapper[F[_]: Async] extends SnapshotMapper[F, Globa
       tokenUnlocks,
       delegatedStakingCreate,
       delegatedStakingWithdraw,
+      completedDelegatedStakingWithdrawHashes,
       stakingRewards,
       spendTransactions,
       allowSpendExpirations
@@ -131,15 +133,19 @@ abstract class GlobalSnapshotMapper[F[_]: Async] extends SnapshotMapper[F, Globa
     }
   }
 
+  def delegatedStakingWithdrawHash(pendingWithdrawal: PendingDelegatedStakeWithdrawal)
+                                  (implicit hasher: Hasher[F]): F[Hash] =
+    pendingWithdrawal.event.toHashed.map(_.hash)
+
   def mapDelegatedStakingWithdraw(snapshotHash: Hash, isCompleted: Boolean)(
     pendingWithdrawal: PendingDelegatedStakeWithdrawal
   )(implicit hasher: Hasher[F]): F[DelegatedStakingWithdraw] =
-    pendingWithdrawal.event.toHashed.map { staking =>
+    delegatedStakingWithdrawHash(pendingWithdrawal).map { dsHash =>
       DelegatedStakingWithdraw(
         snapshotHash.value,
-        staking.hash.value,
-        staking.source.value,
-        staking.hash.value,
+        dsHash.value,
+        pendingWithdrawal.event.source.value,
+        dsHash.value,
         pendingWithdrawal.rewards.value,
         pendingWithdrawal.createdAt.value.value,
         (pendingWithdrawal.createdAt |+| sharedCfg.delegatedStaking.withdrawalTimeLimit(
@@ -149,12 +155,12 @@ abstract class GlobalSnapshotMapper[F[_]: Async] extends SnapshotMapper[F, Globa
       )
     }
 
-  def mapDelegatedStakingWithdraws(
+  def mapDelegatedStakingWithdrawals(
     snapshotHash: Hash,
     snapshotInfo: GlobalSnapshotInfo,
     maybePrevSnapshotInfo: Option[GlobalSnapshotInfo],
     hasher: Hasher[F]
-  ): F[Seq[DelegatedStakingWithdraw]] = {
+  ): F[(Seq[DelegatedStakingWithdraw], Seq[String])] = {
     implicit val hs: Hasher[F] = hasher
 
     val prePendingWithdrawals =
@@ -175,8 +181,8 @@ abstract class GlobalSnapshotMapper[F[_]: Async] extends SnapshotMapper[F, Globa
         .traverse(mapDelegatedStakingWithdraw(snapshotHash, isCompleted = false))
       completed <- prePendingWithdrawals
         .filterNot(dsr => currentPendingWithdrawalsStakeRefsSet.contains(dsr.event))
-        .traverse(mapDelegatedStakingWithdraw(snapshotHash, isCompleted = true))
-    } yield newPending ++ completed
+        .traverse(delegatedStakingWithdrawHash(_).map(_.value))
+    } yield (newPending, completed)
   }
 
   private def mapDelegatedStakingCreate(snapshotHash: Hash, fromHash: Option[Hash])(
