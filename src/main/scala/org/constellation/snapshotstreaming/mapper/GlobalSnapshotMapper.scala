@@ -276,6 +276,7 @@ abstract class GlobalSnapshotMapper[F[_]: Async] extends SnapshotMapper[F, Globa
       TokenLock(
         snapshotHash.value,
         tokenLock.hash.value,
+        tokenLock.currencyId.map(_.value.value),
         tokenLock.source.value,
         tokenLock.amount.value,
         tokenLock.unlockEpoch.map(_.value.value),
@@ -311,6 +312,7 @@ abstract class GlobalSnapshotMapper[F[_]: Async] extends SnapshotMapper[F, Globa
     TokenUnlock(
       snapshotHash.value,
       hash.value,
+      tokenUnlock.currencyId.map(_.value.value),
       tokenUnlock.tokenLockRef.value,
       tokenUnlock.amount.value,
       tokenUnlock.source.value

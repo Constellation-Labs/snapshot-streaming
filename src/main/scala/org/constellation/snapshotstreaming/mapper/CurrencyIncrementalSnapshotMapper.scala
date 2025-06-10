@@ -158,6 +158,7 @@ object CurrencyIncrementalSnapshotMapper {
           TokenLock(
             snapshotHash.value,
             tokenLock.hash.value,
+            tokenLock.currencyId.map(_.value.value),
             tokenLock.source.value,
             tokenLock.amount.value,
             tokenLock.unlockEpoch.map(_.value.value),
@@ -193,6 +194,7 @@ object CurrencyIncrementalSnapshotMapper {
         hash => TokenUnlock(
           snapshotHash.value,
           hash.value,
+          tokenUnlock.currencyId.map(_.value.value),
           tokenUnlock.tokenLockRef.value,
           tokenUnlock.amount.value,
           tokenUnlock.source.value,
