@@ -130,6 +130,7 @@ object CurrencyIncrementalSnapshotMapper {
         allowSpend.toHashed.map { allowSpend =>
           AllowSpend(
             allowSpend.hash.value,
+            allowSpend.currencyId.map(_.value.value),
             allowSpend.source.value,
             allowSpend.destination.value,
             allowSpend.amount.value,
@@ -157,6 +158,7 @@ object CurrencyIncrementalSnapshotMapper {
           TokenLock(
             snapshotHash.value,
             tokenLock.hash.value,
+            tokenLock.currencyId.map(_.value.value),
             tokenLock.source.value,
             tokenLock.amount.value,
             tokenLock.unlockEpoch.map(_.value.value),
@@ -178,6 +180,7 @@ object CurrencyIncrementalSnapshotMapper {
       )(implicit hasher: Hasher[F]): F[SpendTransaction] = hasher.hash(spendTx).map {
         hash => SpendTransaction(
           hash.value,
+          spendTx.currencyId.map(_.value.value),
           spendTx.source.value,
           spendTx.destination.value,
           spendTx.amount.value,
@@ -191,6 +194,7 @@ object CurrencyIncrementalSnapshotMapper {
         hash => TokenUnlock(
           snapshotHash.value,
           hash.value,
+          tokenUnlock.currencyId.map(_.value.value),
           tokenUnlock.tokenLockRef.value,
           tokenUnlock.amount.value,
           tokenUnlock.source.value,

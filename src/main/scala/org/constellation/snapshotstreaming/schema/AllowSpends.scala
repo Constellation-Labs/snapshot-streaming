@@ -9,6 +9,7 @@ object AllowSpends {
 
   case class AllowSpend(
     hash: String,
+    currencyId: Option[String],
     source: String,
     destination: String,
     amount: Long,
@@ -27,6 +28,7 @@ object AllowSpends {
 
   case class SpendTransaction(
     hash: String,
+    currencyId: Option[String],
     source: String,
     destination: String,
     amount: Long,
