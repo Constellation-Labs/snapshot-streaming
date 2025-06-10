@@ -247,6 +247,7 @@ abstract class GlobalSnapshotMapper[F[_]: Async] extends SnapshotMapper[F, Globa
     allowSpend.toHashed.map { allowSpend =>
       AllowSpend(
         allowSpend.hash.value,
+        allowSpend.currencyId.map(_.value.value.value),
         allowSpend.source.value,
         allowSpend.destination.value,
         allowSpend.amount.value,
@@ -295,6 +296,7 @@ abstract class GlobalSnapshotMapper[F[_]: Async] extends SnapshotMapper[F, Globa
   )(implicit hasher: Hasher[F]): F[SpendTransaction] = hasher.hash(spendTx).map { hash =>
     SpendTransaction(
       hash.value,
+      spendTx.currencyId.map(_.value.value.value),
       spendTx.source.value,
       spendTx.destination.value,
       spendTx.amount.value,

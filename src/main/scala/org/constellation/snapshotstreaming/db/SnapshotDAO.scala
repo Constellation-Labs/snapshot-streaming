@@ -104,6 +104,7 @@ object SnapshotDAO {
     sql"""
       INSERT INTO dag_allow_spends (
         hash,
+        currency_id,
         source_addr,
         destination_addr,
         amount,
@@ -114,11 +115,12 @@ object SnapshotDAO {
         round_id,
         ordinal,
         snapshot_hash
-      ) VALUES ($varchar, $varchar, $varchar, $int8, $int8, $int8, $varchar, $int8, $uuid, $int8, $varchar)
+      ) VALUES ($varchar, ${varchar.opt}, $varchar, $varchar, $int8, $int8, $int8, $varchar, $int8, $uuid, $int8, $varchar)
       ON CONFLICT (hash) DO NOTHING;
     """.command.contramap { tx: AllowSpend =>
       (
         tx.hash,
+        tx.currencyId,
         tx.source,
         tx.destination,
         tx.amount,
@@ -136,16 +138,18 @@ object SnapshotDAO {
     sql"""
     INSERT INTO dag_spend_transactions (
       hash,
+      currency_id,
       source_addr,
       amount,
       destination_addr,
       allow_spend_ref,
       snapshot_hash
-    ) VALUES ($varchar, $varchar, $int8, $varchar, ${varchar.opt}, $varchar)
+    ) VALUES ($varchar, ${varchar.opt}, $varchar, $int8, $varchar, ${varchar.opt}, $varchar)
     ON CONFLICT (hash) DO NOTHING;
   """.command.contramap { tx: SpendTransaction =>
       (
         tx.hash,
+        tx.currencyId,
         tx.source,
         tx.amount,
         tx.destination,
@@ -159,6 +163,7 @@ object SnapshotDAO {
     INSERT INTO dag_expired_spend_transactions (
       snapshot_hash,
       hash,
+      currency_id,
       source_addr,
       amount,
       allow_spend_ref
@@ -166,6 +171,7 @@ object SnapshotDAO {
     SELECT
       $varchar,
       $varchar,                       -- hash from AllowSpendExpiration
+      das.currency_id,
       das.source_addr,
       das.amount,
       $varchar                        -- allowSpendRef from AllowSpendExpiration
@@ -420,6 +426,7 @@ object SnapshotDAO {
     INSERT INTO metagraph_allow_spends (
       metagraph_id,
       hash,
+      currency_id,
       source_addr,
       destination_addr,
       amount,
@@ -430,12 +437,13 @@ object SnapshotDAO {
       round_id,
       ordinal,
       snapshot_hash
-    ) VALUES ($varchar, $varchar, $varchar, $varchar, $int8, $int8, $int8, $varchar, $int8, $uuid, $int8, $varchar)
+    ) VALUES ($varchar, $varchar, ${varchar.opt}, $varchar, $varchar, $int8, $int8, $int8, $varchar, $int8, $uuid, $int8, $varchar)
     ON CONFLICT (hash) DO NOTHING;
   """.command.contramap { case CurrencyData(id, tx) =>
       (
         id,
         tx.hash,
+        tx.currencyId,
         tx.source,
         tx.destination,
         tx.amount,
@@ -454,17 +462,19 @@ object SnapshotDAO {
     INSERT INTO metagraph_spend_transactions (
       metagraph_id,
       hash,
+      currency_id,
       source_addr,
       amount,
       destination_addr,
       allow_spend_ref,
       snapshot_hash
-    ) VALUES ($varchar, $varchar, $varchar, $int8, $varchar, ${varchar.opt}, $varchar)
+    ) VALUES ($varchar, $varchar, ${varchar.opt}, $varchar, $int8, $varchar, ${varchar.opt}, $varchar)
     ON CONFLICT (hash) DO NOTHING;
   """.command.contramap { case CurrencyData(id, tx: SpendTransaction) =>
       (
         id,
         tx.hash,
+        tx.currencyId,
         tx.source,
         tx.amount,
         tx.destination,
@@ -479,6 +489,7 @@ object SnapshotDAO {
       metagraph_id,
       snapshot_hash,
       hash,
+      mas.currency_id,
       source_addr,
       amount,
       allow_spend_ref
@@ -487,6 +498,7 @@ object SnapshotDAO {
       $varchar,                      -- metagraphId
       $varchar,                      -- metagraph snapshot hash
       $varchar,                      -- hash from MetagraphAllowSpendExpiration
+      mas.currency_id,
       mas.source_addr,
       mas.amount,
       $varchar                       -- allowSpendRef
