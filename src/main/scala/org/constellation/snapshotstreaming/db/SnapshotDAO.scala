@@ -4,11 +4,25 @@ import cats.Parallel
 import cats.effect.{Async, Resource}
 import cats.syntax.all._
 import io.constellationnetwork.security.signature.signature.SignatureProof
+import org.constellation.snapshotstreaming.retryF
 import org.constellation.snapshotstreaming.schema.AllowSpends.{AllowSpend, AllowSpendExpiration, SpendTransaction}
 import org.constellation.snapshotstreaming.schema.TokenLocks.{TokenLock, TokenUnlock}
 import org.constellation.snapshotstreaming.schema.extractors.{AddressExtractor, MetagraphExtractor}
 import org.constellation.snapshotstreaming.schema.schema.{GlobalData, MetagraphData}
-import org.constellation.snapshotstreaming.schema.{AddressBalance, Block, BlockReference, CurrencyData, CurrencySnapshot, DelegatedStakingCreate, DelegatedStakingReward, DelegatedStakingWithdraw, FeeTransaction, RewardTransaction, Snapshot, Transaction => STransaction}
+import org.constellation.snapshotstreaming.schema.{
+  AddressBalance,
+  Block,
+  BlockReference,
+  CurrencyData,
+  CurrencySnapshot,
+  DelegatedStakingCreate,
+  DelegatedStakingReward,
+  DelegatedStakingWithdraw,
+  FeeTransaction,
+  RewardTransaction,
+  Snapshot,
+  Transaction => STransaction
+}
 import org.typelevel.log4cats.slf4j.Slf4jLogger
 import skunk._
 import skunk.circe.codec.all.jsonb
@@ -383,7 +397,7 @@ object SnapshotDAO {
   private def insertMetagraphTransactionsMany(size: Int): Command[List[CurrencyData[STransaction]]] = {
     val enc = (
       varchar *: varchar *: varchar *: varchar *: int8 *: int8 *: int8 *: int8 *: varchar *: int8 *: varchar *: varchar *: jsonb *: timestamp
-      ).values.contramap { cdTx: CurrencyData[STransaction] =>
+    ).values.contramap { cdTx: CurrencyData[STransaction] =>
       (
         cdTx.identifier,
         cdTx.data.hash,
@@ -632,11 +646,10 @@ object SnapshotDAO {
       (id, ab.snapshotHash, ab.snapshotOrdinal, ab.address, ab.balance, ab.timestamp)
     }
 
-
   private def insertMetagraphAddressBalancesMany(size: Int): Command[List[CurrencyData[AddressBalance]]] = {
     val enc = (
       varchar *: varchar *: int8 *: varchar *: int8 *: timestamp
-      ).values.contramap { cdAb: CurrencyData[AddressBalance] =>
+    ).values.contramap { cdAb: CurrencyData[AddressBalance] =>
       (
         cdAb.identifier,
         cdAb.data.snapshotHash,
@@ -689,10 +702,11 @@ object SnapshotDAO {
 
   private def pairWith[V, T](elem: V, elements: Seq[T]) = elements.map((elem, _))
 
-  def make[F[_] : Async : Parallel](pool: Resource[F, Session[F]]): SnapshotDAO[F] = new SnapshotDAO[F] {
-    private val logger = Slf4jLogger.getLoggerFromName[F]("SnapshotDAO")
+  def make[F[_]: Async: Parallel](pool: Resource[F, Session[F]]): SnapshotDAO[F] = new SnapshotDAO[F] {
+    private implicit val logger = Slf4jLogger.getLoggerFromName[F]("SnapshotDAO")
+
     def insertGlobalData(snapshot: GlobalData, mgSnaphotsCount: Int): F[Unit] =
-      pool.use { session =>
+      retryF(pool.use { session =>
         session.transaction.use { xa =>
           val gsHash = snapshot.snapshot.hash
           val blockParents = snapshot.blocks.toList.flatMap(b => b.parent.map((b.hash, _)))
@@ -735,7 +749,11 @@ object SnapshotDAO {
             _ <- executeCmd(preparedDagDelegatedStakingCreate)(snapshot.delegatedStakingCreate)
             _ <- logger.info("[GLOBAL]Starting preparedDagDelegatedStakingWithdraw")
             _ <- executeCmd(preparedDagDelegatedStakingWithdraw)(snapshot.delegatedStakingWithdraw)
-            _ <- executeMany(session, snapshot.completedDelegatedStakingWithdrawHashes.toList, updateCompletedDelegatedStakingWithdrawCommand)
+            _ <- executeMany(
+              session,
+              snapshot.completedDelegatedStakingWithdrawHashes.toList,
+              updateCompletedDelegatedStakingWithdrawCommand
+            )
             _ <- logger.info("[GLOBAL]Starting preparedDagDelegatedStakingRewards")
             _ <- executeCmd(preparedDagDelegatedStakingRewards)(snapshot.delegatedStakingRewards)
             _ <- logger.info(s"[GLOBAL]Starting preparedDagAddressBalance. snapshot.balances ${snapshot.balances.size}")
@@ -749,10 +767,10 @@ object SnapshotDAO {
             _ <- xa.commit
           } yield ()
         }
-      }
+      })
 
     def insertMetagraphData(globalSnapshotHash: String, mgSnapshot: MetagraphData): F[Unit] =
-      pool.use { session =>
+      retryF(pool.use { session =>
         session.transaction.use { xa =>
           val blockParents = mgSnapshot.blocks.flatMap { currencyData =>
             currencyData.data.parent.map(parent => (currencyData.identifier, currencyData.data.hash, parent))
@@ -805,7 +823,7 @@ object SnapshotDAO {
             _ <- xa.commit
           } yield ()
         }
-      }
+      })
 
   }
 

@@ -15,7 +15,7 @@ import io.constellationnetwork.security.Hashed
 import io.constellationnetwork.security.hash.Hash
 import io.constellationnetwork.security.signature.Signed
 import fs2.{Stream, io}
-import org.constellation.snapshotstreaming.S3Config
+import org.constellation.snapshotstreaming.{S3Config, retryF}
 import org.typelevel.log4cats.slf4j.Slf4jLogger
 
 import java.io.ByteArrayInputStream
@@ -28,7 +28,7 @@ trait S3DAO[F[_]] {
 
 object S3DAO {
 
-  def make[F[_]: Async : KryoSerializer: JsonSerializer](config: S3Config): Resource[F, S3DAO[F]] =
+  def make[F[_]: Async: KryoSerializer: JsonSerializer](config: S3Config): Resource[F, S3DAO[F]] =
     Resource.make {
       Applicative[F].pure {
         val emptyBuilder = AmazonS3ClientBuilder
@@ -46,13 +46,13 @@ object S3DAO {
       .map(make(config, _))
 
   def make[F[_]: Async: KryoSerializer](config: S3Config, s3Client: AmazonS3)(implicit
-                                                                              jsonSerializer: JsonSerializer[F]
+    jsonSerializer: JsonSerializer[F]
   ): S3DAO[F] = new S3DAO[F] {
 
-    private val logger = Slf4jLogger.getLogger[F]
+    private implicit val logger = Slf4jLogger.getLogger[F]
 
     def uploadSnapshot(snapshot: Hashed[GlobalIncrementalSnapshot], hashLogic: HashLogic): F[Unit] =
-      for {
+      retryF(for {
         arr <- hashLogic match {
           case JsonHash => jsonSerializer.serialize(snapshot.signed)
           case KryoHash => snapshot.signed.toBinaryF
@@ -63,7 +63,7 @@ object S3DAO {
         _ <- logger.info(
           s"Snapshot ${snapshot.ordinal.value.value} (hash: ${snapshot.hash.show.take(8)}) uploaded to s3."
         )
-      } yield ()
+      } yield ())
 
     def downloadSnapshot(hash: Hash): F[Signed[GlobalIncrementalSnapshot]] = {
       val keyName = s"${config.bucketDir}/${hash}"
@@ -76,7 +76,7 @@ object S3DAO {
         .flatMap(inputStream => io.readInputStream(Async[F].delay(inputStream.getDelegateStream), chunkSize = 4096))
         .compile
         .to(Array)
-        .flatMap( d => d.fromBinaryF[Signed[GlobalIncrementalSnapshot]])
+        .flatMap(d => d.fromBinaryF[Signed[GlobalIncrementalSnapshot]])
 
     }
 
