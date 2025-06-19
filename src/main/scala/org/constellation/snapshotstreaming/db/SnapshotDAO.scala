@@ -308,8 +308,7 @@ object SnapshotDAO {
         global_snapshot_hash,
         destination_addr,
         amount
-      ) VALUES ($varchar, $varchar, $int8)
-      ON CONFLICT (global_snapshot_hash, destination_addr) DO NOTHING;
+      ) VALUES ($varchar, $varchar, $int8);
     """.command.contramap { case (gsHash, reward) =>
       (gsHash, reward.destination, reward.amount)
     }
@@ -620,8 +619,7 @@ object SnapshotDAO {
         metagraph_snapshot_hash,
         destination_addr,
         amount
-      ) VALUES ($varchar, $varchar, $varchar, $int8)
-      ON CONFLICT (metagraph_id, metagraph_snapshot_hash, destination_addr) DO NOTHING;
+      ) VALUES ($varchar, $varchar, $varchar, $int8);
     """.command.contramap { case (mgHash, CurrencyData(id, reward)) =>
       (
         id,
