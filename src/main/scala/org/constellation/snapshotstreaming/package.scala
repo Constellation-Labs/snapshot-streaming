@@ -6,8 +6,6 @@ import cats.effect.implicits.clockOps
 import cats.syntax.all._
 import org.typelevel.log4cats.Logger
 
-import scala.concurrent.duration.FiniteDuration
-
 package object snapshotstreaming {
 
   def retryF[F[_]: Logger, A](effect: F[A], maxRetries: Int = 5)(implicit
@@ -21,8 +19,8 @@ package object snapshotstreaming {
         F.raiseError(err)
     }
 
-  def timed[A, F[_]: Logger: Clock: FlatMap](f: F[A])(msg: String): F[(FiniteDuration, A)] = f.timed.flatTap {
-    case (t, _) => Logger[F].info(s"$msg in ${t.toSeconds} s.")
+  implicit class TimedLogOps[F[_], A](private val fa: F[A]) extends AnyVal {
+    def timedLog(msg: String)(implicit L: Logger[F], C: Clock[F], F: FlatMap[F]): F[A] =
+      fa.timed.flatTap { case (t, _) => L.info(s"$msg in ${t.toSeconds} s.") }.map(_._2)
   }
-
 }
