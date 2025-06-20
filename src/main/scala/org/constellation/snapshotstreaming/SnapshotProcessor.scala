@@ -332,7 +332,9 @@ object SnapshotProcessor {
           .evalMap { snapshot =>
             val hasher = HasherSelector[F].getForOrdinal(snapshot.snapshot.ordinal)
             logger.info(s"Consumer: Processing snapshot ${getSnapshotReference(snapshot.snapshot)}") >>
-              retryF(process(snapshot, hasher)).handleErrorWith { e =>
+              retryF(
+                process(snapshot, hasher).timedLog(s"Consumer: processed snapshot ${snapshot.snapshot.ordinal.value}")
+              ).handleErrorWith { e =>
                 logger.error(e)(
                   s"Consumer: unrecoverable error processing snapshot ${getSnapshotReference(snapshot.snapshot)}"
                 ) *> e.raiseError[F, Unit]
