@@ -30,7 +30,8 @@ import io.constellationnetwork.schema.{
   GlobalIncrementalSnapshot,
   GlobalSnapshot,
   GlobalSnapshotInfo,
-  GlobalSnapshotInfoV2
+  GlobalSnapshotInfoV2,
+  SnapshotOrdinal
 }
 import io.constellationnetwork.security._
 import io.constellationnetwork.security.signature.Signed
@@ -40,6 +41,8 @@ import org.constellation.snapshotstreaming.db.SnapshotDAO
 import org.constellation.snapshotstreaming.mapper.{CurrencySnapshotMapper, GlobalSnapshotMapper}
 import org.constellation.snapshotstreaming.opensearch.OpensearchDAO
 import org.constellation.snapshotstreaming.s3.S3DAO
+import io.constellationnetwork.json.JsonBrotliBinarySerializer
+import io.circe.Decoder
 import org.constellation.snapshotstreaming.schema.schema.{GlobalData, MetagraphData}
 import org.constellation.snapshotstreaming.storage.{
   FileBasedLastGlobalFullSnapshotStorage,
@@ -49,6 +52,8 @@ import org.constellation.snapshotstreaming.storage.{
 import org.http4s.ember.client.EmberClientBuilder
 import org.typelevel.log4cats.slf4j.Slf4jLogger
 import org.typelevel.otel4s.trace.Tracer
+
+import scala.util.Try
 
 trait SnapshotProcessor[F[_]] {
   val runtime: Stream[F, Unit]
@@ -65,8 +70,6 @@ object SnapshotProcessor {
   ): Resource[F, SnapshotProcessor[F]] =
     for {
       client <- makeClient(configuration.httpClient)
-      s3DAO <- S3DAO.make[F](configuration.s3)
-      opensearchDAO <- OpensearchDAO.make[F](configuration.opensearch)
       sessionPool <- db.session[F](configuration.db)
       snapshotDAO = SnapshotDAO.make[F](sessionPool)
       globalSnapshotClient = L0GlobalSnapshotClient.make[F](client)
@@ -86,17 +89,18 @@ object SnapshotProcessor {
       lastFullGlobalSnapshotStorage = FileBasedLastGlobalFullSnapshotStorage.make[F, GlobalSnapshot](
         configuration.lastSnapshotPath
       )
+      jsonBrotliBinarySerializer <- Resource.eval(JsonBrotliBinarySerializer.forSync[F])
     } yield make(
       configuration,
       lastIncrementalGlobalSnapshotStorage,
       l0Service,
-      s3DAO,
       snapshotDAO,
       GlobalSnapshotMapper.make(Configuration.nodeSharedConfig(configuration.environment, sharedConfig)),
       CurrencySnapshotMapper.make(),
       txHasher,
       tesselationServices,
-      lastFullGlobalSnapshotStorage
+      lastFullGlobalSnapshotStorage,
+      jsonBrotliBinarySerializer
     )
 
   private def fsGlobalIncrementalStorage[F[_]: Async: Parallel: HasherSelector: Files: KryoSerializer](
@@ -118,13 +122,13 @@ object SnapshotProcessor {
     configuration: SnapshotStreamingConfig,
     lastIncrementalGlobalSnapshotStorage: LastSnapshotStorage[F, GlobalIncrementalSnapshot, GlobalSnapshotInfo],
     l0Service: GlobalL0Service[F],
-    s3DAO: S3DAO[F],
     snapshotDAO: SnapshotDAO[F],
     globalMapper: GlobalSnapshotMapper[F],
     currencyMapper: CurrencySnapshotMapper[F],
     txHasher: Hasher[F],
     tessellationServices: TessellationServices[F],
-    lastFullGlobalSnapshotStorage: FileBasedLastGlobalFullSnapshotStorage[F]
+    lastFullGlobalSnapshotStorage: FileBasedLastGlobalFullSnapshotStorage[F],
+    jsonBrotliBinarySerializer: JsonBrotliBinarySerializer[F]
   ): SnapshotProcessor[F] = new SnapshotProcessor[F] {
     private implicit val logger = Slf4jLogger.getLogger[F]
 
@@ -141,88 +145,40 @@ object SnapshotProcessor {
             .handleErrorWith(s => logger.error(s)("Error in database layer") >> s.raiseError[F, Unit])
       }
 
-    private def storeInS3(globalSnapshotWithState: GlobalSnapshotWithState, hasher: Hasher[F]) =
-      s3DAO
-        .uploadSnapshot(globalSnapshotWithState.snapshot, hasher.getLogic(globalSnapshotWithState.snapshot.ordinal))
-        .void
-
-    private def splitData(globalSnapshotWithState: GlobalSnapshotWithState, d: LocalDateTime, hasher: Hasher[F]) = (
-      globalMapper.mapGlobalSnapshot(globalSnapshotWithState, d, txHasher, hasher),
-      currencyMapper.mapCurrencySnapshots(globalSnapshotWithState, d, txHasher, hasher)
+    private def splitData(snapshot: Hashed[GlobalIncrementalSnapshot], ccys: List[Hashed[CurrencyIncrementalSnapshot]], d: LocalDateTime, hasher: Hasher[F]) = (
+      globalMapper.mapGlobalSnapshot(snapshot, d, txHasher, hasher),
+      currencyMapper.mapCurrencySnapshots(ccys, d, txHasher, hasher)
     ).tupled
 
-    private def store(globalSnapshotWithState: GlobalSnapshotWithState, hasher: Hasher[F]): F[Unit] =
-      storeInS3(globalSnapshotWithState, hasher).whenA(configuration.s3.uploadEnabled) >> Clock[F].realTime.map { d =>
+    private def store(snapshot: Hashed[GlobalIncrementalSnapshot], ccys: List[Hashed[CurrencyIncrementalSnapshot]], hasher: Hasher[F]): F[Unit] =
+      Clock[F].realTime.map { d =>
         val instant = Instant.ofEpochMilli(d.toMillis)
         LocalDateTime.ofInstant(instant, ZoneId.systemDefault())
-      }.flatMap(splitData(globalSnapshotWithState, _, hasher))
+      }.flatMap(splitData(snapshot, ccys, _, hasher))
         .flatMap { case (globalData, metagraphData) =>
           Async[F].delay {
-            if (metagraphData.snapshots.isEmpty && globalSnapshotWithState.currencySnapshots.nonEmpty)
-              throw new Exception(s"No MG snapshots for ${globalSnapshotWithState.currencySnapshots}")
+            if (metagraphData.snapshots.isEmpty && snapshot.stateChannelSnapshots.nonEmpty)
+              throw new Exception(s"No MG snapshots for ${snapshot.stateChannelSnapshots}")
             else ()
           } >>
             storeInPostgres(globalData, metagraphData)
         }
         .void
 
-    private def process(globalSnapshotWithState: GlobalSnapshotWithState, hasher: Hasher[F]): F[Unit] = {
-      val GlobalSnapshotWithState(snapshot, _, snapshotInfo, _, _) = globalSnapshotWithState
-      HasherSelector[F]
-        .forOrdinal(snapshot.ordinal) { implicit hasher =>
-          logger.info(
-            s"Global Snapshot ${snapshot.ordinal.value.value} with logic=${hasher.getLogic(snapshot.ordinal)}"
-          ) >>
-            (hasher.getLogic(snapshot.ordinal) match {
-              case JsonHash => StateProofValidator.validate(snapshot, snapshotInfo)
-              case KryoHash =>
-                StateProofValidator.validate(snapshot, GlobalSnapshotInfoV2.fromGlobalSnapshotInfo(snapshotInfo))
-            })
-        }
-        .flatMap {
-          case Validated.Valid(()) =>
-            lastIncrementalGlobalSnapshotStorage.get.flatMap {
-              case Some(last) if Validator.isNextSnapshot(last, snapshot.signed.value) =>
-                store(globalSnapshotWithState, hasher) >>
-                  lastIncrementalGlobalSnapshotStorage.set(snapshot, snapshotInfo)
-              case Some(last) =>
-                logger.warn(
-                  s"Pulled snapshot doesn't form a correct chain, ignoring! Last: ${getSnapshotReference(last)} pulled: ${getSnapshotReference(snapshot)}"
-                )
-              case None =>
-                lastFullGlobalSnapshotStorage.get
-                  .flatMap(_.traverse { snapshot =>
-                    HasherSelector[F].forOrdinal(snapshot.ordinal)(implicit hasher => snapshot.toHashed)
-                  })
-                  .flatMap {
-                    case Some(last) if Validator.isNextSnapshot(last, snapshot.signed.value) =>
-                      store(globalSnapshotWithState, hasher) >>
-                        lastIncrementalGlobalSnapshotStorage
-                          .setInitial(snapshot, snapshotInfo)
-                          .onError(e => logger.error(e)(s"Failure setting initial global snapshot!"))
-                    case Some(last) =>
-                      logger.warn(
-                        s"Pulled snapshot doesn't form a correct chain, ignoring! Last: ${getSnapshotReference(last)} pulled: ${getSnapshotReference(snapshot)}"
-                      )
-                    case None =>
-                      new Throwable(
-                        s"Neither last processed snapshot nor initial snapshot were found during snapshot processing!"
-                      ).raiseError[F, Unit]
-                  }
-            }
-          case Validated.Invalid(e) =>
-            logger.warn(
-              s"Calculated stateProof does not match state from snapshot: ${e}."
-            )
-        }
-    }
+    def deserialize[A: Decoder](binary: Signed[StateChannelSnapshotBinary]): F[Option[A]] =
+      jsonBrotliBinarySerializer.deserialize[A](binary.value.content).map(_.toOption)
 
-    val runtime: Stream[F, Unit] = {
+
+    val runtime: Stream[F, Unit] =
       for {
-        queue <- Stream.eval(Queue.bounded[F, GlobalSnapshotWithState](configuration.node.pullLimit.value.toInt * 2))
+        queue <- Stream.eval(
+          Queue.bounded[F, (Hashed[GlobalIncrementalSnapshot], List[Hashed[CurrencyIncrementalSnapshot]])](
+            configuration.node.pullLimit.value.toInt * 2
+          )
+        )
 
         incrementalCombined <- Stream.eval(lastIncrementalGlobalSnapshotStorage.getCombined)
-        initialState = incrementalCombined.map { case (hashedSnapshot, state) => (hashedSnapshot.signed, state) }
+        initialState = incrementalCombined.map { case (hashedSnapshot, _) => hashedSnapshot.signed }
         // Producer stream - pulls and processes snapshots
         producer = Stream
           .awakeEvery(configuration.node.pullInterval)
@@ -233,110 +189,65 @@ object SnapshotProcessor {
               )
             }
           }
-          .evalMapAccumulate(initialState) {
-            case (Some((lastSnapshot, lastState)), _) =>
-              l0Service
-                .pullGlobalSnapshots(lastSnapshot.ordinal)
-                .map(
-                  _.leftMap(_ => new Throwable(s"Existence of last snapshot has been checked. It shouldn't happen!"))
-                )
-                .flatMap(_.liftTo[F])
-                .flatMap { incrementalSnapshots =>
-                  logger.info(s"Producer: Pulled ${incrementalSnapshots.size} snapshots") >>
-                    incrementalSnapshots.foldM(ProcessedSnapshots(lastSnapshot, lastState, List.empty)) {
-                      (processedSnapshots, snapshot) =>
-                        tessellationServices.globalSnapshotContextService
-                          .createContext(
-                            processedSnapshots.lastState,
-                            processedSnapshots.lastSnapshot,
-                            snapshot,
-                            l0Service.pullGlobalSnapshot,
-                            LocalDateTime.now()
-                          )
-                          .flatMap { globalSnapshotsWithState =>
-                            queue.offer(globalSnapshotsWithState).flatMap { _ =>
-                              logger.info(
-                                s"Producer: Added snapshot to queue (offered ${getSnapshotReference(globalSnapshotsWithState.snapshot)})"
-                              )
-                            } >> globalSnapshotsWithState.pure
-                          }
-                          .map { globalSnapshotsWithState =>
-                            ProcessedSnapshots(
-                              snapshot.signed,
-                              globalSnapshotsWithState.snapshotInfo,
-                              processedSnapshots.snapshotsWithState.appended(globalSnapshotsWithState)
-                            )
-                          }
+          .evalMap(_ => lastIncrementalGlobalSnapshotStorage.getOrdinal)
+          .evalMap { lastSnapshot =>
+            val lastOrdinal = lastSnapshot.getOrElse(SnapshotOrdinal.MinValue)
+            l0Service
+              .pullGlobalSnapshots(lastOrdinal)
+              .map(
+                _.leftMap(_ => new Throwable(s"Existence of last snapshot has been checked. It shouldn't happen!"))
+              )
+              .flatMap(_.liftTo[F])
+              .flatMap { incrementalSnapshots =>
+                logger.info(s"Producer: Pulled ${incrementalSnapshots.size} snapshots") >>
+                  incrementalSnapshots.traverse { snapshot =>
+                    val reversedStateChannelSnapshots = snapshot.signed.value.stateChannelSnapshots.map {
+                      case (address, snapshots) =>
+                        address -> snapshots.reverse
                     }
-                }
-                .map { s =>
-                  (Option(s.lastSnapshot, s.lastState), s.snapshotsWithState)
-                }
-                .handleErrorWith { e =>
-                  logger.error(e)("Producer: Error pulling snapshots, will retry in next cycle") >>
-                    ((lastSnapshot, lastState).some, List.empty[GlobalSnapshotWithState]).pure[F]
-                }
-
-            case (None, _) =>
-              logger.info("Producer: No last snapshot found, checking full snapshot") >>
-                lastFullGlobalSnapshotStorage.get.flatMap {
-                  case Some(signedFullGlobalSnapshot) =>
-                    logger.info(s"Producer: Found full snapshot ${signedFullGlobalSnapshot.value.ordinal}") >>
-                      l0Service
-                        .pullGlobalSnapshot(signedFullGlobalSnapshot.value.ordinal.next)
-                        .flatMap(
-                          _.map(nextSnapshot =>
-                            GlobalSnapshotWithState(
-                              nextSnapshot,
-                              None,
-                              signedFullGlobalSnapshot.value.info,
-                              Map.empty,
-                              LocalDateTime.now()
-                            )
-                          ).traverse { globalSnapshotsWithState =>
-                            queue.offer(globalSnapshotsWithState).flatMap { _ =>
-                              logger.info(
-                                s"Producer: Added snapshot to queue (offered ${getSnapshotReference(globalSnapshotsWithState.snapshot)})"
-                              )
-                            } >> globalSnapshotsWithState.pure
+                    val currencySnapshots = reversedStateChannelSnapshots.values.toList.flatTraverse(
+                      _.traverse(deserialize[Signed[CurrencyIncrementalSnapshot]]).map(x => x.toList.flatten).flatMap(_.traverse { s =>
+                        HasherSelector[F]
+                          .forOrdinal(snapshot.ordinal) { implicit hasher =>
+                            s.toHashed
                           }
-                        )
-                        .map(s => (s.map(gsws => (gsws.snapshot.signed, gsws.snapshotInfo)), s.toList))
-                        .handleErrorWith { e =>
-                          logger.error(e)("Producer: Error pulling initial snapshot, will retry in next cycle") >>
-                            (
-                              Option.empty[(Signed[GlobalIncrementalSnapshot], GlobalSnapshotInfo)],
-                              List.empty[GlobalSnapshotWithState]
-                            ).pure[F]
-                        }
-                  case None =>
-                    logger.error("Producer: No snapshots found at all!") >>
-                      (
-                        Option.empty[(Signed[GlobalIncrementalSnapshot], GlobalSnapshotInfo)],
-                        List.empty[GlobalSnapshotWithState]
-                      ).pure[F]
-                }
+                      })
+                    )
+
+                    val x = currencySnapshots.map(cs => (snapshot, cs))
+                    x
+                  }
+              }
+          }
+          .flatMap(Stream.emits)
+          .evalMap { snapshot =>
+            queue.offer(snapshot).flatMap { _ =>
+              logger.info(
+                s"Producer: Added snapshot to queue (offered ${getSnapshotReference(snapshot._1)})"
+              )
+            }
+
           }
           .drain
 
         // Consumer stream - stores snapshots
         consumer = Stream
           .fromQueueUnterminated(queue)
-          .evalTap { snapshot =>
+          .evalTap { case (snapshot, currencySnapshots) =>
             queue.size.flatMap { size =>
               logger.info(
-                s"Consumer: Starting to process snapshot ${getSnapshotReference(snapshot.snapshot)}. Queue size: $size"
+                s"Consumer: Starting to process snapshot ${getSnapshotReference(snapshot)}. Queue size: $size"
               )
             }
           }
-          .evalMap { snapshot =>
-            val hasher = HasherSelector[F].getForOrdinal(snapshot.snapshot.ordinal)
-            logger.info(s"Consumer: Processing snapshot ${getSnapshotReference(snapshot.snapshot)}") >>
+          .evalMap { case (snapshot, currencySnapshots) =>
+            val hasher = HasherSelector[F].getForOrdinal(snapshot.ordinal)
+            logger.info(s"Consumer: Processing snapshot ${getSnapshotReference(snapshot)}") >>
               retryF(
-                process(snapshot, hasher).timedLog(s"Consumer: processed snapshot ${snapshot.snapshot.ordinal.value}")
+                store(snapshot, currencySnapshots , hasher).timedLog(s"Consumer: processed snapshot ${snapshot.ordinal.value}")
               ).handleErrorWith { e =>
                 logger.error(e)(
-                  s"Consumer: unrecoverable error processing snapshot ${getSnapshotReference(snapshot.snapshot)}"
+                  s"Consumer: unrecoverable error processing snapshot ${getSnapshotReference(snapshot)}"
                 ) *> e.raiseError[F, Unit]
               }.as(snapshot)
           }
@@ -345,26 +256,17 @@ object SnapshotProcessor {
         // Run all streams concurrently
         _ <- Stream(producer, consumer).parJoin(2)
       } yield ()
-    }
 
   }
 
   case class GlobalSnapshotWithState(
     snapshot: Hashed[GlobalIncrementalSnapshot],
-    maybePrevSnapshotInfo: Option[GlobalSnapshotInfo],
-    snapshotInfo: GlobalSnapshotInfo,
     currencySnapshots: Map[Address, NonEmptyList[
       Either[Hashed[
         CurrencySnapshot
       ], (Hashed[CurrencyIncrementalSnapshot], CurrencySnapshotInfo, Signed[StateChannelSnapshotBinary])]
     ]],
     ts: LocalDateTime
-  )
-
-  case class ProcessedSnapshots(
-    lastSnapshot: Signed[GlobalIncrementalSnapshot],
-    lastState: GlobalSnapshotInfo,
-    snapshotsWithState: List[GlobalSnapshotWithState]
   )
 
 }

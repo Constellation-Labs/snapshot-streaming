@@ -44,60 +44,35 @@ abstract class GlobalSnapshotMapper[F[_]: Async] extends SnapshotMapper[F, Globa
   def mapSnapshot(snapshot: Hashed[GlobalIncrementalSnapshot], timestamp: LocalDateTime, hasher: Hasher[F]): F[Snapshot]
 
   def mapGlobalSnapshot(
-    globalSnapshotWithState: GlobalSnapshotWithState,
+                         globalSnapshot: Hashed[GlobalIncrementalSnapshot],
     timestamp: LocalDateTime,
     txHasher: Hasher[F],
     hasher: Hasher[F]
   ): F[GlobalData] = {
-    val GlobalSnapshotWithState(globalSnapshot, maybePrevSnapshotInfo, snapshotInfo, _, ts) =
-      globalSnapshotWithState
+
     for {
       snapshot <- mapSnapshot(globalSnapshot, timestamp, hasher)
       blocks <- mapBlocks(globalSnapshot, timestamp, txHasher, hasher)
       transactions <- mapTransactions(globalSnapshot, timestamp, txHasher, hasher)
-      filteredBalances = balanceDiff(
-        globalSnapshot.signed.value,
-        maybePrevSnapshotInfo.map(prev => prev.balances),
-        snapshotInfo
-      )
-      balances = mapBalances(globalSnapshot, filteredBalances, timestamp)
 
       allowSpends <- mapAllowSpends(globalSnapshot, hasher)
       artifacts <- mapArtifacts(globalSnapshot, hasher)
       (spendTransactions, tokenUnlocks, allowSpendExpirations) = artifacts
       tokenLocks <- mapTokenLocks(globalSnapshot, hasher)
 
-      activeHashedDelegatedStakes <- activeHashedDelegatedStakes(snapshotInfo)(hasher)
-      delegatedStakingCreate <- mapDelegatedStakingCreates(
-        globalSnapshot.hash,
-        activeHashedDelegatedStakes,
-        maybePrevSnapshotInfo,
-        hasher
-      )
-      dsWithdrawsWithUpdates <- mapDelegatedStakingWithdrawals(
-        globalSnapshot.hash,
-        snapshotInfo,
-        maybePrevSnapshotInfo,
-        hasher
-      )
-      (delegatedStakingWithdraw, completedDelegatedStakingWithdrawHashes) = dsWithdrawsWithUpdates
-      stakingRewards = mapStakingRewards(
-        globalSnapshot,
-        activeHashedDelegatedStakes
-      )
     } yield GlobalData(
       snapshot,
       blocks,
       transactions,
-      balances,
+      Seq(),
       globalSnapshot.signed.proofs.toSortedSet.toSeq,
       allowSpends,
       tokenLocks,
       tokenUnlocks,
-      delegatedStakingCreate,
-      delegatedStakingWithdraw,
-      completedDelegatedStakingWithdrawHashes,
-      stakingRewards,
+      Seq(),
+      Seq(),
+      Seq(),
+      Seq(),
       spendTransactions,
       allowSpendExpirations
     )

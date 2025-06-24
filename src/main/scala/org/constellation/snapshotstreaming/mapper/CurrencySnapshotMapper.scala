@@ -2,27 +2,35 @@ package org.constellation.snapshotstreaming.mapper
 
 import cats.effect.Async
 import cats.syntax.all._
+import io.constellationnetwork.currency.schema.currency.CurrencyIncrementalSnapshot
 import io.constellationnetwork.json.JsonSerializer
 import io.constellationnetwork.schema.address.Address
 import io.constellationnetwork.schema.balance.Balance
-import io.constellationnetwork.security.Hasher
+import io.constellationnetwork.security.{Hashed, Hasher}
 import org.constellation.snapshotstreaming.SnapshotProcessor.GlobalSnapshotWithState
 import org.constellation.snapshotstreaming.schema.AllowSpends.{AllowSpend, AllowSpendExpiration, SpendTransaction}
 import org.constellation.snapshotstreaming.schema.TokenLocks.{TokenLock, TokenUnlock}
 import org.constellation.snapshotstreaming.schema.schema.{MetagraphData, toIncremental}
-import org.constellation.snapshotstreaming.schema.{AddressBalance, Block, CurrencyData, FeeTransaction, Snapshot, Transaction, CurrencySnapshot => OSCurrencySnapshot}
+import org.constellation.snapshotstreaming.schema.{
+  AddressBalance,
+  Block,
+  CurrencyData,
+  CurrencySnapshot => OSCurrencySnapshot,
+  FeeTransaction,
+  Snapshot,
+  Transaction
+}
 
 import java.time.LocalDateTime
 import scala.collection.immutable.SortedMap
 
-
 trait CurrencySnapshotMapper[F[_]] {
 
   def mapCurrencySnapshots(
-    globalSnapshotWithState: GlobalSnapshotWithState,
-    timestamp              : LocalDateTime,
-    txHasher               : Hasher[F],
-    hasher                 : Hasher[F]
+                            currencySnapshots: List[Hashed[CurrencyIncrementalSnapshot]],
+    timestamp: LocalDateTime,
+    txHasher: Hasher[F],
+    hasher: Hasher[F]
   ): F[
     MetagraphData
   ]
@@ -43,37 +51,27 @@ object CurrencySnapshotMapper {
 
       type Acc = (
         Seq[CurrencyData[OSCurrencySnapshot]],
-          Seq[CurrencyData[Block]],
-          Seq[CurrencyData[Transaction]],
-          Seq[CurrencyData[FeeTransaction]],
-          Seq[CurrencyData[AddressBalance]],
-          Seq[CurrencyData[AllowSpend]],
-          Seq[CurrencyData[SpendTransaction]],
-          Seq[CurrencyData[AllowSpendExpiration]],
-          Seq[CurrencyData[TokenLock]],
-          Seq[CurrencyData[TokenUnlock]],
-          Map[Address, SortedMap[Address, Balance]],
-        )
+        Seq[CurrencyData[Block]],
+        Seq[CurrencyData[Transaction]],
+        Seq[CurrencyData[FeeTransaction]],
+        Seq[CurrencyData[AllowSpend]],
+        Seq[CurrencyData[SpendTransaction]],
+        Seq[CurrencyData[AllowSpendExpiration]],
+        Seq[CurrencyData[TokenLock]],
+        Seq[CurrencyData[TokenUnlock]],
+        Map[Address, SortedMap[Address, Balance]]
+      )
 
       type CurrencySnapshotMapperResult = MetagraphData
 
       def mapCurrencySnapshots(
-        globalSnapshotWithState: GlobalSnapshotWithState,
+                                currencySnapshots: List[Hashed[CurrencyIncrementalSnapshot]],
         timestamp: LocalDateTime,
         txHasher: Hasher[F],
         hasher: Hasher[F]
       ): F[CurrencySnapshotMapperResult] = {
 
-        val GlobalSnapshotWithState(_, maybePrevLastSnapshots, _, currencySnapshots, _) =
-          globalSnapshotWithState
 
-        val maybeLastSnapshots = maybePrevLastSnapshots.map(_.lastCurrencySnapshots)
-        val initialAccBalances = maybeLastSnapshots.map {
-          _.map {
-            case (identifier, Left(full))        => identifier -> full.info.balances
-            case (identifier, Right((_, state))) => identifier -> state.balances
-          }
-        }.getOrElse(SortedMap.empty[Address, SortedMap[Address, Balance]])
 
         val initialAcc: Acc = (
           Seq.empty,
@@ -85,18 +83,26 @@ object CurrencySnapshotMapper {
           Seq.empty,
           Seq.empty,
           Seq.empty,
-          Seq.empty,
-          initialAccBalances
         )
 
-        currencySnapshots.toList.flatMap { case (i, s) => s.toList.map((i, _)) }
+        currencySnapshots
           .foldLeftM[F, Acc](initialAcc) {
             case (
-              (aggCurrencySnap, aggBlocks, aggTxs, aggFeeTxs, aggBalances, aggAllowSpends, aggSpendTxs, aggSpendExpirations, aggTokenLocks, aggTokenUnlocks, aggLastBalances),
-              (identifier, fullOrIncremental)
-              ) =>
+                  (
+                    aggCurrencySnap,
+                    aggBlocks,
+                    aggTxs,
+                    aggFeeTxs,
+                    aggAllowSpends,
+                    aggSpendTxs,
+                    aggSpendExpirations,
+                    aggTokenLocks,
+                    aggTokenUnlocks
+                  ),
+                  (identifier, fullOrIncremental)
+                ) =>
               val identifierStr = identifier.value.value
-              def toCurrency[A](a:A) = CurrencyData(identifierStr, a)
+              def toCurrency[A](a: A) = CurrencyData(identifierStr, a)
 
               fullOrIncremental match {
                 case Left(full) =>
@@ -176,8 +182,32 @@ object CurrencySnapshotMapper {
                   )
               }
           }
-          .map { case (aggCurrencySnap, aggBlocks, aggTxs, aggFeeTxs, aggBalances, aggAllowSpends, aggSpendTxs, aggSpendExpirations, aggTokenLocks, aggTokenUnlocks, _) =>
-            MetagraphData(aggCurrencySnap, aggBlocks, aggTxs, aggFeeTxs, aggBalances, aggAllowSpends, aggSpendTxs, aggSpendExpirations, aggTokenLocks, aggTokenUnlocks)
+          .map {
+            case (
+                  aggCurrencySnap,
+                  aggBlocks,
+                  aggTxs,
+                  aggFeeTxs,
+                  aggBalances,
+                  aggAllowSpends,
+                  aggSpendTxs,
+                  aggSpendExpirations,
+                  aggTokenLocks,
+                  aggTokenUnlocks,
+                  _
+                ) =>
+              MetagraphData(
+                aggCurrencySnap,
+                aggBlocks,
+                aggTxs,
+                aggFeeTxs,
+                aggBalances,
+                aggAllowSpends,
+                aggSpendTxs,
+                aggSpendExpirations,
+                aggTokenLocks,
+                aggTokenUnlocks
+              )
           }
       }
 
