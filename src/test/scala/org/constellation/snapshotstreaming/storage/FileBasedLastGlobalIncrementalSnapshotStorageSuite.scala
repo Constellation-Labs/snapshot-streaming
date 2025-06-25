@@ -67,8 +67,6 @@ object FileBasedLastGlobalIncrementalSnapshotStorageSuite extends MutableIOSuite
     None,
     None,
     None,
-    None,
-    None,
     None
   )
 

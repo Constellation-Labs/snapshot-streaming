@@ -124,8 +124,7 @@ object Configuration {
       c.lastGlobalSnapshotsSync,
       c.validationErrorStorage,
       c.delegatedStaking,
-      c.fieldsAddedOrdinals,
-      c.metagraphsSync
+      c.fieldsAddedOrdinals
     )
 
 
