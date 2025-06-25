@@ -4,6 +4,7 @@ import cats.Parallel
 import cats.effect.{Async, Resource}
 import cats.syntax.all._
 import io.constellationnetwork.security.signature.signature.SignatureProof
+import org.constellation.snapshotstreaming._
 import org.constellation.snapshotstreaming.schema.AllowSpends.{AllowSpend, AllowSpendExpiration, SpendTransaction}
 import org.constellation.snapshotstreaming.schema.TokenLocks.{TokenLock, TokenUnlock}
 import org.constellation.snapshotstreaming.schema.extractors.{AddressExtractor, MetagraphExtractor}
