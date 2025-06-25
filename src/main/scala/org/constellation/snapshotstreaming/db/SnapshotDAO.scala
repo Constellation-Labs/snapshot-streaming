@@ -702,7 +702,6 @@ object SnapshotDAO {
             preparedDagDelegatedStakingWithdraw <- session.prepare(insertDelegatedStakingCreateWithdrawCommand)
             preparedDagDelegatedStakingRewards <- session.prepare(insertDelegatedStakingRewardsCommand)
             preparedDagRewardTxs <- session.prepare(insertDagRewardTxCommand)
-            preparedDagAddressBalance <- session.prepare(insertAddressBalanceCommand)
             preparedProofs <- session.prepare(insertProofCommand)
             preparedBlockParent <- session.prepare(insertBlockParentCommand)
             _ <- executeMany(session, AddressExtractor.extract(snapshot).toList, insertAddressMany).timedLog("[GLOBAL] insert addresses")
@@ -722,7 +721,6 @@ object SnapshotDAO {
               updateCompletedDelegatedStakingWithdrawCommand
             )
             _ <- executeCmd(preparedDagDelegatedStakingRewards)(snapshot.delegatedStakingRewards).timedLog("[GLOBAL] insert preparedDagDelegatedStakingRewards")
-            _ <- executeCmd(preparedDagAddressBalance)(snapshot.balances).timedLog(s"[GLOBAL] insert preparedDagAddressBalance. snapshot.balances ${snapshot.balances.size}")
             _ <- executeCmd(preparedDagRewardTxs)(pairWith(gsHash, snapshot.snapshot.rewards.toSeq.zipWithIndex).map {case (gsHash, (tx, idx)) => (gsHash, idx, tx)}).timedLog("[GLOBAL] insert preparedDagRewardTxs")
             _ <- executeCmd(preparedBlockParent)(blockParents).timedLog("[GLOBAL] insert preparedBlockParent")
             _ <- executeCmd(preparedProofs)(pairWith(gsHash, snapshot.proofs.toSeq)).timedLog("[GLOBAL] insert preparedProofs")
@@ -762,7 +760,6 @@ object SnapshotDAO {
               )
             ).timedLog("[METAGRAPH] insert preparedMgRewardTxs")
             _ <- executeCmd(preparedMgAllowSpends)(mgSnapshot.allowSpends).timedLog("[METAGRAPH] insert preparedMgAllowSpends")
-            _ <- executeMany(session, mgSnapshot.balances.toList, insertMetagraphAddressBalancesMany).timedLog(s"[METAGRAPH] insert mgSnapshot.balances: ${mgSnapshot.balances.size}")
             _ <- executeCmd(preparedBlockParent)(blockParents.map { case (_, hash, parent) => (hash, parent) }).timedLog(s"[METAGRAPH] insert preparedBlockParent")
             _ <- executeCmd(preparedMgTokenLocks)(mgSnapshot.tokenLocks).timedLog(s"[METAGRAPH] insert preparedMgTokenLocks")
             _ <- executeCmd(preparedMgSpendsTxs)(mgSnapshot.spendTransactions).timedLog(s"[METAGRAPH] insert preparedMgSpendsTxs")

@@ -59,7 +59,6 @@ object CurrencySnapshotMapper {
         Seq[CurrencyData[AllowSpendExpiration]],
         Seq[CurrencyData[TokenLock]],
         Seq[CurrencyData[TokenUnlock]],
-        Map[Address, SortedMap[Address, Balance]]
       )
 
       type CurrencySnapshotMapperResult = MetagraphData
@@ -99,39 +98,13 @@ object CurrencySnapshotMapper {
                     aggTokenLocks,
                     aggTokenUnlocks
                   ),
-                  (identifier, fullOrIncremental)
+                  (identifier, incremental)
                 ) =>
               val identifierStr = identifier.value.value
               def toCurrency[A](a: A) = CurrencyData(identifierStr, a)
 
-              fullOrIncremental match {
-                case Left(full) =>
-                  for {
-                    snapshot <- fullMapper
-                      .mapSnapshot(full, timestamp, hasher)
-                      .map(full => CurrencyData(identifierStr, toIncremental(full)))
-                    blocks <- fullMapper
-                      .mapBlocks(full, timestamp, txHasher, hasher)
-                      .map(_.map(CurrencyData(identifierStr, _)))
-                    transactions <- fullMapper
-                      .mapTransactions(full, timestamp, txHasher, hasher)
-                      .map(_.map(CurrencyData(identifierStr, _)))
-                    balances = fullMapper
-                      .mapBalances(full, full.info.balances, timestamp)
-                      .map(CurrencyData(identifierStr, _))
-                  } yield (
-                    aggCurrencySnap :+ snapshot,
-                    aggBlocks ++ blocks,
-                    aggTxs ++ transactions,
-                    aggFeeTxs,
-                    aggBalances ++ balances,
-                    aggAllowSpends,
-                    aggSpendTxs,
-                    aggSpendExpirations,
-                    aggTokenLocks,
-                    aggTokenUnlocks,
-                    aggLastBalances + (identifier -> full.info.balances)
-                  )
+              incremental match {
+
 
                 case Right((incremental, info, binary)) =>
                   for {
@@ -153,32 +126,17 @@ object CurrencySnapshotMapper {
                     (spendsTx, tokenUnlocks, spendExpirations) = artifacts
                     tokenLocks <- incrementalMapper
                       .mapTokenLocks(incremental, timestamp, hasher)
-                    prevBalances = aggLastBalances.get(identifier)
-                    filteredBalances = incrementalMapper.balanceDiff(
-                      incremental,
-                      prevBalances,
-                      info
-                    )
-                    balances = incrementalMapper
-                      .mapBalances(incremental, filteredBalances, timestamp)
-                      .map(CurrencyData(identifierStr, _))
 
-                    lastBalancesUpdated = prevBalances match {
-                      case Some(prev) => SortedMap.from(prev ++ filteredBalances)
-                      case None       => SortedMap.from(filteredBalances)
-                    }
                   } yield (
                     aggCurrencySnap :+ snapshot,
                     aggBlocks ++ blocks,
                     aggTxs ++ transactions,
                     aggFeeTxs ++ feeTransactions,
-                    aggBalances ++ balances,
                     aggAllowSpends ++ allowSpends.map(toCurrency),
                     aggSpendTxs ++ spendsTx.map(toCurrency),
                     aggSpendExpirations ++ spendExpirations.map(toCurrency),
                     aggTokenLocks ++ tokenLocks.map(toCurrency),
                     aggTokenUnlocks ++ tokenUnlocks.map(toCurrency),
-                    aggLastBalances + (identifier -> lastBalancesUpdated)
                   )
               }
           }
@@ -188,20 +146,17 @@ object CurrencySnapshotMapper {
                   aggBlocks,
                   aggTxs,
                   aggFeeTxs,
-                  aggBalances,
                   aggAllowSpends,
                   aggSpendTxs,
                   aggSpendExpirations,
                   aggTokenLocks,
                   aggTokenUnlocks,
-                  _
                 ) =>
               MetagraphData(
                 aggCurrencySnap,
                 aggBlocks,
                 aggTxs,
                 aggFeeTxs,
-                aggBalances,
                 aggAllowSpends,
                 aggSpendTxs,
                 aggSpendExpirations,

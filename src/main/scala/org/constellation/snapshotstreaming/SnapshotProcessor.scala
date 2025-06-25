@@ -83,12 +83,6 @@ object SnapshotProcessor {
           configuration.node.pullLimit.some,
           configuration.node.l0PeersMap.keys.some
         )
-      tesselationServices <- Resource.eval(
-        TessellationServices.make[F](configuration.environment, sharedConfig, l0Service)
-      )
-      lastFullGlobalSnapshotStorage = FileBasedLastGlobalFullSnapshotStorage.make[F, GlobalSnapshot](
-        configuration.lastSnapshotPath
-      )
       jsonBrotliBinarySerializer <- Resource.eval(JsonBrotliBinarySerializer.forSync[F])
     } yield make(
       configuration,
@@ -98,8 +92,6 @@ object SnapshotProcessor {
       GlobalSnapshotMapper.make(Configuration.nodeSharedConfig(configuration.environment, sharedConfig)),
       CurrencySnapshotMapper.make(),
       txHasher,
-      tesselationServices,
-      lastFullGlobalSnapshotStorage,
       jsonBrotliBinarySerializer
     )
 
@@ -126,8 +118,6 @@ object SnapshotProcessor {
     globalMapper: GlobalSnapshotMapper[F],
     currencyMapper: CurrencySnapshotMapper[F],
     txHasher: Hasher[F],
-    tessellationServices: TessellationServices[F],
-    lastFullGlobalSnapshotStorage: FileBasedLastGlobalFullSnapshotStorage[F],
     jsonBrotliBinarySerializer: JsonBrotliBinarySerializer[F]
   ): SnapshotProcessor[F] = new SnapshotProcessor[F] {
     private implicit val logger = Slf4jLogger.getLogger[F]
@@ -145,16 +135,16 @@ object SnapshotProcessor {
             .handleErrorWith(s => logger.error(s)("Error in database layer") >> s.raiseError[F, Unit])
       }
 
-    private def splitData(snapshot: Hashed[GlobalIncrementalSnapshot], ccys: List[Hashed[CurrencyIncrementalSnapshot]], d: LocalDateTime, hasher: Hasher[F]) = (
+    private def mapSnapshots(snapshot: Hashed[GlobalIncrementalSnapshot], ccys: List[Hashed[CurrencyIncrementalSnapshot]], d: LocalDateTime, hasher: Hasher[F]) = (
       globalMapper.mapGlobalSnapshot(snapshot, d, txHasher, hasher),
       currencyMapper.mapCurrencySnapshots(ccys, d, txHasher, hasher)
     ).tupled
 
-    private def store(snapshot: Hashed[GlobalIncrementalSnapshot], ccys: List[Hashed[CurrencyIncrementalSnapshot]], hasher: Hasher[F]): F[Unit] =
+    def store(snapshot: Hashed[GlobalIncrementalSnapshot], ccys: List[Hashed[CurrencyIncrementalSnapshot]], hasher: Hasher[F]): F[Unit] =
       Clock[F].realTime.map { d =>
         val instant = Instant.ofEpochMilli(d.toMillis)
         LocalDateTime.ofInstant(instant, ZoneId.systemDefault())
-      }.flatMap(splitData(snapshot, ccys, _, hasher))
+      }.flatMap(mapSnapshots(snapshot, ccys, _, hasher))
         .flatMap { case (globalData, metagraphData) =>
           Async[F].delay {
             if (metagraphData.snapshots.isEmpty && snapshot.stateChannelSnapshots.nonEmpty)
@@ -178,7 +168,6 @@ object SnapshotProcessor {
         )
 
         incrementalCombined <- Stream.eval(lastIncrementalGlobalSnapshotStorage.getCombined)
-        initialState = incrementalCombined.map { case (hashedSnapshot, _) => hashedSnapshot.signed }
         // Producer stream - pulls and processes snapshots
         producer = Stream
           .awakeEvery(configuration.node.pullInterval)
@@ -233,7 +222,7 @@ object SnapshotProcessor {
         // Consumer stream - stores snapshots
         consumer = Stream
           .fromQueueUnterminated(queue)
-          .evalTap { case (snapshot, currencySnapshots) =>
+          .evalTap { case (snapshot, _) =>
             queue.size.flatMap { size =>
               logger.info(
                 s"Consumer: Starting to process snapshot ${getSnapshotReference(snapshot)}. Queue size: $size"
