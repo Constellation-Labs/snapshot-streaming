@@ -27,7 +27,7 @@ import scala.collection.immutable.SortedMap
 trait CurrencySnapshotMapper[F[_]] {
 
   def mapCurrencySnapshots(
-                            currencySnapshots: List[Hashed[CurrencyIncrementalSnapshot]],
+    currencySnapshots: List[(Address, Hashed[CurrencyIncrementalSnapshot])],
     timestamp: LocalDateTime,
     txHasher: Hasher[F],
     hasher: Hasher[F]
@@ -58,19 +58,17 @@ object CurrencySnapshotMapper {
         Seq[CurrencyData[SpendTransaction]],
         Seq[CurrencyData[AllowSpendExpiration]],
         Seq[CurrencyData[TokenLock]],
-        Seq[CurrencyData[TokenUnlock]],
+        Seq[CurrencyData[TokenUnlock]]
       )
 
       type CurrencySnapshotMapperResult = MetagraphData
 
       def mapCurrencySnapshots(
-                                currencySnapshots: List[Hashed[CurrencyIncrementalSnapshot]],
+        currencySnapshots: List[(Address, Hashed[CurrencyIncrementalSnapshot])],
         timestamp: LocalDateTime,
         txHasher: Hasher[F],
         hasher: Hasher[F]
       ): F[CurrencySnapshotMapperResult] = {
-
-
 
         val initialAcc: Acc = (
           Seq.empty,
@@ -81,7 +79,7 @@ object CurrencySnapshotMapper {
           Seq.empty,
           Seq.empty,
           Seq.empty,
-          Seq.empty,
+          Seq.empty
         )
 
         currencySnapshots
@@ -103,10 +101,6 @@ object CurrencySnapshotMapper {
               val identifierStr = identifier.value.value
               def toCurrency[A](a: A) = CurrencyData(identifierStr, a)
 
-              incremental match {
-
-
-                case Right((incremental, info, binary)) =>
                   for {
                     snapshot <- incrementalMapper
                       .mapSnapshot(incremental, binary, info, timestamp, hasher)
@@ -136,7 +130,7 @@ object CurrencySnapshotMapper {
                     aggSpendTxs ++ spendsTx.map(toCurrency),
                     aggSpendExpirations ++ spendExpirations.map(toCurrency),
                     aggTokenLocks ++ tokenLocks.map(toCurrency),
-                    aggTokenUnlocks ++ tokenUnlocks.map(toCurrency),
+                    aggTokenUnlocks ++ tokenUnlocks.map(toCurrency)
                   )
               }
           }
@@ -150,7 +144,7 @@ object CurrencySnapshotMapper {
                   aggSpendTxs,
                   aggSpendExpirations,
                   aggTokenLocks,
-                  aggTokenUnlocks,
+                  aggTokenUnlocks
                 ) =>
               MetagraphData(
                 aggCurrencySnap,

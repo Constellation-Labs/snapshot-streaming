@@ -28,7 +28,6 @@ abstract class CurrencyIncrementalSnapshotMapper[F[_]: Async]
   def mapSnapshot(
                    snapshot: Hashed[CurrencyIncrementalSnapshot],
                    binary: Signed[StateChannelSnapshotBinary],
-                   info: CurrencySnapshotInfo,
                    timestamp: LocalDateTime,
                    hasher: Hasher[F]
                  ): F[CurrencySnapshot]
@@ -77,7 +76,6 @@ object CurrencyIncrementalSnapshotMapper {
       def mapSnapshot(
                        snapshot: Hashed[CurrencyIncrementalSnapshot],
                        binary: Signed[StateChannelSnapshotBinary],
-                       info: CurrencySnapshotInfo,
                        timestamp: LocalDateTime,
                        hasher: Hasher[F]
                      ): F[CurrencySnapshot] = for {

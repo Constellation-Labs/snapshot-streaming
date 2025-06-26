@@ -135,12 +135,21 @@ object SnapshotProcessor {
             .handleErrorWith(s => logger.error(s)("Error in database layer") >> s.raiseError[F, Unit])
       }
 
-    private def mapSnapshots(snapshot: Hashed[GlobalIncrementalSnapshot], ccys: List[Hashed[CurrencyIncrementalSnapshot]], d: LocalDateTime, hasher: Hasher[F]) = (
+    private def mapSnapshots(
+      snapshot: Hashed[GlobalIncrementalSnapshot],
+      ccys: List[(Address, Hashed[CurrencyIncrementalSnapshot])],
+      d: LocalDateTime,
+      hasher: Hasher[F]
+    ) = (
       globalMapper.mapGlobalSnapshot(snapshot, d, txHasher, hasher),
       currencyMapper.mapCurrencySnapshots(ccys, d, txHasher, hasher)
     ).tupled
 
-    def store(snapshot: Hashed[GlobalIncrementalSnapshot], ccys: List[Hashed[CurrencyIncrementalSnapshot]], hasher: Hasher[F]): F[Unit] =
+    def store(
+      snapshot: Hashed[GlobalIncrementalSnapshot],
+      ccys: List[(Address, Hashed[CurrencyIncrementalSnapshot])],
+      hasher: Hasher[F]
+    ): F[Unit] =
       Clock[F].realTime.map { d =>
         val instant = Instant.ofEpochMilli(d.toMillis)
         LocalDateTime.ofInstant(instant, ZoneId.systemDefault())
@@ -158,11 +167,10 @@ object SnapshotProcessor {
     def deserialize[A: Decoder](binary: Signed[StateChannelSnapshotBinary]): F[Option[A]] =
       jsonBrotliBinarySerializer.deserialize[A](binary.value.content).map(_.toOption)
 
-
     val runtime: Stream[F, Unit] =
       for {
         queue <- Stream.eval(
-          Queue.bounded[F, (Hashed[GlobalIncrementalSnapshot], List[Hashed[CurrencyIncrementalSnapshot]])](
+          Queue.bounded[F, (Hashed[GlobalIncrementalSnapshot], List[(Address,Hashed[CurrencyIncrementalSnapshot])])](
             configuration.node.pullLimit.value.toInt * 2
           )
         )
@@ -194,17 +202,18 @@ object SnapshotProcessor {
                       case (address, snapshots) =>
                         address -> snapshots.reverse
                     }
-                    val currencySnapshots = reversedStateChannelSnapshots.values.toList.flatTraverse(
-                      _.traverse(deserialize[Signed[CurrencyIncrementalSnapshot]]).map(x => x.toList.flatten).flatMap(_.traverse { s =>
-                        HasherSelector[F]
-                          .forOrdinal(snapshot.ordinal) { implicit hasher =>
-                            s.toHashed
-                          }
-                      })
-                    )
-
-                    val x = currencySnapshots.map(cs => (snapshot, cs))
-                    x
+                    val currencySnapshots = reversedStateChannelSnapshots.toList.traverse { case (address, ccys) =>
+                      ccys.toList.traverse(deserialize[Signed[CurrencyIncrementalSnapshot]]).flatMap { z =>
+                        val xx = z.flatten
+                        xx.traverse { s =>
+                          HasherSelector[F]
+                            .forOrdinal(snapshot.ordinal) { implicit hasher =>
+                              s.toHashed.map( (address, _))
+                            }
+                        }
+                      }
+                    }.map(_.flatten)
+                    currencySnapshots.map(cs => (snapshot, cs))
                   }
               }
           }
@@ -233,7 +242,9 @@ object SnapshotProcessor {
             val hasher = HasherSelector[F].getForOrdinal(snapshot.ordinal)
             logger.info(s"Consumer: Processing snapshot ${getSnapshotReference(snapshot)}") >>
               retryF(
-                store(snapshot, currencySnapshots , hasher).timedLog(s"Consumer: processed snapshot ${snapshot.ordinal.value}")
+                store(snapshot, currencySnapshots, hasher).timedLog(
+                  s"Consumer: processed snapshot ${snapshot.ordinal.value}"
+                )
               ).handleErrorWith { e =>
                 logger.error(e)(
                   s"Consumer: unrecoverable error processing snapshot ${getSnapshotReference(snapshot)}"
@@ -251,9 +262,7 @@ object SnapshotProcessor {
   case class GlobalSnapshotWithState(
     snapshot: Hashed[GlobalIncrementalSnapshot],
     currencySnapshots: Map[Address, NonEmptyList[
-      Either[Hashed[
-        CurrencySnapshot
-      ], (Hashed[CurrencyIncrementalSnapshot], CurrencySnapshotInfo, Signed[StateChannelSnapshotBinary])]
+      (Hashed[CurrencyIncrementalSnapshot], Signed[StateChannelSnapshotBinary])
     ]],
     ts: LocalDateTime
   )

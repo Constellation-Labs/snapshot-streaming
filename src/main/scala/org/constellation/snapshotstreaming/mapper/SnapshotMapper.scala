@@ -161,19 +161,5 @@ abstract class SnapshotMapper[F[_]: Async, S <: OriginalSnapshot] {
 
   def extractSnapshotReferredAddresses(snapshot: S): SnapshotReferredAddresses
 
-  def mapBalances(
-    globalSnapshot: Hashed[S],
-    balances: SortedMap[Address, Balance],
-    timestamp: LocalDateTime
-  ): Seq[AddressBalance] =
-    balances.toSeq.map { case (address, balance) =>
-      AddressBalance(
-        address = address.value.value,
-        balance = balance.value.value,
-        snapshotHash = globalSnapshot.hash.value,
-        snapshotOrdinal = globalSnapshot.ordinal.value.value,
-        timestamp = timestamp
-      )
-    }.toList
 
 }
