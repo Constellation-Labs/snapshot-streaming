@@ -95,7 +95,8 @@ object SnapshotDAO {
         transaction_original,
         created_at
       ) VALUES ($varchar, $varchar, $varchar, $int8, $int8, $int8, $int8, $varchar, $int8, $varchar, $varchar, $jsonb, $timestamp)
-      ON CONFLICT (hash) DO NOTHING;
+      ON CONFLICT (hash) DO UPDATE
+      SET transaction_original = EXCLUDED.transaction_original;
     """.command.contramap { tx: STransaction =>
       (
         tx.hash,
@@ -130,7 +131,9 @@ object SnapshotDAO {
         ordinal,
         snapshot_hash
       ) VALUES ($varchar, ${varchar.opt}, $varchar, $varchar, $int8, $int8, $int8, $varchar, $int8, $uuid, $int8, $varchar)
-      ON CONFLICT (hash) DO NOTHING;
+      ON CONFLICT (hash) DO UPDATE
+      SET currency_id = EXCLUDED.currency_id
+      WHERE dag_allow_spends.currency_id IS NULL;
     """.command.contramap { tx: AllowSpend =>
       (
         tx.hash,
@@ -159,7 +162,9 @@ object SnapshotDAO {
       allow_spend_ref,
       snapshot_hash
     ) VALUES ($varchar, ${varchar.opt}, $varchar, $int8, $varchar, ${varchar.opt}, $varchar)
-    ON CONFLICT (hash) DO NOTHING;
+    ON CONFLICT (hash) DO UPDATE
+      SET currency_id = EXCLUDED.currency_id
+      WHERE dag_spend_transactions.currency_id IS NULL;
   """.command.contramap { tx: SpendTransaction =>
       (
         tx.hash,
@@ -191,7 +196,9 @@ object SnapshotDAO {
       $varchar                        -- allowSpendRef from AllowSpendExpiration
     FROM dag_allow_spends das
     WHERE das.hash = $varchar
-    ON CONFLICT (hash) DO NOTHING;
+    ON CONFLICT (hash) DO UPDATE
+      SET currency_id = EXCLUDED.currency_id
+      WHERE dag_expired_spend_transactions.currency_id IS NULL;
   """.command.contramap { exp: AllowSpendExpiration =>
       (
         exp.snapshotHash,
@@ -215,7 +222,9 @@ object SnapshotDAO {
         round_id,
         parent_hash
       ) VALUES ($varchar, $varchar, ${varchar.opt}, $varchar, $int8, ${int8.opt}, $int8, $uuid, $varchar)
-      ON CONFLICT DO NOTHING;
+      ON CONFLICT (hash) DO UPDATE
+      SET currency_id = EXCLUDED.currency_id
+      WHERE dag_token_locks.currency_id IS NULL;
     """.command.contramap { tx: TokenLock =>
       (tx.snapshotHash, tx.hash, tx.currencyId, tx.source, tx.amount, tx.unlockEpoch, tx.ordinal, tx.roundId, tx.parentHash)
     }
@@ -230,7 +239,9 @@ object SnapshotDAO {
         source_addr,
         snapshot_hash
       ) VALUES ($varchar, ${varchar.opt}, $varchar, $int8, $varchar, $varchar)
-      ON CONFLICT (hash) DO NOTHING;
+      ON CONFLICT (hash) DO UPDATE
+      SET currency_id = EXCLUDED.currency_id
+      WHERE dag_token_unlocks.currency_id IS NULL;
     """.command.contramap { tx: TokenUnlock =>
       (tx.hash, tx.currencyId, tx.lockReference, tx.amount, tx.address, tx.snapshotHash)
     }
@@ -310,7 +321,7 @@ object SnapshotDAO {
         destination_addr,
         amount
       ) VALUES ($varchar, $int4, $varchar, $int8)
-      ON CONFLICT (global_snapshot_hash, idx) DO NOTHING;
+      ON CONFLICT (global_snapshot_hash, destination_addr, idx) DO NOTHING;
     """.command.contramap { case (gsHash, index, reward) =>
       (gsHash, index, reward.destination, reward.amount)
     }
@@ -434,7 +445,8 @@ object SnapshotDAO {
         transaction_original,
         created_at
       ) VALUES $enc
-      ON CONFLICT (metagraph_id, hash) DO NOTHING;
+      ON CONFLICT (metagraph_id, hash) DO UPDATE
+      SET transaction_original = EXCLUDED.transaction_original;
     """.command
   }
 
@@ -455,7 +467,9 @@ object SnapshotDAO {
       ordinal,
       snapshot_hash
     ) VALUES ($varchar, $varchar, ${varchar.opt}, $varchar, $varchar, $int8, $int8, $int8, $varchar, $int8, $uuid, $int8, $varchar)
-    ON CONFLICT (hash) DO NOTHING;
+    ON CONFLICT (hash) DO UPDATE
+      SET currency_id = EXCLUDED.currency_id
+      WHERE metagraph_allow_spends.currency_id IS NULL;
   """.command.contramap { case CurrencyData(id, tx) =>
       (
         id,
@@ -486,7 +500,9 @@ object SnapshotDAO {
       allow_spend_ref,
       snapshot_hash
     ) VALUES ($varchar, $varchar, ${varchar.opt}, $varchar, $int8, $varchar, ${varchar.opt}, $varchar)
-    ON CONFLICT (hash) DO NOTHING;
+    ON CONFLICT (hash) DO UPDATE
+      SET currency_id = EXCLUDED.currency_id
+      WHERE metagraph_spend_transactions.currency_id IS NULL;
   """.command.contramap { case CurrencyData(id, tx: SpendTransaction) =>
       (
         id,
@@ -521,7 +537,9 @@ object SnapshotDAO {
       $varchar                       -- allowSpendRef
     FROM metagraph_allow_spends mas
     WHERE mas.hash = $varchar
-    ON CONFLICT (hash) DO NOTHING;
+    ON CONFLICT (hash) DO UPDATE
+      SET currency_id = EXCLUDED.currency_id
+      WHERE metagraph_expired_spend_transactions.currency_id IS NULL;
   """.command.contramap { case CurrencyData(id, exp: AllowSpendExpiration) =>
       (
         id,
@@ -546,7 +564,9 @@ object SnapshotDAO {
       parent_hash,
       snapshot_hash
     ) VALUES ($varchar, $varchar, ${varchar.opt}, $varchar, $int8, ${int8.opt}, $int8, $uuid, $varchar, $varchar)
-    ON CONFLICT (metagraph_id, hash) DO NOTHING;
+    ON CONFLICT (metagraph_id, hash) DO UPDATE
+      SET currency_id = EXCLUDED.currency_id
+      WHERE metagraph_token_locks.currency_id IS NULL;
   """.command.contramap { case CurrencyData(id, tx: TokenLock) =>
       (
         id,
@@ -573,7 +593,9 @@ object SnapshotDAO {
       source_addr,
       snapshot_hash
     ) VALUES ($varchar, $varchar, ${varchar.opt}, $varchar, $int8, $varchar, $varchar)
-    ON CONFLICT (metagraph_id, hash) DO NOTHING;
+    ON CONFLICT (metagraph_id, hash) DO UPDATE
+      SET currency_id = EXCLUDED.currency_id
+      WHERE metagraph_token_unlocks.currency_id IS NULL;
   """.command.contramap { case CurrencyData(id, tx: TokenUnlock) =>
       (
         id,
@@ -623,7 +645,7 @@ object SnapshotDAO {
         destination_addr,
         amount
       ) VALUES ($varchar, $varchar, $int4, $varchar, $int8)
-      ON CONFLICT (metagraph_id, metagraph_snapshot_hash, idx) DO NOTHING;
+      ON CONFLICT (metagraph_id, metagraph_snapshot_hash, destination_addr, idx) DO NOTHING;
     """.command.contramap { case (mgHash, index, CurrencyData(id, reward)) =>
       (
         id,

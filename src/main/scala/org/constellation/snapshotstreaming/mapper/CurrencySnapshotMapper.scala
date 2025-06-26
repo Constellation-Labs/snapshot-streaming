@@ -6,20 +6,14 @@ import io.constellationnetwork.currency.schema.currency.CurrencyIncrementalSnaps
 import io.constellationnetwork.json.JsonSerializer
 import io.constellationnetwork.schema.address.Address
 import io.constellationnetwork.schema.balance.Balance
+import io.constellationnetwork.security.signature.Signed
 import io.constellationnetwork.security.{Hashed, Hasher}
+import io.constellationnetwork.statechannel.StateChannelSnapshotBinary
 import org.constellation.snapshotstreaming.SnapshotProcessor.GlobalSnapshotWithState
 import org.constellation.snapshotstreaming.schema.AllowSpends.{AllowSpend, AllowSpendExpiration, SpendTransaction}
 import org.constellation.snapshotstreaming.schema.TokenLocks.{TokenLock, TokenUnlock}
 import org.constellation.snapshotstreaming.schema.schema.{MetagraphData, toIncremental}
-import org.constellation.snapshotstreaming.schema.{
-  AddressBalance,
-  Block,
-  CurrencyData,
-  CurrencySnapshot => OSCurrencySnapshot,
-  FeeTransaction,
-  Snapshot,
-  Transaction
-}
+import org.constellation.snapshotstreaming.schema.{AddressBalance, Block, CurrencyData, FeeTransaction, Snapshot, Transaction, CurrencySnapshot => OSCurrencySnapshot}
 
 import java.time.LocalDateTime
 import scala.collection.immutable.SortedMap
@@ -27,7 +21,7 @@ import scala.collection.immutable.SortedMap
 trait CurrencySnapshotMapper[F[_]] {
 
   def mapCurrencySnapshots(
-    currencySnapshots: List[(Address, Hashed[CurrencyIncrementalSnapshot])],
+    currencySnapshots: List[(Address, Hashed[CurrencyIncrementalSnapshot], Signed[StateChannelSnapshotBinary])],
     timestamp: LocalDateTime,
     txHasher: Hasher[F],
     hasher: Hasher[F]
@@ -41,10 +35,9 @@ object CurrencySnapshotMapper {
 
   def make[F[_]: Async: JsonSerializer](
   ): CurrencySnapshotMapper[F] =
-    make(CurrencyFullSnapshotMapper.make(), CurrencyIncrementalSnapshotMapper.make())
+    make( CurrencyIncrementalSnapshotMapper.make())
 
   private def make[F[_]: Async](
-    fullMapper: CurrencyFullSnapshotMapper[F],
     incrementalMapper: CurrencyIncrementalSnapshotMapper[F]
   ): CurrencySnapshotMapper[F] =
     new CurrencySnapshotMapper[F] {
@@ -64,7 +57,7 @@ object CurrencySnapshotMapper {
       type CurrencySnapshotMapperResult = MetagraphData
 
       def mapCurrencySnapshots(
-        currencySnapshots: List[(Address, Hashed[CurrencyIncrementalSnapshot])],
+        currencySnapshots: List[(Address, Hashed[CurrencyIncrementalSnapshot], Signed[StateChannelSnapshotBinary])],
         timestamp: LocalDateTime,
         txHasher: Hasher[F],
         hasher: Hasher[F]
@@ -96,14 +89,14 @@ object CurrencySnapshotMapper {
                     aggTokenLocks,
                     aggTokenUnlocks
                   ),
-                  (identifier, incremental)
+                  (identifier, incremental, binary)
                 ) =>
               val identifierStr = identifier.value.value
               def toCurrency[A](a: A) = CurrencyData(identifierStr, a)
 
                   for {
                     snapshot <- incrementalMapper
-                      .mapSnapshot(incremental, binary, info, timestamp, hasher)
+                      .mapSnapshot(incremental, binary, timestamp, hasher)
                       .map(CurrencyData(identifierStr, _))
                     blocks <- incrementalMapper
                       .mapBlocks(incremental, timestamp, txHasher, hasher)
@@ -158,7 +151,6 @@ object CurrencySnapshotMapper {
                 aggTokenUnlocks
               )
           }
-      }
 
     }
 

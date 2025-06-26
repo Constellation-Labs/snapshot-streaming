@@ -22,6 +22,7 @@ import io.constellationnetwork.node.shared.domain.snapshot.storage.LastSnapshotS
 import io.constellationnetwork.node.shared.http.p2p.clients.L0GlobalSnapshotClient
 import io.constellationnetwork.node.shared.infrastructure.cluster.storage.L0ClusterStorage
 import io.constellationnetwork.schema.SnapshotReference.{fromHashedSnapshot => getSnapshotReference}
+import io.constellationnetwork.schema.address.Address
 import io.constellationnetwork.schema.{GlobalIncrementalSnapshot, GlobalSnapshot, GlobalSnapshotInfo, GlobalSnapshotInfoV2, SnapshotOrdinal}
 import io.constellationnetwork.security._
 import io.constellationnetwork.security.hash.Hash
@@ -107,12 +108,12 @@ object SnapshotProcessorS3 {
             .handleErrorWith(s => logger.error(s)("Error in database layer") >> s.raiseError[F, Unit])
       }
 
-    private def mapSnapshots(snapshot: Hashed[GlobalIncrementalSnapshot], ccys: List[Hashed[CurrencyIncrementalSnapshot]], d: LocalDateTime, hasher: Hasher[F]) = (
+    private def mapSnapshots(snapshot: Hashed[GlobalIncrementalSnapshot], ccys: List[(Address, Hashed[CurrencyIncrementalSnapshot], Signed[StateChannelSnapshotBinary])], d: LocalDateTime, hasher: Hasher[F]) = (
       globalMapper.mapGlobalSnapshot(snapshot, d, txHasher, hasher),
       currencyMapper.mapCurrencySnapshots(ccys, d, txHasher, hasher)
     ).tupled
 
-    def store(snapshot: Hashed[GlobalIncrementalSnapshot], ccys: List[Hashed[CurrencyIncrementalSnapshot]], hasher: Hasher[F]): F[Unit] =
+    def store(snapshot: Hashed[GlobalIncrementalSnapshot], ccys: List[(Address, Hashed[CurrencyIncrementalSnapshot], Signed[StateChannelSnapshotBinary])], hasher: Hasher[F]): F[Unit] =
       Clock[F].realTime.map { d =>
           val instant = Instant.ofEpochMilli(d.toMillis)
           LocalDateTime.ofInstant(instant, ZoneId.systemDefault())
@@ -183,13 +184,18 @@ object SnapshotProcessorS3 {
                 case (address, snapshots) =>
                   address -> snapshots.reverse
               }
-              val currencySnapshots = reversedStateChannelSnapshots.values.toList.flatTraverse(
-                _.traverse(deserialize[Signed[CurrencyIncrementalSnapshot]]).map(x => x.toList.flatten).flatMap(_.traverse { s =>
-                  HasherSelector[F]
-                    .forOrdinal(hashedSnapshot.ordinal) { implicit hasher =>
-                      s.toHashed
+              val currencySnapshots = reversedStateChannelSnapshots.toList.traverse { case (address, ccys) =>
+                ccys.toList
+                  .traverse(bin => deserialize[Signed[CurrencyIncrementalSnapshot]](bin).map(_.map((_, bin))))
+                  .flatMap {
+                    _.flatten.traverse { case (s, bin) =>
+                      HasherSelector[F]
+                        .forOrdinal(hashedSnapshot.ordinal) { implicit hasher =>
+                          s.toHashed.map((address, _, bin))
+                        }
                     }
-                }))
+                  }
+              }.map(_.flatten)
               currencySnapshots.map(cs => (hashedSnapshot, cs))
             }
         }

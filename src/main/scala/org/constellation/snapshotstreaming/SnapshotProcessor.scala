@@ -137,7 +137,7 @@ object SnapshotProcessor {
 
     private def mapSnapshots(
       snapshot: Hashed[GlobalIncrementalSnapshot],
-      ccys: List[(Address, Hashed[CurrencyIncrementalSnapshot])],
+      ccys: List[(Address, Hashed[CurrencyIncrementalSnapshot], Signed[StateChannelSnapshotBinary])],
       d: LocalDateTime,
       hasher: Hasher[F]
     ) = (
@@ -147,7 +147,7 @@ object SnapshotProcessor {
 
     def store(
       snapshot: Hashed[GlobalIncrementalSnapshot],
-      ccys: List[(Address, Hashed[CurrencyIncrementalSnapshot])],
+      ccys: List[(Address, Hashed[CurrencyIncrementalSnapshot], Signed[StateChannelSnapshotBinary])],
       hasher: Hasher[F]
     ): F[Unit] =
       Clock[F].realTime.map { d =>
@@ -170,7 +170,13 @@ object SnapshotProcessor {
     val runtime: Stream[F, Unit] =
       for {
         queue <- Stream.eval(
-          Queue.bounded[F, (Hashed[GlobalIncrementalSnapshot], List[(Address,Hashed[CurrencyIncrementalSnapshot])])](
+          Queue.bounded[
+            F,
+            (
+              Hashed[GlobalIncrementalSnapshot],
+              List[(Address, Hashed[CurrencyIncrementalSnapshot], Signed[StateChannelSnapshotBinary])]
+            )
+          ](
             configuration.node.pullLimit.value.toInt * 2
           )
         )
@@ -203,15 +209,16 @@ object SnapshotProcessor {
                         address -> snapshots.reverse
                     }
                     val currencySnapshots = reversedStateChannelSnapshots.toList.traverse { case (address, ccys) =>
-                      ccys.toList.traverse(deserialize[Signed[CurrencyIncrementalSnapshot]]).flatMap { z =>
-                        val xx = z.flatten
-                        xx.traverse { s =>
-                          HasherSelector[F]
-                            .forOrdinal(snapshot.ordinal) { implicit hasher =>
-                              s.toHashed.map( (address, _))
-                            }
+                      ccys.toList
+                        .traverse(bin => deserialize[Signed[CurrencyIncrementalSnapshot]](bin).map(_.map((_, bin))))
+                        .flatMap {
+                          _.flatten.traverse { case (s, bin) =>
+                            HasherSelector[F]
+                              .forOrdinal(snapshot.ordinal) { implicit hasher =>
+                                s.toHashed.map((address, _, bin))
+                              }
+                          }
                         }
-                      }
                     }.map(_.flatten)
                     currencySnapshots.map(cs => (snapshot, cs))
                   }

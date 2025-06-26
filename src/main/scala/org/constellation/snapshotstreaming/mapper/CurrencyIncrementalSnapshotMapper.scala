@@ -77,6 +77,8 @@ object CurrencyIncrementalSnapshotMapper {
                        snapshot: Hashed[CurrencyIncrementalSnapshot],
                        binary: Signed[StateChannelSnapshotBinary],
                        timestamp: LocalDateTime,
+                       stakingAddress: Option[String],
+                       ownerAddress: Option[String],
                        hasher: Hasher[F]
                      ): F[CurrencySnapshot] = for {
         blocksHashes <- snapshot.blocks.unsorted.map(_.block).map(hashBlock(_, hasher)).toList.sequence
@@ -97,8 +99,8 @@ object CurrencyIncrementalSnapshotMapper {
         epochProgress = snapshot.epochProgress.value,
         timestamp = timestamp,
         fee = binary.fee.value,
-        stakingAddress = getMessageAddress(MessageType.Staking, info),
-        ownerAddress = getMessageAddress(MessageType.Owner, info),
+        stakingAddress = stakingAddress,
+        ownerAddress = ownerAddress,
         version = snapshot.version.version,
         sizeInKB = sizeInKb.toLong
       )

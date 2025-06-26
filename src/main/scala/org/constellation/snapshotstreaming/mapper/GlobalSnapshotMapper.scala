@@ -64,17 +64,9 @@ abstract class GlobalSnapshotMapper[F[_]: Async] extends SnapshotMapper[F, Globa
       snapshot,
       blocks,
       transactions,
-      Seq(),
       globalSnapshot.signed.proofs.toSortedSet.toSeq,
-      allowSpends,
       tokenLocks,
       tokenUnlocks,
-      Seq(),
-      Seq(),
-      Seq(),
-      Seq(),
-      spendTransactions,
-      allowSpendExpirations
     )
   }
 
