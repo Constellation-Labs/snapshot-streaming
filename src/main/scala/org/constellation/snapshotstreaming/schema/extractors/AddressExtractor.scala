@@ -12,7 +12,7 @@ trait AddressExtractor[T] {
 object AddressExtractor {
 
   implicit val addressSnapshotExtractor: AddressExtractor[Snapshot] = snapshot =>
-    snapshot.rewards.flatMap(
+    snapshot.rewards.toSet.flatMap(
       rewardTransactionExtractor.extractAddresses
     )
 
@@ -37,7 +37,7 @@ object AddressExtractor {
   implicit val delegatedStakingRewardExtractor: AddressExtractor[DelegatedStakingReward] = reward => Set(reward.address)
 
   implicit val addressCurrencySnapshotExtractor: AddressExtractor[CurrencySnapshot] = snapshot =>
-    snapshot.rewards.flatMap(
+    snapshot.rewards.toSet.flatMap(
       rewardTransactionExtractor.extractAddresses
     ) ++ snapshot.ownerAddress ++ snapshot.stakingAddress
 

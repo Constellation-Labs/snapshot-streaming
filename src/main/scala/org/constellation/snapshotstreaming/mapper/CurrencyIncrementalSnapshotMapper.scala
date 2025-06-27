@@ -90,7 +90,7 @@ object CurrencyIncrementalSnapshotMapper {
         subHeight = snapshot.subHeight.value,
         lastSnapshotHash = snapshot.lastSnapshotHash.value,
         blocks = blocksHashes.toSet,
-        rewards = fetchRewards(snapshot).unsorted.map(reward =>
+        rewards = fetchRewards(snapshot).toSeq.map(reward =>
           RewardTransaction(
             reward.destination.value,
             reward.amount.value
