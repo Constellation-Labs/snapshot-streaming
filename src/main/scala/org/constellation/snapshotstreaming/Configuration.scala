@@ -4,26 +4,23 @@ import cats.data.NonEmptyMap
 import cats.effect.Sync
 import com.comcast.ip4s.{Host, Port}
 import eu.timepit.refined.types.all.PosLong
-
-import scala.concurrent.duration.Duration
-import scala.concurrent.duration.FiniteDuration
 import fs2.io.file.Path
-import io.constellationnetwork.env.AppEnvironment
-import io.constellationnetwork.node.shared.cli.CliMethod
-import io.constellationnetwork.node.shared.config.types.{SharedConfig, SharedConfigReader}
-import eu.timepit.refined.pureconfig._
 import org.http4s.Uri
-import io.constellationnetwork.node.shared.ext.pureconfig._
+import org.tessellation.env.AppEnvironment
+import org.tessellation.node.shared.cli.CliMethod
+import org.tessellation.node.shared.config.types.{SharedConfig, SharedConfigReader}
+import org.tessellation.schema.SnapshotOrdinal
+import org.tessellation.schema.peer.{L0Peer, PeerId}
+import org.tessellation.security.hex.Hex
+import org.tessellation.node.shared.ext.pureconfig._
 import pureconfig.module.enumeratum._
-import io.constellationnetwork.schema.SnapshotOrdinal
-import io.constellationnetwork.schema.peer.{L0Peer, PeerId}
-import io.constellationnetwork.security.hex.Hex
-
-import scala.collection.immutable.SortedMap
-import pureconfig.generic.auto._
 import pureconfig._
 import pureconfig.generic.ProductHint
+import pureconfig.generic.auto._
 import pureconfig.module.catseffect.syntax.CatsEffectConfigSource
+import eu.timepit.refined.pureconfig._
+import scala.collection.immutable.SortedMap
+import scala.concurrent.duration.{Duration, FiniteDuration}
 
 final case class DbConfig(
   host: String,
@@ -37,29 +34,6 @@ final case class DbConfig(
 final case class S3ApiConfig(endpoint: Option[String], region: Option[String], pathStyleEnabled: Option[Boolean])
 final case class S3Config(bucketRegion: String, bucketName: String, bucketDir: String, api: S3ApiConfig, uploadEnabled: Boolean)
 
-final case class OpenSearchConfig(uri: Uri, bulkSize: Int, indexes: IndexesConfig)
-
-final case class IndexesConfig(
-  snapshots: String,
-  blocks: String,
-  transactions: String,
-  balances: String,
-  currency: CurrencyIndexConfig
-)
-
-final case class CurrencyIndexConfig(
-  snapshots: String,
-  blocks: String,
-  transactions: String,
-  balances: String,
-  feeTransactions: String
-)
-
-final case class HttpClientConfig(
-  timeout: FiniteDuration,
-  idleTimeInPool: FiniteDuration
-)
-
 final case class NodeConfig(
   l0Peers: List[L0Peer],
   pullInterval: FiniteDuration,
@@ -69,18 +43,16 @@ final case class NodeConfig(
   val l0PeersMap = NonEmptyMap.fromMapUnsafe(SortedMap.from(l0Peers.map(p => p.id -> p)))
 }
 
-final case class Reindexer( s3Parallelism: Int, s3Prefetch: Int, snapshotContextPrefetch: Int, dbParallelism: Int)
+final case class Reindexer( startAfterOrdinal: Long,s3Parallelism: Int, s3Prefetch: Int, snapshotContextPrefetch: Int, dbParallelism: Int)
 
 final case class SnapshotStreamingConfig(
   lastSnapshotPath: Path,
   lastIncrementalSnapshotPath: Path,
   checkpointEvery: Int,
   environment: AppEnvironment,
-  httpClient: HttpClientConfig,
   node: NodeConfig,
   s3: S3Config,
   db: DbConfig,
-  opensearch: OpenSearchConfig,
   reindexer: Option[Reindexer]
 )
 
@@ -118,14 +90,6 @@ object Configuration {
       c.feeConfigs.get(env).map(SortedMap.from(_)).getOrElse(SortedMap.empty),
       c.forkInfoStorage,
       c.lastKryoHashOrdinal,
-      c.addresses,
-      c.allowSpends,
-      c.tokenLocks,
-      c.lastGlobalSnapshotsSync,
-      c.validationErrorStorage,
-      c.delegatedStaking,
-      c.fieldsAddedOrdinals,
-      c.metagraphsSync
     )
 
 

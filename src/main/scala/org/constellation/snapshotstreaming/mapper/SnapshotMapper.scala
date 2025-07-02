@@ -3,26 +3,15 @@ package org.constellation.snapshotstreaming.mapper
 import cats.effect.Async
 import cats.syntax.all._
 import eu.timepit.refined.auto._
-import io.constellationnetwork.currency.schema.currency.{CurrencySnapshot => OriginalCurrencySnapshot}
-import io.constellationnetwork.schema.address.Address
-import io.constellationnetwork.schema.balance.Balance
-import io.constellationnetwork.schema.snapshot.{Snapshot => OriginalSnapshot, SnapshotInfo}
-import io.constellationnetwork.schema.transaction.{
-  RewardTransaction => OriginalRewardTransaction,
-  Transaction => OriginalTransaction,
-  TransactionReference => OriginalTransactionReference
-}
-import io.constellationnetwork.schema.{Block => OriginalBlock}
-import io.constellationnetwork.security.{Hashed, Hasher}
-import io.constellationnetwork.security.signature.Signed
-import io.constellationnetwork.syntax.sortedCollection._
-import org.constellation.snapshotstreaming.schema.{
-  AddressBalance,
-  Block,
-  BlockReference,
-  Transaction,
-  TransactionReference
-}
+import org.constellation.snapshotstreaming.schema.{AddressBalance, Block, BlockReference, Transaction, TransactionReference}
+import org.tessellation.schema.address.Address
+import org.tessellation.schema.balance.Balance
+import org.tessellation.schema.snapshot.{SnapshotInfo, Snapshot => OriginalSnapshot}
+import org.tessellation.schema.transaction.{RewardTransaction => OriginalRewardTransaction, Transaction => OriginalTransaction, TransactionReference => OriginalTransactionReference}
+import org.tessellation.schema.{Block => OriginalBlock}
+import org.tessellation.security.signature.Signed
+import org.tessellation.security.{Hashed, Hasher}
+import org.tessellation.syntax.sortedCollection._
 import io.circe.syntax._
 
 import java.time.LocalDateTime

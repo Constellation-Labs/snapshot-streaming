@@ -3,26 +3,11 @@ package org.constellation.snapshotstreaming.db
 import cats.Parallel
 import cats.effect.{Async, Resource}
 import cats.syntax.all._
-import io.constellationnetwork.security.signature.signature.SignatureProof
 import org.constellation.snapshotstreaming._
-import org.constellation.snapshotstreaming.schema.AllowSpends.{AllowSpend, AllowSpendExpiration, SpendTransaction}
-import org.constellation.snapshotstreaming.schema.TokenLocks.{TokenLock, TokenUnlock}
 import org.constellation.snapshotstreaming.schema.extractors.{AddressExtractor, MetagraphExtractor}
 import org.constellation.snapshotstreaming.schema.schema.{GlobalData, MetagraphData}
-import org.constellation.snapshotstreaming.schema.{
-  AddressBalance,
-  Block,
-  BlockReference,
-  CurrencyData,
-  CurrencySnapshot,
-  DelegatedStakingCreate,
-  DelegatedStakingReward,
-  DelegatedStakingWithdraw,
-  FeeTransaction,
-  RewardTransaction,
-  Snapshot,
-  Transaction => STransaction
-}
+import org.constellation.snapshotstreaming.schema.{AddressBalance, Block, BlockReference, CurrencyData, CurrencySnapshot, FeeTransaction, RewardTransaction, Snapshot, Transaction => STransaction}
+import org.tessellation.security.signature.signature.SignatureProof
 import org.typelevel.log4cats.slf4j.Slf4jLogger
 import skunk._
 import skunk.circe.codec.all.jsonb
@@ -115,203 +100,12 @@ object SnapshotDAO {
       )
     }
 
-  private val insertDagAllowSpendCommand: Command[AllowSpend] =
-    sql"""
-      INSERT INTO dag_allow_spends (
-        hash,
-        currency_id,
-        source_addr,
-        destination_addr,
-        amount,
-        fee,
-        parent_ordinal,
-        parent_hash,
-        last_valid_epoch_progress,
-        round_id,
-        ordinal,
-        snapshot_hash
-      ) VALUES ($varchar, ${varchar.opt}, $varchar, $varchar, $int8, $int8, $int8, $varchar, $int8, $uuid, $int8, $varchar)
-      ON CONFLICT (hash) DO UPDATE
-      SET currency_id = EXCLUDED.currency_id
-      WHERE dag_allow_spends.currency_id IS NULL;
-    """.command.contramap { tx: AllowSpend =>
-      (
-        tx.hash,
-        tx.currencyId,
-        tx.source,
-        tx.destination,
-        tx.amount,
-        tx.fee,
-        tx.parent.ordinal,
-        tx.parent.hash,
-        tx.lastValidEpochProgress,
-        tx.roundId,
-        tx.ordinal,
-        tx.snapshotHash
-      )
-    }
-
-  private val insertDagSpendTransactionCommand: Command[SpendTransaction] =
-    sql"""
-    INSERT INTO dag_spend_transactions (
-      hash,
-      currency_id,
-      source_addr,
-      amount,
-      destination_addr,
-      allow_spend_ref,
-      snapshot_hash
-    ) VALUES ($varchar, ${varchar.opt}, $varchar, $int8, $varchar, ${varchar.opt}, $varchar)
-    ON CONFLICT (hash) DO UPDATE
-      SET currency_id = EXCLUDED.currency_id
-      WHERE dag_spend_transactions.currency_id IS NULL;
-  """.command.contramap { tx: SpendTransaction =>
-      (
-        tx.hash,
-        tx.currencyId,
-        tx.source,
-        tx.amount,
-        tx.destination,
-        tx.allowSpendRef,
-        tx.snapshotHash
-      )
-    }
-
-  private val insertDagExpiredSpendTransactionCommand: Command[AllowSpendExpiration] =
-    sql"""
-    INSERT INTO dag_expired_spend_transactions (
-      snapshot_hash,
-      hash,
-      currency_id,
-      source_addr,
-      amount,
-      allow_spend_ref
-    )
-    SELECT
-      $varchar,
-      $varchar,                       -- hash from AllowSpendExpiration
-      das.currency_id,
-      das.source_addr,
-      das.amount,
-      $varchar                        -- allowSpendRef from AllowSpendExpiration
-    FROM dag_allow_spends das
-    WHERE das.hash = $varchar
-    ON CONFLICT (hash) DO UPDATE
-      SET currency_id = EXCLUDED.currency_id
-      WHERE dag_expired_spend_transactions.currency_id IS NULL;
-  """.command.contramap { exp: AllowSpendExpiration =>
-      (
-        exp.snapshotHash,
-        exp.hash,
-        exp.allowSpendRef,
-        exp.allowSpendRef // used again in WHERE clause
-
-      )
-    }
-
-  private val insertDagTokenLockCommand: Command[TokenLock] =
-    sql"""
-      INSERT INTO dag_token_locks (
-        snapshot_hash,
-        hash,
-        currency_id,
-        source_addr,
-        amount,
-        unlock_epoch,
-        ordinal,
-        round_id,
-        parent_hash
-      ) VALUES ($varchar, $varchar, ${varchar.opt}, $varchar, $int8, ${int8.opt}, $int8, $uuid, $varchar)
-      ON CONFLICT (hash) DO UPDATE
-      SET currency_id = EXCLUDED.currency_id
-      WHERE dag_token_locks.currency_id IS NULL;
-    """.command.contramap { tx: TokenLock =>
-      (tx.snapshotHash, tx.hash, tx.currencyId, tx.source, tx.amount, tx.unlockEpoch, tx.ordinal, tx.roundId, tx.parentHash)
-    }
-
-  private val insertDagTokenUnlockCommand: Command[TokenUnlock] =
-    sql"""
-      INSERT INTO dag_token_unlocks (
-        hash,
-        currency_id,
-        lock_reference_hash,
-        amount,
-        source_addr,
-        snapshot_hash
-      ) VALUES ($varchar, ${varchar.opt}, $varchar, $int8, $varchar, $varchar)
-      ON CONFLICT (hash) DO UPDATE
-      SET currency_id = EXCLUDED.currency_id
-      WHERE dag_token_unlocks.currency_id IS NULL;
-    """.command.contramap { tx: TokenUnlock =>
-      (tx.hash, tx.currencyId, tx.lockReference, tx.amount, tx.address, tx.snapshotHash)
-    }
-
-  private val insertDelegatedStakingCreateCommand: Command[DelegatedStakingCreate] =
-    sql"""
-      INSERT INTO delegate_stake_create_events (
-        hash,
-        ordinal,
-        source_addr,
-        node_id,
-        amount,
-        fee,
-        lock_reference_hash,
-        parent_hash,
-        transfer_from_hash,
-        global_snapshot_hash
-      ) VALUES ($varchar, $int8, $varchar, $varchar, $int8, $int8, $varchar, $varchar, ${varchar.opt}, $varchar)
-      ON CONFLICT (hash) DO NOTHING;
-    """.command.contramap { tx: DelegatedStakingCreate =>
-      (
-        tx.hash,
-        tx.createdAtOrdinal,
-        tx.sourceAddress,
-        tx.nodeId,
-        tx.amount,
-        tx.fee,
-        tx.tokenLockHash,
-        tx.parentHash,
-        tx.transferFrom,
-        tx.snapshotHash
-      )
-    }
-
-  private val insertDelegatedStakingCreateWithdrawCommand: Command[DelegatedStakingWithdraw] =
-    sql"""
-      INSERT INTO delegate_stake_withdraw_events (
-        hash,
-        source_addr,
-        stake_create_hash,
-        global_snapshot_hash,
-        created_at_epoch,
-        unlock_epoch,
-        is_completed
-      ) VALUES ($varchar, $varchar, $varchar, $varchar, $int8, $int8, $bool)
-      ON CONFLICT (hash) DO NOTHING;
-    """.command.contramap { tx: DelegatedStakingWithdraw =>
-      (tx.hash, tx.sourceAddress, tx.stakeCreateHash, tx.snapshotHash, tx.createdAtEpoch, tx.unlockEpoch, tx.completed)
-    }
-
   private def updateCompletedDelegatedStakingWithdrawCommand(n: Int): Command[List[String]] =
     sql"""
       UPDATE delegate_stake_withdraw_events
       SET is_completed = true
       WHERE hash IN (${varchar.list(n)})
     """.command
-
-  private val insertDelegatedStakingRewardsCommand: Command[DelegatedStakingReward] =
-    sql"""
-      INSERT INTO delegate_stake_rewards (
-        global_snapshot_hash,
-        address,
-        node_id,
-        rewards,
-        stake_create_hash
-      ) VALUES ($varchar, $varchar, $varchar, $int8, $varchar)
-      ON CONFLICT (global_snapshot_hash, address, node_id, rewards) DO NOTHING;
-    """.command.contramap { tx =>
-      (tx.snapshotHash, tx.address, tx.nodeId, tx.amount, tx.stakeHash)
-    }
 
   private val insertDagRewardTxCommand: Command[(String, Int, RewardTransaction)] =
     sql"""
@@ -450,163 +244,6 @@ object SnapshotDAO {
     """.command
   }
 
-  private val insertMetagraphAllowSpendCommand: Command[CurrencyData[AllowSpend]] =
-    sql"""
-    INSERT INTO metagraph_allow_spends (
-      metagraph_id,
-      hash,
-      currency_id,
-      source_addr,
-      destination_addr,
-      amount,
-      fee,
-      parent_ordinal,
-      parent_hash,
-      last_valid_epoch_progress,
-      round_id,
-      ordinal,
-      snapshot_hash
-    ) VALUES ($varchar, $varchar, ${varchar.opt}, $varchar, $varchar, $int8, $int8, $int8, $varchar, $int8, $uuid, $int8, $varchar)
-    ON CONFLICT (hash) DO UPDATE
-      SET currency_id = EXCLUDED.currency_id
-      WHERE metagraph_allow_spends.currency_id IS NULL;
-  """.command.contramap { case CurrencyData(id, tx) =>
-      (
-        id,
-        tx.hash,
-        tx.currencyId,
-        tx.source,
-        tx.destination,
-        tx.amount,
-        tx.fee,
-        tx.parent.ordinal,
-        tx.parent.hash,
-        tx.lastValidEpochProgress,
-        tx.roundId,
-        tx.ordinal,
-        tx.snapshotHash
-      )
-    }
-
-  private val insertMetagraphSpendTransactionCommand: Command[CurrencyData[SpendTransaction]] =
-    sql"""
-    INSERT INTO metagraph_spend_transactions (
-      metagraph_id,
-      hash,
-      currency_id,
-      source_addr,
-      amount,
-      destination_addr,
-      allow_spend_ref,
-      snapshot_hash
-    ) VALUES ($varchar, $varchar, ${varchar.opt}, $varchar, $int8, $varchar, ${varchar.opt}, $varchar)
-    ON CONFLICT (hash) DO UPDATE
-      SET currency_id = EXCLUDED.currency_id
-      WHERE metagraph_spend_transactions.currency_id IS NULL;
-  """.command.contramap { case CurrencyData(id, tx: SpendTransaction) =>
-      (
-        id,
-        tx.hash,
-        tx.currencyId,
-        tx.source,
-        tx.amount,
-        tx.destination,
-        tx.allowSpendRef,
-        tx.snapshotHash
-      )
-    }
-
-  private val insertMetagraphExpiredSpendTransactionCommand: Command[CurrencyData[AllowSpendExpiration]] =
-    sql"""
-    INSERT INTO metagraph_expired_spend_transactions (
-      metagraph_id,
-      snapshot_hash,
-      hash,
-      currency_id,
-      source_addr,
-      amount,
-      allow_spend_ref
-    )
-    SELECT
-      $varchar,                      -- metagraphId
-      $varchar,                      -- metagraph snapshot hash
-      $varchar,                      -- hash from MetagraphAllowSpendExpiration
-      mas.currency_id,
-      mas.source_addr,
-      mas.amount,
-      $varchar                       -- allowSpendRef
-    FROM metagraph_allow_spends mas
-    WHERE mas.hash = $varchar
-    ON CONFLICT (hash) DO UPDATE
-      SET currency_id = EXCLUDED.currency_id
-      WHERE metagraph_expired_spend_transactions.currency_id IS NULL;
-  """.command.contramap { case CurrencyData(id, exp: AllowSpendExpiration) =>
-      (
-        id,
-        exp.snapshotHash,
-        exp.hash,
-        exp.allowSpendRef,
-        exp.allowSpendRef
-      )
-    }
-
-  private val insertMetagraphTokenLockCommand: Command[CurrencyData[TokenLock]] =
-    sql"""
-    INSERT INTO metagraph_token_locks (
-      metagraph_id,
-      hash,
-      currency_id,
-      source_addr,
-      amount,
-      unlock_epoch,
-      ordinal,
-      round_id,
-      parent_hash,
-      snapshot_hash
-    ) VALUES ($varchar, $varchar, ${varchar.opt}, $varchar, $int8, ${int8.opt}, $int8, $uuid, $varchar, $varchar)
-    ON CONFLICT (metagraph_id, hash) DO UPDATE
-      SET currency_id = EXCLUDED.currency_id
-      WHERE metagraph_token_locks.currency_id IS NULL;
-  """.command.contramap { case CurrencyData(id, tx: TokenLock) =>
-      (
-        id,
-        tx.hash,
-        tx.currencyId,
-        tx.source,
-        tx.amount,
-        tx.unlockEpoch,
-        tx.ordinal,
-        tx.roundId,
-        tx.parentHash,
-        tx.snapshotHash
-      )
-    }
-
-  private val insertMetagraphTokenUnlockCommand: Command[CurrencyData[TokenUnlock]] =
-    sql"""
-    INSERT INTO metagraph_token_unlocks (
-      metagraph_id,
-      hash,
-      currency_id,
-      lock_reference_hash,
-      amount,
-      source_addr,
-      snapshot_hash
-    ) VALUES ($varchar, $varchar, ${varchar.opt}, $varchar, $int8, $varchar, $varchar)
-    ON CONFLICT (metagraph_id, hash) DO UPDATE
-      SET currency_id = EXCLUDED.currency_id
-      WHERE metagraph_token_unlocks.currency_id IS NULL;
-  """.command.contramap { case CurrencyData(id, tx: TokenUnlock) =>
-      (
-        id,
-        tx.hash,
-        tx.currencyId,
-        tx.lockReference,
-        tx.amount,
-        tx.address,
-        tx.snapshotHash
-      )
-    }
 
   private val insertMetagraphFeeTransactionCommand: Command[CurrencyData[FeeTransaction]] =
     sql"""
@@ -715,14 +352,6 @@ object SnapshotDAO {
             preparedGlobalSnapshot <- session.prepare(insertGlobalSnapshotCommand)
             preparedDagBlock <- session.prepare(insertDagBlockCommand)
             preparedDagTxs <- session.prepare(insertDagTxCommand)
-            preparedDagAllowSpend <- session.prepare(insertDagAllowSpendCommand)
-            preparedDagSpendTxs <- session.prepare(insertDagSpendTransactionCommand)
-            preparedDagExpiredSpends <- session.prepare(insertDagExpiredSpendTransactionCommand)
-            preparedDagTokenLock <- session.prepare(insertDagTokenLockCommand)
-            preparedDagTokenUnlock <- session.prepare(insertDagTokenUnlockCommand)
-            preparedDagDelegatedStakingCreate <- session.prepare(insertDelegatedStakingCreateCommand)
-            preparedDagDelegatedStakingWithdraw <- session.prepare(insertDelegatedStakingCreateWithdrawCommand)
-            preparedDagDelegatedStakingRewards <- session.prepare(insertDelegatedStakingRewardsCommand)
             preparedDagRewardTxs <- session.prepare(insertDagRewardTxCommand)
             preparedProofs <- session.prepare(insertProofCommand)
             preparedBlockParent <- session.prepare(insertBlockParentCommand)
@@ -730,19 +359,6 @@ object SnapshotDAO {
             _ <- executeCmd(preparedGlobalSnapshot)(Seq((snapshot.snapshot, mgSnaphotsCount))).timedLog("[GLOBAL] insert preparedGlobalSnapshot")
             _ <- executeCmd(preparedDagBlock)(snapshot.blocks.toList).timedLog("[GLOBAL] insert preparedDagBlock")
             _ <- executeCmd(preparedDagTxs)(snapshot.txs).timedLog("[GLOBAL] insert preparedDagTxs")
-            _ <- executeCmd(preparedDagAllowSpend)(snapshot.allowSpends).timedLog("[GLOBAL] insert preparedDagAllowSpend")
-            _ <- executeCmd(preparedDagSpendTxs)(snapshot.spendTransactions).timedLog("[GLOBAL] insert preparedDagSpendTxs")
-            _ <- executeCmd(preparedDagExpiredSpends)(snapshot.allowSpendExpirations).timedLog("[GLOBAL] insert preparedDagExpiredSpends")
-            _ <- executeCmd(preparedDagTokenLock)(snapshot.tokenLocks).timedLog("[GLOBAL] insert preparedDagTokenLock")
-            _ <- executeCmd(preparedDagTokenUnlock)(snapshot.tokenUnlocks).timedLog("[GLOBAL] insert preparedDagTokenUnlock")
-            _ <- executeCmd(preparedDagDelegatedStakingCreate)(snapshot.delegatedStakingCreate).timedLog("[GLOBAL] insert preparedDagDelegatedStakingCreate")
-            _ <- executeCmd(preparedDagDelegatedStakingWithdraw)(snapshot.delegatedStakingWithdraw).timedLog("[GLOBAL] insert preparedDagDelegatedStakingWithdraw")
-            _ <- executeMany(
-              session,
-              snapshot.completedDelegatedStakingWithdrawHashes.toList,
-              updateCompletedDelegatedStakingWithdrawCommand
-            )
-            _ <- executeCmd(preparedDagDelegatedStakingRewards)(snapshot.delegatedStakingRewards).timedLog("[GLOBAL] insert preparedDagDelegatedStakingRewards")
             _ <- executeCmd(preparedDagRewardTxs)(pairWith(gsHash, snapshot.snapshot.rewards.toSeq.zipWithIndex).map {case (gsHash, (tx, idx)) => (gsHash, idx, tx)}).timedLog("[GLOBAL] insert preparedDagRewardTxs")
             _ <- executeCmd(preparedBlockParent)(blockParents).timedLog("[GLOBAL] insert preparedBlockParent")
             _ <- executeCmd(preparedProofs)(pairWith(gsHash, snapshot.proofs.toSeq)).timedLog("[GLOBAL] insert preparedProofs")
@@ -763,11 +379,6 @@ object SnapshotDAO {
             preparedMetagraphSnapshot <- session.prepare(insertMetagraphSnapshotCommand)
             preparedBlockParent <- session.prepare(insertBlockParentCommand)
             preparedMetagraphBlock <- session.prepare(insertMetagraphBlockCommand)
-            preparedMgAllowSpends <- session.prepare(insertMetagraphAllowSpendCommand)
-            preparedMgSpendsTxs <- session.prepare(insertMetagraphSpendTransactionCommand)
-            preparedMgExpiredSpends <- session.prepare(insertMetagraphExpiredSpendTransactionCommand)
-            preparedMgTokenLocks <- session.prepare(insertMetagraphTokenLockCommand)
-            preparedMgTokenUnlocks <- session.prepare(insertMetagraphTokenUnlockCommand)
             preparedMgFeeTxs <- session.prepare(insertMetagraphFeeTransactionCommand)
             preparedMgRewardTxs <- session.prepare(insertMetagraphRewardTxCommand)
             _ <- executeMany(session, AddressExtractor.extract(mgSnapshot).toList, insertAddressMany).timedLog("[METAGRAPH] insert addresses")
@@ -781,12 +392,7 @@ object SnapshotDAO {
                 mgs.data.rewards.zipWithIndex.map { case (tx, idx) => (mgs.data.hash, idx, CurrencyData(mgs.identifier, tx))}
               )
             ).timedLog("[METAGRAPH] insert preparedMgRewardTxs")
-            _ <- executeCmd(preparedMgAllowSpends)(mgSnapshot.allowSpends).timedLog("[METAGRAPH] insert preparedMgAllowSpends")
             _ <- executeCmd(preparedBlockParent)(blockParents.map { case (_, hash, parent) => (hash, parent) }).timedLog(s"[METAGRAPH] insert preparedBlockParent")
-            _ <- executeCmd(preparedMgTokenLocks)(mgSnapshot.tokenLocks).timedLog(s"[METAGRAPH] insert preparedMgTokenLocks")
-            _ <- executeCmd(preparedMgSpendsTxs)(mgSnapshot.spendTransactions).timedLog(s"[METAGRAPH] insert preparedMgSpendsTxs")
-            _ <- executeCmd(preparedMgExpiredSpends)(mgSnapshot.allowSpendExpirations).timedLog(s"[METAGRAPH] insert preparedMgExpiredSpends")
-            _ <- executeCmd(preparedMgTokenUnlocks)(mgSnapshot.tokenUnlocks).timedLog(s"[METAGRAPH] insert preparedMgTokenUnlocks")
             _ <- xa.commit
           } yield ()
         }

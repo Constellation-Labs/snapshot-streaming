@@ -2,8 +2,8 @@ package org.constellation.snapshotstreaming
 
 import io.circe.Codec
 import io.circe.generic.semiauto.deriveCodec
-import io.constellationnetwork.schema.{GlobalIncrementalSnapshot, GlobalSnapshotInfo}
-import io.constellationnetwork.security.Hashed
+import org.tessellation.schema.{GlobalIncrementalSnapshot, GlobalSnapshotInfo}
+import org.tessellation.security.Hashed
 
 package object storage {
 

@@ -3,22 +3,22 @@ package org.constellation.snapshotstreaming
 import cats.effect._
 import cats.effect.std.Random
 import cats.syntax.all._
-import io.constellationnetwork.ext.cats.effect._
-import io.constellationnetwork.json.JsonSerializer
-import io.constellationnetwork.kryo.KryoSerializer
-import io.constellationnetwork.node.shared.config.types.SharedConfigReader
-import io.constellationnetwork.node.shared.ext.pureconfig._
-import eu.timepit.refined.pureconfig._
-import io.constellationnetwork.schema.SnapshotOrdinal
-import io.constellationnetwork.security._
-import org.constellation.snapshotstreaming.schema.{kryoRegistrar, migrations}
+import org.constellation.snapshotstreaming.schema.kryoRegistrar
+import org.tessellation.ext.cats.effect.ResourceIO
+import org.tessellation.json.JsonSerializer
+import org.tessellation.kryo.KryoSerializer
+import org.tessellation.node.shared.config.types.SharedConfigReader
+import org.tessellation.node.shared.ext.pureconfig._
+import org.tessellation.schema.SnapshotOrdinal
+import org.tessellation.security._
+import org.tessellation.shared.sharedKryoRegistrar
 import org.typelevel.log4cats.slf4j.Slf4jLogger
 import org.typelevel.otel4s.trace.Tracer.Implicits.noop
 import pureconfig.ConfigSource
 import pureconfig.generic.auto._
 import pureconfig.module.catseffect.syntax._
+import eu.timepit.refined.pureconfig._
 import pureconfig.module.enumeratum._
-import io.constellationnetwork.shared.sharedKryoRegistrar
 
 object AppS3 extends IOApp {
   private val logger = Slf4jLogger.getLogger[IO]
@@ -29,7 +29,7 @@ object AppS3 extends IOApp {
       .flatMap { appConfig =>
         ConfigSource.default.loadF[IO, SharedConfigReader]().flatMap { sharedCfg =>
           Random.scalaUtilRandom[IO].flatMap { implicit random =>
-            KryoSerializer.forAsync[IO](sharedKryoRegistrar ++ kryoRegistrar, migrations).use { implicit ks =>
+            KryoSerializer.forAsync[IO](sharedKryoRegistrar /*++ kryoRegistrar*/).use { implicit ks =>
               JsonSerializer.forSync[IO].asResource.use { implicit jsonSerializer =>
                 val hashSelect = makeHashSelect(appConfig, sharedCfg)
                 implicit val hasherSelector =
@@ -41,7 +41,6 @@ object AppS3 extends IOApp {
                   SnapshotProcessorS3
                     .make[IO](
                       appConfig.snapshotStreaming,
-                      sharedCfg,
                       txHasher
                     )
                     .use { snapshotProcessorS3 =>

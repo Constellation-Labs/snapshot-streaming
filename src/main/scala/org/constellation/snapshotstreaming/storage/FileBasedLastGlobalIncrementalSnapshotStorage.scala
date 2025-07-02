@@ -9,14 +9,12 @@ import fs2.io.file._
 import fs2.{Stream, text}
 import io.circe.jawn
 import io.circe.syntax._
-import io.constellationnetwork.ext.kryo._
-import io.constellationnetwork.kryo.KryoSerializer
-import io.constellationnetwork.merkletree.StateProofValidator
-import io.constellationnetwork.node.shared.domain.snapshot.storage.LastSnapshotStorage
-import io.constellationnetwork.schema._
-import io.constellationnetwork.schema.height.Height
-import io.constellationnetwork.schema.tokenLock.TokenLockOrdinal
-import io.constellationnetwork.security._
+import org.tessellation.kryo.KryoSerializer
+import org.tessellation.merkletree.StateProofValidator
+import org.tessellation.node.shared.domain.snapshot.storage.LastSnapshotStorage
+import org.tessellation.schema.height.Height
+import org.tessellation.schema.{GlobalIncrementalSnapshot, GlobalSnapshotInfo, GlobalSnapshotInfoV2, SnapshotOrdinal}
+import org.tessellation.security.{Hashed, HasherSelector, JsonHash, KryoHash}
 
 
 object FileBasedLastGlobalIncrementalSnapshotStorage {

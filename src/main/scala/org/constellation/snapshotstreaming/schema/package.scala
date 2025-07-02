@@ -2,19 +2,14 @@ package org.constellation.snapshotstreaming
 
 import eu.timepit.refined.auto._
 import eu.timepit.refined.numeric.Greater
-import io.constellationnetwork.currency.schema.currency.{CurrencyIncrementalSnapshot, CurrencySnapshotInfo, CurrencySnapshotStateProof}
-import io.constellationnetwork.currency.schema.globalSnapshotSync.GlobalSnapshotSync
-import io.constellationnetwork.ext.kryo.KryoRegistrationId
-import io.constellationnetwork.kryo.Migration
-import io.constellationnetwork.schema.address.Address
-import io.constellationnetwork.schema.currencyMessage.{CurrencyMessage, MessageType}
-import io.constellationnetwork.schema.node.UpdateNodeParameters
-import io.constellationnetwork.schema.snapshot.SnapshotInfo
-import io.constellationnetwork.schema.swap.{AllowSpend, AllowSpendBlock, AllowSpendReference}
-import io.constellationnetwork.schema.tokenLock.{TokenLock, TokenLockBlock, TokenLockReference}
-import io.constellationnetwork.schema.{GlobalIncrementalSnapshot, GlobalIncrementalSnapshotV1, GlobalSnapshotInfo, GlobalSnapshotStateProof}
-import io.constellationnetwork.security.Hashed
 import org.constellation.snapshotstreaming.storage.SnapshotWithState
+import org.tessellation.currency.schema.currency.{CurrencyIncrementalSnapshot, CurrencySnapshotInfo, CurrencySnapshotStateProof}
+import org.tessellation.ext.kryo.KryoRegistrationId
+import org.tessellation.schema.{GlobalIncrementalSnapshot, GlobalSnapshotInfo, GlobalSnapshotStateProof}
+import org.tessellation.schema.address.Address
+import org.tessellation.schema.currencyMessage.{CurrencyMessage, MessageType}
+import org.tessellation.schema.snapshot.SnapshotInfo
+import org.tessellation.security.Hashed
 
 
 package object schema {
@@ -34,38 +29,16 @@ package object schema {
     classOf[CurrencySnapshotStateProof] -> 1005,
     classOf[CurrencySnapshotInfo] -> 1006,
     classOf[GlobalIncrementalSnapshot] -> 1009,
-    AllowSpendBlock.OrderingInstance.getClass -> 1010,
     classOf[GlobalSnapshotStateProof] -> 1011,
-    TokenLockBlock.OrderingInstance.getClass -> 1012,
-    classOf[AllowSpend] -> 1013,
-    AllowSpend.OrderingInstance.getClass -> 1014,
-    classOf[AllowSpendBlock] -> 1015,
-    AllowSpendBlock.OrderingInstance.getClass -> 1016,
-    classOf[TokenLockBlock] -> 1017,
-    TokenLockBlock.OrderingInstance.getClass -> 1018,
-    classOf[TokenLock] -> 1019,
-    TokenLock.OrderingInstance.getClass -> 1020,
-    classOf[AllowSpendReference] -> 1021,
-    // AllowSpendReference.OrderingInstance.getClass -> 1022,
-    classOf[TokenLockReference] -> 1023,
-    // TokenLockReference.OrderingInstance.getClass -> 1024,
-    classOf[UpdateNodeParameters] -> 1025,
     optionAddressOrdering.getClass -> 1026,
     classOf[CurrencyMessage] -> 1027,
-    classOf[GlobalSnapshotSync] -> 1029,
     classOf[CurrencySnapshotStateProof] -> 1030,
     classOf[SnapshotInfo[CurrencySnapshotStateProof]] -> 1031,
     classOf[MessageType] -> 1032,
     MessageType.Owner.getClass -> 1033,
     MessageType.Staking.getClass -> 1034,
-//    MessageType.OrderingInstance.getClass -> 1035,
-//    CurrencyMessage.OrderingInstance.getClass -> 1036,
-//    PeerId.OrderingInstance.getClass -> 1037,
-//    GlobalSnapshotSync.OrderingInstance.getClass -> 1038,
-//    MessageType.OrderingInstance.getClass -> 1039,
   )
 
-  val migrations = List(Migration[GlobalIncrementalSnapshotV1, GlobalIncrementalSnapshot](_.toGlobalIncrementalSnapshot))
 
 }
 

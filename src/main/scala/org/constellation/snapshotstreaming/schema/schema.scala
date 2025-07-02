@@ -1,9 +1,7 @@
 package org.constellation.snapshotstreaming.schema
 
 import io.circe.Encoder
-import io.constellationnetwork.security.signature.signature.SignatureProof
-import AllowSpends.{AllowSpend, AllowSpendExpiration, SpendTransaction}
-import org.constellation.snapshotstreaming.schema.TokenLocks.{TokenLock, TokenUnlock}
+import org.tessellation.security.signature.signature.SignatureProof
 
 import java.util.Date
 
@@ -14,8 +12,6 @@ object schema {
                          blocks: Seq[Block],
                          txs: Seq[Transaction],
                          proofs: Seq[SignatureProof],
-                         tokenLocks: Seq[TokenLock] = Seq.empty,
-                         tokenUnlocks: Seq[TokenUnlock] = Seq.empty,
   )
 
   case class MetagraphData(
@@ -23,8 +19,6 @@ object schema {
     blocks: Seq[CurrencyData[Block]],
     txs: Seq[CurrencyData[Transaction]],
     feeTxs: Seq[CurrencyData[FeeTransaction]],
-    tokenLocks: Seq[CurrencyData[TokenLock]] = Seq.empty,
-    tokenUnlocks: Seq[CurrencyData[TokenUnlock]] = Seq.empty
   )
 
   def toIncremental(snapshot: Snapshot): CurrencySnapshot =
