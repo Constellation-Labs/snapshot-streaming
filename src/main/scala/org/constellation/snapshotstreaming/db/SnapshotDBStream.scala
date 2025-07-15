@@ -22,6 +22,7 @@ object SnapshotDBStream {
     SELECT ordinal, hash, created_at
     FROM global_snapshots
     WHERE ordinal > $int8
+    order by ordinal
   """.query(int8 ~ varchar  ~ timestamp).map {
       case ((a, b), c) => (a, b, c)
     }

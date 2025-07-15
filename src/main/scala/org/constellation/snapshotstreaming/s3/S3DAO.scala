@@ -43,13 +43,12 @@ object S3DAO {
     }(c => Async[F].delay(c.shutdown()))
       .map(make(config, _))
 
-  def make[F[_]: Async: KryoSerializer ](config: S3Config, s3Client: AmazonS3)(implicit
-    jsonSerializer: JsonSerializer[F], hs: HasherSelector[F]
+  def make[F[_]: Async: KryoSerializer](config: S3Config, s3Client: AmazonS3)(implicit
+    jsonSerializer: JsonSerializer[F],
+    hs: HasherSelector[F]
   ): S3DAO[F] = new S3DAO[F] {
 
     private implicit val logger = Slf4jLogger.getLogger[F]
-
-
 
     def downloadSnapshot(hash: Hash, hashLogic: HashLogic): F[Signed[GlobalIncrementalSnapshot]] = {
       val keyName = s"${config.bucketDir}/${hash}"
@@ -62,12 +61,12 @@ object S3DAO {
         .flatMap(inputStream => io.readInputStream(Async[F].delay(inputStream.getDelegateStream), chunkSize = 4096))
         .compile
         .to(Array)
-        .flatMap(d => d.fromBinaryF[Signed[GlobalIncrementalSnapshot]]
-//          hashLogic match {
-//            case JsonHash => jsonSerializer.deserialize[Signed[GlobalIncrementalSnapshot]](d).flatMap(_.liftTo[F])
-//            case KryoHash => d.fromBinaryF[Signed[GlobalIncrementalSnapshot]]
-//          }
-          )
+        .flatMap(d =>
+          hashLogic match {
+            case JsonHash => jsonSerializer.deserialize[Signed[GlobalIncrementalSnapshot]](d).flatMap(_.liftTo[F])
+            case KryoHash => d.fromBinaryF[Signed[GlobalIncrementalSnapshot]]
+          }
+        )
 
     }
 

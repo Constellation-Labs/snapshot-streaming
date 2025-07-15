@@ -34,6 +34,24 @@ final case class DbConfig(
 final case class S3ApiConfig(endpoint: Option[String], region: Option[String], pathStyleEnabled: Option[Boolean])
 final case class S3Config(bucketRegion: String, bucketName: String, bucketDir: String, api: S3ApiConfig, uploadEnabled: Boolean)
 
+final case class OpenSearchConfig(uri: Uri, bulkSize: Int, indexes: IndexesConfig)
+
+final case class IndexesConfig(
+  snapshots: String,
+  blocks: String,
+  transactions: String,
+  balances: String,
+  currency: CurrencyIndexConfig
+)
+
+final case class CurrencyIndexConfig(
+  snapshots: String,
+  blocks: String,
+  transactions: String,
+  balances: String,
+  feeTransactions: String
+)
+
 final case class NodeConfig(
   l0Peers: List[L0Peer],
   pullInterval: FiniteDuration,
@@ -53,6 +71,7 @@ final case class SnapshotStreamingConfig(
   node: NodeConfig,
   s3: S3Config,
   db: DbConfig,
+  opensearch: OpenSearchConfig,
   reindexer: Option[Reindexer]
 )
 
