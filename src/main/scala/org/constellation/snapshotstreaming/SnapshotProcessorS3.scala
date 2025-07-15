@@ -143,9 +143,10 @@ object SnapshotProcessorS3 {
           )
         )
       opensearchDAO
-        .singleQuery(q, extractHash)
-        .map(_.get)
-
+        .singleQuery(q, extractHash).flatTap {
+          case None => logger.warn(s"No snapshot found in opensearch for metagraph= $currencyId ordinal= $ordinal")
+          case Some(_) => Async[F].unit
+        }
     }
 //
 //    def hitMapper(hit: SearchHit) =
@@ -230,7 +231,7 @@ object SnapshotProcessorS3 {
                   )
                 eitherCcy.value.flatMap { case Right(ccySnapshot) =>
                   currencySnapshotSearchRequest(address.value.value, ccySnapshot.ordinal.value.value).map { hash =>
-                    val newSnapshot = ccySnapshot.copy(hash = Hash(hash))
+                    val newSnapshot = hash.fold(ccySnapshot)(hashStr => ccySnapshot.copy(hash = Hash(hashStr)))
                     (address, newSnapshot, snapshotBinary)
                   }
                 }
