@@ -9,7 +9,7 @@ import io.constellationnetwork.env.AppEnvironment
 import io.constellationnetwork.json.{JsonBrotliBinarySerializer, JsonSerializer}
 import io.constellationnetwork.kryo.KryoSerializer
 import io.constellationnetwork.node.shared.config.DefaultDelegatedRewardsConfigProvider
-import io.constellationnetwork.node.shared.config.types.{AddressesConfig, DelegatedStakingConfig, SharedConfigReader}
+import io.constellationnetwork.node.shared.config.types.{AddressesConfig, DelegatedStakingConfig, PriceOracleConfig, SharedConfigReader}
 import io.constellationnetwork.node.shared.domain.delegatedStake.UpdateDelegatedStakeAcceptanceManager
 import io.constellationnetwork.node.shared.domain.node.UpdateNodeParametersAcceptanceManager
 import io.constellationnetwork.node.shared.domain.nodeCollateral.UpdateNodeCollateralAcceptanceManager
@@ -114,6 +114,7 @@ object TessellationServices {
             jsonBrotliBinarySerializer,
             feeCalculator
           )
+        val priceOracle = configuration.priceOracle.getOrElse(env, PriceOracleConfig.default)
         val globalSnapshotAcceptanceManager: GlobalSnapshotAcceptanceManager[F] = GlobalSnapshotAcceptanceManager.make(
           configuration.fieldsAddedOrdinals,
           configuration.metagraphsSync,
@@ -126,7 +127,7 @@ object TessellationServices {
           updateDelegatedStakeAcceptanceManager,
           updateNodeCollateralAcceptanceManager,
           SpendActionValidator.make[F],
-          PricingUpdateValidator.make[F](configuration.priceOracle.allowedMetagraphIds, configuration.priceOracle.minEpochsBetweenUpdates),
+          PricingUpdateValidator.make[F](priceOracle.allowedMetagraphIds, priceOracle.minEpochsBetweenUpdates),
           PriceStateUpdater.make[F](env, DefaultDelegatedRewardsConfigProvider),
           configuration.collateral.get.amount,
           configuration.delegatedStaking.withdrawalTimeLimit.getOrElse(env, EpochProgress.MinValue),
