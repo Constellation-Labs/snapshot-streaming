@@ -359,7 +359,7 @@ object SnapshotDAO {
             _ <- executeCmd(preparedGlobalSnapshot)(Seq((snapshot.snapshot, mgSnaphotsCount))).timedLog("[GLOBAL] insert preparedGlobalSnapshot")
             _ <- executeCmd(preparedDagBlock)(snapshot.blocks.toList).timedLog("[GLOBAL] insert preparedDagBlock")
             _ <- executeCmd(preparedDagTxs)(snapshot.txs).timedLog("[GLOBAL] insert preparedDagTxs")
-            _ <- executeCmd(preparedDagRewardTxs)(pairWith(gsHash, snapshot.snapshot.rewards.toSeq.zipWithIndex).map {case (gsHash, (tx, idx)) => (gsHash, idx, tx)}).timedLog("[GLOBAL] insert preparedDagRewardTxs")
+            _ <- executeCmd(preparedDagRewardTxs)(pairWith(gsHash, snapshot.snapshot.rewards.zipWithIndex).map {case (gsHash, (tx, idx)) => (gsHash, idx, tx)}).timedLog("[GLOBAL] insert preparedDagRewardTxs")
             _ <- executeCmd(preparedBlockParent)(blockParents).timedLog("[GLOBAL] insert preparedBlockParent")
             _ <- executeCmd(preparedProofs)(pairWith(gsHash, snapshot.proofs.toSeq)).timedLog("[GLOBAL] insert preparedProofs")
             _ <- xa.commit

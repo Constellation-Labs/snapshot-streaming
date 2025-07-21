@@ -72,7 +72,7 @@ object GlobalSnapshotMapper {
             lastSnapshotHash = snapshot.lastSnapshotHash.value,
             epochProgress = snapshot.epochProgress.value,
             blocks = blocksHashes.toSet,
-            rewards = fetchRewards(snapshot).unsorted.map(reward =>
+            rewards = fetchRewards(snapshot).toSeq.map(reward =>
               RewardTransaction(
                 reward.destination.value,
                 reward.amount.value

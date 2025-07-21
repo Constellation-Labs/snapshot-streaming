@@ -7,8 +7,6 @@ import cats.effect.implicits.clockOps
 import cats.effect.std.{Console, Random}
 import cats.syntax.all._
 import com.aayushatharva.brotli4j.decoder.{Decoder => BrotliDecoder}
-import com.sksamuel.elastic4s.ElasticApi.{boolQuery, fieldSort, matchAllQuery, search, termQuery}
-import com.sksamuel.elastic4s.requests.searches.{SearchHit, SearchRequest}
 import derevo.cats.{eqv, show}
 import derevo.circe.magnolia.{decoder, encoder}
 import derevo.derive
@@ -67,7 +65,7 @@ object SnapshotProcessorS3 {
       opensearchDAO,
       snapshotDBStream,
       GlobalSnapshotMapper.make(),
-      CurrencySnapshotMapper.make(),
+      CurrencySnapshotMapper.make(opensearchDAO),
       txHasher
     )
 
@@ -84,12 +82,12 @@ object SnapshotProcessorS3 {
     private implicit val logger = Slf4jLogger.getLogger[F]
 
     private def storeInPostgres(global: GlobalData, metagraph: MetagraphData) =
-      // (
-      // snapshotDAO.insertGlobalData(global, metagraph.snapshots.size) >>
+       (
+       snapshotDAO.insertGlobalData(global, metagraph.snapshots.size) >>
       snapshotDAO
         .insertMetagraphData(global.snapshot.hash, metagraph)
         .whenA(metagraph.snapshots.nonEmpty)
-        // )
+         )
         .timed
         .flatMap { t =>
           logger
@@ -134,31 +132,7 @@ object SnapshotProcessorS3 {
       JawnParser(false).decodeByteArray[A](byteData).pure
     }
 
-    def currencySnapshotSearchRequest(currencyId: String, ordinal: Long) = {
-      val q = search(configuration.opensearch.indexes.currency.snapshots)
-        .query(
-          boolQuery().must(
-            termQuery("identifier", currencyId),
-            termQuery("data.ordinal", ordinal)
-          )
-        )
-      opensearchDAO
-        .singleQuery(q, extractHash).flatTap {
-          case None => logger.warn(s"No snapshot found in opensearch for metagraph= $currencyId ordinal= $ordinal")
-          case Some(_) => Async[F].unit
-        }
-    }
-//
-//    def hitMapper(hit: SearchHit) =
-//      hit.sourceAsMap.get("data.hash").map(_.toString)
 
-    def extractHash(hit: SearchHit): Option[String] = {
-      import io.circe.parser._
-      import io.circe.Json
-      parse(hit.sourceAsString).toOption.flatMap { json =>
-        json.hcursor.downField("data").get[String]("hash").toOption
-      }
-    }
 
     val runtime: Stream[F, Unit] = {
 
@@ -198,8 +172,7 @@ object SnapshotProcessorS3 {
                 val bin = snapshotBinary.value.content
                 val eitherCcy = EitherT(deserialize[Signed[CurrencySnapshot]](bin))
                   .flatMapF(signedSnapshot =>
-                    signedSnapshot.toHashed.flatMap { hs =>
-                      println("CSV")
+                    logger.debug("CurrencySnapshot") >> signedSnapshot.toHashed.flatMap { hs =>
                       CurrencyIncrementalSnapshot
                         .fromCurrencySnapshot(hs.signed.value)
                         .map(cis => hs.copy(signed = hs.signed.copy(value = cis)).asRight[Throwable])
@@ -207,8 +180,7 @@ object SnapshotProcessorS3 {
                   )
                   .orElse(
                     EitherT(deserialize[Signed[CurrencySnapshotV1]](bin)).flatMapF(signedSnapshot =>
-                      signedSnapshot.toHashed.flatMap { hs =>
-                        println("CSV1")
+                      logger.debug("CurrencySnapshotV1") >> signedSnapshot.toHashed.flatMap { hs =>
                         CurrencyIncrementalSnapshot
                           .fromCurrencySnapshot(hs.signed.value.toCurrencySnapshot)
                           .map(cis => hs.copy(signed = hs.signed.copy(value = cis)).asRight[Throwable])
@@ -217,8 +189,7 @@ object SnapshotProcessorS3 {
                   )
                   .orElse(
                     EitherT(deserialize[Signed[CurrencyIncrementalSnapshotV1]](bin)).flatMapF(signedSnapshot =>
-                      signedSnapshot.toHashed.map { hs =>
-                        println("CISV1")
+                      logger.debug("CurrencyIncrementalSnapshotV1") >> signedSnapshot.toHashed.map { hs =>
                         hs.copy(signed = hs.signed.copy(value = hs.signed.value.toCurrencyIncrementalSnapshot))
                           .asRight[Throwable]
                       }
@@ -226,11 +197,11 @@ object SnapshotProcessorS3 {
                   )
                   .orElse(
                     EitherT(deserialize[Signed[CurrencyIncrementalSnapshot]](bin)).flatMapF(signedSnapshot =>
-                      signedSnapshot.toHashed.map(_.asRight[Throwable])
+                      logger.debug("CurrencyIncrementalSnapshot") >> signedSnapshot.toHashed.map(_.asRight[Throwable])
                     )
                   )
-                eitherCcy.value.flatMap { case Right(ccySnapshot) =>
-                  currencySnapshotSearchRequest(address.value.value, ccySnapshot.ordinal.value.value).map { hash =>
+                eitherCcy.value.flatMap {  case Right(ccySnapshot) =>
+                  opensearchDAO.currencySnapshotOpensearchHash(address.value.value, ccySnapshot.ordinal.value.value).map { hash =>
                     val newSnapshot = hash.fold(ccySnapshot)(hashStr => ccySnapshot.copy(hash = Hash(hashStr)))
                     (address, newSnapshot, snapshotBinary)
                   }

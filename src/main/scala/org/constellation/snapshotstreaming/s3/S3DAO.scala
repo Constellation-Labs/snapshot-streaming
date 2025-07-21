@@ -1,6 +1,6 @@
 package org.constellation.snapshotstreaming.s3
 
-import cats.Applicative
+import cats.{Applicative, Parallel}
 import cats.effect.{Async, Resource}
 import cats.syntax.all._
 import com.amazonaws.client.builder.AwsClientBuilder.EndpointConfiguration
@@ -10,10 +10,10 @@ import fs2.{Stream, io}
 import org.constellation.snapshotstreaming.{S3Config, retryF}
 import org.tessellation.json.JsonSerializer
 import org.tessellation.kryo.KryoSerializer
-import org.tessellation.schema.GlobalIncrementalSnapshot
+import org.tessellation.schema.{GlobalIncrementalSnapshot, GlobalSnapshot}
 import org.tessellation.security.hash.Hash
 import org.tessellation.security.signature.Signed
-import org.tessellation.security.{HashLogic, Hashed, HasherSelector, JsonHash, KryoHash}
+import org.tessellation.security.{HashLogic, Hashed, Hasher, HasherSelector, JsonHash, KryoHash}
 import org.tessellation.ext.kryo._
 import org.typelevel.log4cats.slf4j.Slf4jLogger
 
@@ -26,7 +26,9 @@ trait S3DAO[F[_]] {
 
 object S3DAO {
 
-  def make[F[_]: Async: KryoSerializer: JsonSerializer: HasherSelector](config: S3Config): Resource[F, S3DAO[F]] =
+  def make[F[_]: Async: KryoSerializer: JsonSerializer: HasherSelector: Parallel](
+    config: S3Config
+  ): Resource[F, S3DAO[F]] =
     Resource.make {
       Applicative[F].pure {
         val emptyBuilder = AmazonS3ClientBuilder
@@ -43,7 +45,7 @@ object S3DAO {
     }(c => Async[F].delay(c.shutdown()))
       .map(make(config, _))
 
-  def make[F[_]: Async: KryoSerializer](config: S3Config, s3Client: AmazonS3)(implicit
+  def make[F[_]: Async: KryoSerializer: Parallel](config: S3Config, s3Client: AmazonS3)(implicit
     jsonSerializer: JsonSerializer[F],
     hs: HasherSelector[F]
   ): S3DAO[F] = new S3DAO[F] {
@@ -64,7 +66,12 @@ object S3DAO {
         .flatMap(d =>
           hashLogic match {
             case JsonHash => jsonSerializer.deserialize[Signed[GlobalIncrementalSnapshot]](d).flatMap(_.liftTo[F])
-            case KryoHash => d.fromBinaryF[Signed[GlobalIncrementalSnapshot]]
+            case KryoHash =>
+              implicit val hasher = Hasher.forKryo[F]
+              d.fromBinaryF[Signed[GlobalIncrementalSnapshot]]
+                .orElse(d.fromBinaryF[Signed[GlobalSnapshot]].flatMap { case signed @ Signed(value, _) =>
+                  GlobalIncrementalSnapshot.fromGlobalSnapshot(value).map(gis => signed.copy(value = gis))
+                })
           }
         )
 

@@ -12,7 +12,7 @@ object AddressExtractor {
   implicit val addressSnapshotExtractor: AddressExtractor[Snapshot] = snapshot =>
     snapshot.rewards.flatMap(
       rewardTransactionExtractor.extractAddresses
-    )
+    ).toSet
 
   implicit val transactionExtractor: AddressExtractor[Transaction] = tx => Set(tx.source, tx.destination)
 
@@ -27,7 +27,7 @@ object AddressExtractor {
   implicit val addressCurrencySnapshotExtractor: AddressExtractor[CurrencySnapshot] = snapshot =>
     snapshot.rewards.flatMap(
       rewardTransactionExtractor.extractAddresses
-    ) ++ snapshot.ownerAddress ++ snapshot.stakingAddress
+    ).toSet ++ snapshot.ownerAddress ++ snapshot.stakingAddress
 
   implicit def currencyDataExtractor[A: AddressExtractor]: AddressExtractor[CurrencyData[A]] = data =>
     extract(data.data)
