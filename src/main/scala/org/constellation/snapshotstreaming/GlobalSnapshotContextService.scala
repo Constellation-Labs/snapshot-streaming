@@ -9,11 +9,8 @@ import io.constellationnetwork.currency.schema.currency.{
   CurrencySnapshotInfo
 }
 import io.constellationnetwork.node.shared.domain.snapshot.services.GlobalL0Service
-import io.constellationnetwork.node.shared.domain.snapshot.storage.LastNGlobalSnapshotStorage
-import io.constellationnetwork.node.shared.infrastructure.snapshot.{
-  GlobalSnapshotContextFunctions,
-  GlobalSnapshotStateChannelEventsProcessor
-}
+import io.constellationnetwork.node.shared.domain.snapshot.storage.{LastNGlobalSnapshotStorage, LastSnapshotStorage}
+import io.constellationnetwork.node.shared.infrastructure.snapshot.{GlobalSnapshotContextFunctions, GlobalSnapshotStateChannelEventsProcessor}
 import io.constellationnetwork.schema.{GlobalIncrementalSnapshot, GlobalSnapshotInfo, SnapshotOrdinal}
 import io.constellationnetwork.security.signature.Signed
 import io.constellationnetwork.security.{Hashed, HasherSelector}
@@ -40,8 +37,8 @@ object GlobalSnapshotContextService {
   def make[F[_]: Async: Parallel: HasherSelector](
     globalSnapshotStateChannelEventsProcessor: GlobalSnapshotStateChannelEventsProcessor[F],
     globalSnapshotContextFns: GlobalSnapshotContextFunctions[F],
-    l0Service: GlobalL0Service[F],
-    lastNGlobalSnapshotStorage: LastNGlobalSnapshotStorage[F]
+    lastNGlobalSnapshotStorage: LastNGlobalSnapshotStorage[F],
+    lastGlobalSnapshotStorage: LastSnapshotStorage[F,GlobalIncrementalSnapshot, GlobalSnapshotInfo],
   ): GlobalSnapshotContextService[F] =
     new GlobalSnapshotContextService[F] {
 
@@ -59,7 +56,8 @@ object GlobalSnapshotContextService {
           }
           _ <-
             if (lastNGlobalSnapshots.isEmpty) {
-              lastNGlobalSnapshotStorage.setInitial(lastArtifactHashed, context)
+              lastNGlobalSnapshotStorage.setInitial(lastArtifactHashed, context) >>
+                lastGlobalSnapshotStorage.setInitial(lastArtifactHashed, context)
             } else {
               ().pure
             }
@@ -69,7 +67,6 @@ object GlobalSnapshotContextService {
               context,
               lastArtifact,
               artifact.signed,
-              lastNGlobalSnapshotStorage.getLastN,
               getGlobalSnapshotByOrdinal
             )
           }
@@ -83,7 +80,6 @@ object GlobalSnapshotContextService {
                 artifact.ordinal,
                 context,
                 reversedStateChannelSnapshots,
-                lastNGlobalSnapshotStorage.getLastN,
                 getGlobalSnapshotByOrdinal
               )
               .flatMap { response =>
@@ -114,6 +110,7 @@ object GlobalSnapshotContextService {
           }
 
           _ <- lastNGlobalSnapshotStorage.set(result.snapshot, result.snapshotInfo)
+          _ <- lastGlobalSnapshotStorage.set(result.snapshot, result.snapshotInfo)
         } yield result
 
     }

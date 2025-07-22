@@ -124,6 +124,8 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
         None,
         None,
         None,
+        None,
+        None,
         None
       )
 
@@ -176,6 +178,8 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
         updatedBalances,
         SortedMap.empty,
         SortedMap.empty,
+        None,
+        None,
         None,
         None,
         None,
@@ -246,6 +250,8 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
         None,
         None,
         None,
+        None,
+        None
       )
       snapshot <- incrementalGlobalSnapshot[IO](
         100L,
@@ -298,6 +304,8 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
       None,
       None,
       None,
+      None,
+      None
     )
 
     for {
@@ -380,6 +388,8 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
       Some(SortedMap.from(oldStakes)),
       None,
       None,
+      None,
+      None,
       None
     )
 
@@ -399,6 +409,8 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
       None,
       None,
       None,
+      None,
+      None
     )
     val hasher = hs.getCurrent
     val gsm = GlobalSnapshotMapper.make(sharedCfg)
@@ -502,6 +514,8 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
       Some(SortedMap.from(oldWithdrawalStakes)),
       None,
       None,
+      None,
+      None
     )
 
     val newSnapshotInfo = GlobalSnapshotInfo(
@@ -520,6 +534,8 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
       Some(SortedMap.from(newWithdrawalStakes)),
       None,
       None,
+      None,
+      None
     )
     implicit val hasher = hs.getCurrent
     val gsm = GlobalSnapshotMapper.make(sharedCfg)
