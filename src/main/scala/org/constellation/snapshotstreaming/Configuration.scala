@@ -10,7 +10,7 @@ import scala.concurrent.duration.FiniteDuration
 import fs2.io.file.Path
 import io.constellationnetwork.env.AppEnvironment
 import io.constellationnetwork.node.shared.cli.CliMethod
-import io.constellationnetwork.node.shared.config.types.{SharedConfig, SharedConfigReader}
+import io.constellationnetwork.node.shared.config.types.{PriceOracleConfig, SharedConfig, SharedConfigReader}
 import eu.timepit.refined.pureconfig._
 import org.http4s.Uri
 import io.constellationnetwork.node.shared.ext.pureconfig._
@@ -124,7 +124,9 @@ object Configuration {
       c.lastGlobalSnapshotsSync,
       c.validationErrorStorage,
       c.delegatedStaking,
-      c.fieldsAddedOrdinals
+      c.fieldsAddedOrdinals,
+      c.metagraphsSync,
+      c.priceOracle.getOrElse(env, PriceOracleConfig.default)
     )
 
 

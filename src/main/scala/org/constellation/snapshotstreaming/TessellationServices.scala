@@ -8,10 +8,12 @@ import eu.timepit.refined.types.numeric.PosInt
 import io.constellationnetwork.env.AppEnvironment
 import io.constellationnetwork.json.{JsonBrotliBinarySerializer, JsonSerializer}
 import io.constellationnetwork.kryo.KryoSerializer
-import io.constellationnetwork.node.shared.config.types.{AddressesConfig, DelegatedStakingConfig, SharedConfigReader}
+import io.constellationnetwork.node.shared.config.DefaultDelegatedRewardsConfigProvider
+import io.constellationnetwork.node.shared.config.types.{AddressesConfig, DelegatedStakingConfig, PriceOracleConfig, SharedConfigReader}
 import io.constellationnetwork.node.shared.domain.delegatedStake.UpdateDelegatedStakeAcceptanceManager
 import io.constellationnetwork.node.shared.domain.node.UpdateNodeParametersAcceptanceManager
 import io.constellationnetwork.node.shared.domain.nodeCollateral.UpdateNodeCollateralAcceptanceManager
+import io.constellationnetwork.node.shared.domain.priceOracle.{PriceStateUpdater, PricingUpdateValidator}
 import io.constellationnetwork.node.shared.domain.snapshot.services.GlobalL0Service
 import io.constellationnetwork.node.shared.domain.statechannel.FeeCalculator
 import io.constellationnetwork.node.shared.domain.swap.SpendActionValidator
@@ -49,7 +51,8 @@ object TessellationServices {
           nodeConfig.feeConfigs,
           nodeConfig.snapshotSize.maxStateChannelSnapshotBinarySizeInBytes,
           txHasher,
-          DelegatedStakingConfig(configuration.delegatedStaking.minRewardFraction, configuration.delegatedStaking.maxRewardFraction, configuration.delegatedStaking.maxMetadataFieldsChars, configuration.delegatedStaking.maxTokenLocksPerAddress, configuration.delegatedStaking.minTokenLockAmount, configuration.delegatedStaking.withdrawalTimeLimit)
+          DelegatedStakingConfig(configuration.delegatedStaking.minRewardFraction, configuration.delegatedStaking.maxRewardFraction, configuration.delegatedStaking.maxMetadataFieldsChars, configuration.delegatedStaking.maxTokenLocksPerAddress, configuration.delegatedStaking.minTokenLockAmount, configuration.delegatedStaking.withdrawalTimeLimit),
+          nodeConfig.priceOracle
         )
       }
 
@@ -106,6 +109,7 @@ object TessellationServices {
             jsonBrotliBinarySerializer,
             feeCalculator
           )
+        val priceOracle = configuration.priceOracle.getOrElse(env, PriceOracleConfig.default)
         val globalSnapshotAcceptanceManager: GlobalSnapshotAcceptanceManager[F] = GlobalSnapshotAcceptanceManager.make(
           tessellation3Migration,
           BlockAcceptanceManager.make[F](validators.blockValidator, txHasher),
@@ -116,8 +120,10 @@ object TessellationServices {
           updateDelegatedStakeAcceptanceManager,
           updateNodeCollateralAcceptanceManager,
           SpendActionValidator.make[F],
+          PricingUpdateValidator.make[F](priceOracle.allowedMetagraphIds, priceOracle.minEpochsBetweenUpdates),
+          PriceStateUpdater.make[F](env, DefaultDelegatedRewardsConfigProvider),
           configuration.collateral.get.amount,
-          configuration.delegatedStaking.withdrawalTimeLimit.getOrElse(env, EpochProgress.MinValue)
+          configuration.delegatedStaking.withdrawalTimeLimit.getOrElse(env, EpochProgress.MinValue),
         )
 
         val globalSnapshotContextFns = GlobalSnapshotContextFunctions.make[F](
