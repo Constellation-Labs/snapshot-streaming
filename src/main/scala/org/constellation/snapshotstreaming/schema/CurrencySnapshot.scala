@@ -13,7 +13,7 @@ final case class CurrencySnapshot(
                                    lastSnapshotHash: String,
                                    epochProgress: Long,
                                    blocks: Set[String],
-                                   rewards: Set[RewardTransaction],
+                                   rewards: Seq[RewardTransaction],
                                    fee: Long,
                                    ownerAddress: Option[String] = None,
                                    stakingAddress: Option[String] = None,
