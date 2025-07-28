@@ -63,8 +63,9 @@ abstract class GlobalSnapshotMapper[F[_]: Async] extends SnapshotMapper[F, Globa
       balances = mapBalances(globalSnapshot, filteredBalances, timestamp)
 
       allowSpends <- mapAllowSpends(globalSnapshot, hasher)
+      spendTransactions <- mapSpendTxs(globalSnapshot, hasher)
       artifacts <- mapArtifacts(globalSnapshot, hasher)
-      (spendTransactions, tokenUnlocks, allowSpendExpirations) = artifacts
+      (tokenUnlocks, allowSpendExpirations) = artifacts
       tokenLocks <- mapTokenLocks(globalSnapshot, hasher)
 
       activeHashedDelegatedStakes <- activeHashedDelegatedStakes(snapshotInfo)(hasher)
@@ -268,6 +269,11 @@ abstract class GlobalSnapshotMapper[F[_]: Async] extends SnapshotMapper[F, Globa
     )
   }
 
+  def mapSpendTxs(snapshot: Hashed[GlobalIncrementalSnapshot], hasher: Hasher[F]): F[List[SpendTransaction]] = {
+    implicit val hs: Hasher[F] = hasher
+    snapshot.spendActions.toList.flatTraverse(_.toList.flatTraverse(_._2.flatTraverse(_.spendTransactions.toList.traverse(mapSpendTx(snapshot.hash)))))
+  }
+
   private def mapTokenLock(snapshotHash: Hash, roundId: RoundId, hasher: Hasher[F])(
     tl: Signed[tokenLock.TokenLock]
   ): F[TokenLock] = {
@@ -332,13 +338,9 @@ abstract class GlobalSnapshotMapper[F[_]: Async] extends SnapshotMapper[F, Globa
   def mapArtifacts(
     snapshot: Hashed[GlobalIncrementalSnapshot],
     hasher: Hasher[F]
-  ): F[(List[SpendTransaction], List[TokenUnlock], List[AllowSpendExpiration])] = {
+  ): F[(List[TokenUnlock], List[AllowSpendExpiration])] = {
     implicit val hs: Hasher[F] = hasher
     val events = snapshot.artifacts.toList.flatten
-    val spendTxs = events.flatTraverse {
-      case artifact.SpendAction(spendTransactions) => spendTransactions.toList.traverse(mapSpendTx(snapshot.hash))
-      case _                                       => List.empty[SpendTransaction].pure
-    }
     val tokenUnlocks = events.flatTraverse {
       case tu: artifact.TokenUnlock => mapTokenUnlock(snapshot.hash, tu).map(List(_))
       case _                        => List.empty[TokenUnlock].pure
@@ -348,7 +350,7 @@ abstract class GlobalSnapshotMapper[F[_]: Async] extends SnapshotMapper[F, Globa
       case _                                  => List.empty[AllowSpendExpiration].pure
     }
 
-    (spendTxs, tokenUnlocks, expirations).tupled
+    (tokenUnlocks, expirations).tupled
   }
 
 }
