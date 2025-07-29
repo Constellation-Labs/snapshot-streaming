@@ -148,7 +148,9 @@ object SnapshotDAO {
       )
     }
 
-  private val insertDagSpendTransactionCommand: Command[SpendTransaction] =
+  //ALTER TABLE public.dag_spend_transactions ADD metagraph_snapshot_hash varchar NULL;
+  //ALTER TABLE public.dag_spend_transactions ADD metagraph_snapshot_metagraph_id varchar NULL;
+  private val insertDagSpendTransactionCommand: Command[(SpendTransaction, Option[String])] =
     sql"""
     INSERT INTO dag_spend_transactions (
       hash,
@@ -157,10 +159,12 @@ object SnapshotDAO {
       amount,
       destination_addr,
       allow_spend_ref,
-      snapshot_hash
-    ) VALUES ($varchar, ${varchar.opt}, $varchar, $int8, $varchar, ${varchar.opt}, $varchar)
+      snapshot_hash,
+      metagraph_snapshot_metagraph_id,
+      metagraph_snapshot_hash
+    ) VALUES ($varchar, ${varchar.opt}, $varchar, $int8, $varchar, ${varchar.opt}, $varchar, ${varchar.opt}, ${varchar.opt})
     ON CONFLICT (hash) DO NOTHING;
-  """.command.contramap { tx: SpendTransaction =>
+  """.command.contramap { case (tx, mgSnapshot) =>
       (
         tx.hash,
         tx.currencyId,
@@ -168,7 +172,9 @@ object SnapshotDAO {
         tx.amount,
         tx.destination,
         tx.allowSpendRef,
-        tx.snapshotHash
+        tx.snapshotHash,
+        tx.metagraphId,
+        mgSnapshot
       )
     }
 
@@ -759,7 +765,7 @@ object SnapshotDAO {
               )
             ).timedLog("[METAGRAPH] insert preparedMgRewardTxs")
             _ <- executeCmd(preparedMgAllowSpends)(mgSnapshot.allowSpends).timedLog("[METAGRAPH] insert preparedMgAllowSpends")
-            _ <- insertSpendTx(session, mgSnapshot.spendTransactions.map(_.data))
+            _ <- insertSpendTx(session, mgSnapshot.spendTransactions.map(_.data),globalSnapshotHash)
             _ <- executeMany(session, mgSnapshot.balances.toList, insertMetagraphAddressBalancesMany).timedLog(s"[METAGRAPH] insert mgSnapshot.balances: ${mgSnapshot.balances.size}")
             _ <- executeCmd(preparedBlockParent)(blockParents.map { case (_, hash, parent) => (hash, parent) }).timedLog(s"[METAGRAPH] insert preparedBlockParent")
             _ <- executeCmd(preparedMgTokenLocks)(mgSnapshot.tokenLocks).timedLog(s"[METAGRAPH] insert preparedMgTokenLocks")
@@ -770,14 +776,20 @@ object SnapshotDAO {
         }
       })
 
+    //ALTER TABLE public.dag_spend_transactions ADD metagraph_snapshot_hash varchar NULL;
+    //ALTER TABLE public.dag_spend_transactions ADD metagraph_snapshot_metagraph_id varchar NULL;
+    //ALTER TABLE public.dag_spend_transactions ADD CONSTRAINT dag_spend_transactions_metagraph_snapshots_fk FOREIGN KEY (metagraph_snapshot_metagraph_id,metagraph_snapshot_hash) REFERENCES public.metagraph_snapshots(metagraph_id,hash) ON DELETE CASCADE;
+
+
     // spend transactions should be stored with the corresponding currency id
-    private def insertSpendTx(session: Session[F], spendTransactions: Seq[SpendTransaction]): F[Unit] = {
+    private def insertSpendTx(session: Session[F], spendTransactions: Seq[SpendTransaction], globalSnapshotHash: String): F[Unit] = {
       val (dagSpendTxs, mgSpendTxs) = spendTransactions.partition(_.currencyId.isEmpty)
+      val mgDagSpendTxs = dagSpendTxs.map { spendTx => (spendTx.copy(snapshotHash = globalSnapshotHash), spendTx.snapshotHash.some )}
       val ccySpendTxs = mgSpendTxs.map { spTx => CurrencyData(spTx.currencyId.get, spTx)}
       for {
         preparedDagSpendTxs <- session.prepare(insertDagSpendTransactionCommand)
         preparedMgSpendsTxs <- session.prepare(insertMetagraphSpendTransactionCommand)
-        _ <- executeCmd(preparedDagSpendTxs)(dagSpendTxs).timedLog("insert DAG preparedDagSpendTxs")
+        _ <- executeCmd(preparedDagSpendTxs)(mgDagSpendTxs).timedLog("insert DAG preparedDagSpendTxs")
         _ <- executeCmd(preparedMgSpendsTxs)(ccySpendTxs).timedLog(s"insert preparedMgSpendsTxs")
       } yield ()
     }

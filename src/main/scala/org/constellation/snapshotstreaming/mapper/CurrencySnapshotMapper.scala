@@ -143,7 +143,7 @@ object CurrencySnapshotMapper {
                       .map(_.map(CurrencyData(identifierStr, _)))
                     allowSpends <- incrementalMapper
                       .mapAllowSpends(incremental, timestamp, hasher)
-                    artifacts <- incrementalMapper.mapArtifacts(incremental, hasher)
+                    artifacts <- incrementalMapper.mapArtifacts(identifierStr, incremental, hasher)
                     (spendsTx, tokenUnlocks, spendExpirations) = artifacts
                     tokenLocks <- incrementalMapper
                       .mapTokenLocks(incremental, timestamp, hasher)

@@ -308,7 +308,8 @@ abstract class GlobalSnapshotMapper[F[_]: Async] extends SnapshotMapper[F, Globa
       spendTx.destination.value,
       spendTx.amount.value,
       spendTx.allowSpendRef.map(_.value),
-      snapshotHash.value
+      snapshotHash.value,
+      None
     )
   }
 

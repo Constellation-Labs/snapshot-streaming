@@ -34,6 +34,7 @@ object AllowSpends {
     amount: Long,
     allowSpendRef: Option[String],
     snapshotHash: String,
+    metagraphId: Option[String],
   )
 
   object SpendTransaction {
