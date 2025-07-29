@@ -694,7 +694,6 @@ object SnapshotDAO {
             preparedDagBlock <- session.prepare(insertDagBlockCommand)
             preparedDagTxs <- session.prepare(insertDagTxCommand)
             preparedDagAllowSpend <- session.prepare(insertDagAllowSpendCommand)
-            preparedDagSpendTxs <- session.prepare(insertDagSpendTransactionCommand)
             preparedDagExpiredSpends <- session.prepare(insertDagExpiredSpendTransactionCommand)
             preparedDagTokenLock <- session.prepare(insertDagTokenLockCommand)
             preparedDagTokenUnlock <- session.prepare(insertDagTokenUnlockCommand)
@@ -710,7 +709,6 @@ object SnapshotDAO {
             _ <- executeCmd(preparedDagBlock)(snapshot.blocks.toList).timedLog("[GLOBAL] insert preparedDagBlock")
             _ <- executeCmd(preparedDagTxs)(snapshot.txs).timedLog("[GLOBAL] insert preparedDagTxs")
             _ <- executeCmd(preparedDagAllowSpend)(snapshot.allowSpends).timedLog("[GLOBAL] insert preparedDagAllowSpend")
-            _ <- executeCmd(preparedDagSpendTxs)(snapshot.spendTransactions).timedLog("[GLOBAL] insert preparedDagSpendTxs")
             _ <- executeCmd(preparedDagExpiredSpends)(snapshot.allowSpendExpirations).timedLog("[GLOBAL] insert preparedDagExpiredSpends")
             _ <- executeCmd(preparedDagTokenLock)(snapshot.tokenLocks).timedLog("[GLOBAL] insert preparedDagTokenLock")
             _ <- executeCmd(preparedDagTokenUnlock)(snapshot.tokenUnlocks).timedLog("[GLOBAL] insert preparedDagTokenUnlock")
@@ -744,7 +742,6 @@ object SnapshotDAO {
             preparedBlockParent <- session.prepare(insertBlockParentCommand)
             preparedMetagraphBlock <- session.prepare(insertMetagraphBlockCommand)
             preparedMgAllowSpends <- session.prepare(insertMetagraphAllowSpendCommand)
-            preparedMgSpendsTxs <- session.prepare(insertMetagraphSpendTransactionCommand)
             preparedMgExpiredSpends <- session.prepare(insertMetagraphExpiredSpendTransactionCommand)
             preparedMgTokenLocks <- session.prepare(insertMetagraphTokenLockCommand)
             preparedMgTokenUnlocks <- session.prepare(insertMetagraphTokenUnlockCommand)
@@ -762,16 +759,28 @@ object SnapshotDAO {
               )
             ).timedLog("[METAGRAPH] insert preparedMgRewardTxs")
             _ <- executeCmd(preparedMgAllowSpends)(mgSnapshot.allowSpends).timedLog("[METAGRAPH] insert preparedMgAllowSpends")
+            _ <- insertSpendTx(session, mgSnapshot.spendTransactions.map(_.data))
             _ <- executeMany(session, mgSnapshot.balances.toList, insertMetagraphAddressBalancesMany).timedLog(s"[METAGRAPH] insert mgSnapshot.balances: ${mgSnapshot.balances.size}")
             _ <- executeCmd(preparedBlockParent)(blockParents.map { case (_, hash, parent) => (hash, parent) }).timedLog(s"[METAGRAPH] insert preparedBlockParent")
             _ <- executeCmd(preparedMgTokenLocks)(mgSnapshot.tokenLocks).timedLog(s"[METAGRAPH] insert preparedMgTokenLocks")
-            _ <- executeCmd(preparedMgSpendsTxs)(mgSnapshot.spendTransactions).timedLog(s"[METAGRAPH] insert preparedMgSpendsTxs")
             _ <- executeCmd(preparedMgExpiredSpends)(mgSnapshot.allowSpendExpirations).timedLog(s"[METAGRAPH] insert preparedMgExpiredSpends")
             _ <- executeCmd(preparedMgTokenUnlocks)(mgSnapshot.tokenUnlocks).timedLog(s"[METAGRAPH] insert preparedMgTokenUnlocks")
             _ <- xa.commit
           } yield ()
         }
       })
+
+    // spend transactions should be stored with the corresponding currency id
+    private def insertSpendTx(session: Session[F], spendTransactions: Seq[SpendTransaction]): F[Unit] = {
+      val (dagSpendTxs, mgSpendTxs) = spendTransactions.partition(_.currencyId.isEmpty)
+      val ccySpendTxs = mgSpendTxs.map { spTx => CurrencyData(spTx.currencyId.get, spTx)}
+      for {
+        preparedDagSpendTxs <- session.prepare(insertDagSpendTransactionCommand)
+        preparedMgSpendsTxs <- session.prepare(insertMetagraphSpendTransactionCommand)
+        _ <- executeCmd(preparedDagSpendTxs)(dagSpendTxs).timedLog("insert DAG preparedDagSpendTxs")
+        _ <- executeCmd(preparedMgSpendsTxs)(ccySpendTxs).timedLog(s"insert preparedMgSpendsTxs")
+      } yield ()
+    }
 
   }
 
