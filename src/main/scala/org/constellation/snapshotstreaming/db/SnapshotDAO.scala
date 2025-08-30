@@ -292,7 +292,7 @@ object SnapshotDAO {
       ) VALUES $enc
       ON CONFLICT (global_snapshot_hash, address, node_id, rewards) DO NOTHING;
     """.command
-    }
+  }
 
   private val insertDagRewardTxCommand: Command[(String, Int, RewardTransaction)] =
     sql"""
