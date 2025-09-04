@@ -9,20 +9,7 @@ import org.constellation.snapshotstreaming.schema.AllowSpends.{AllowSpend, Allow
 import org.constellation.snapshotstreaming.schema.TokenLocks.{TokenLock, TokenUnlock}
 import org.constellation.snapshotstreaming.schema.extractors.{AddressExtractor, MetagraphExtractor}
 import org.constellation.snapshotstreaming.schema.schema.{GlobalData, MetagraphData}
-import org.constellation.snapshotstreaming.schema.{
-  AddressBalance,
-  Block,
-  BlockReference,
-  CurrencyData,
-  CurrencySnapshot,
-  DelegatedStakingCreate,
-  DelegatedStakingReward,
-  DelegatedStakingWithdraw,
-  FeeTransaction,
-  RewardTransaction,
-  Snapshot,
-  Transaction => STransaction
-}
+import org.constellation.snapshotstreaming.schema.{AddressBalance, Block, BlockReference, CurrencyData, CurrencySnapshot, DelegatedStakingCreate, DelegatedStakingReward, DelegatedStakingWithdraw, FeeTransaction, RewardTransaction, Snapshot, Transaction => STransaction}
 import org.typelevel.log4cats.slf4j.Slf4jLogger
 import skunk._
 import skunk.circe.codec.all.jsonb

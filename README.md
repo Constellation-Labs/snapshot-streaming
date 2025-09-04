@@ -5,8 +5,8 @@
 In the root directory of [tessellation](https://github.com/cngo-github/tessellation) run
 
 ```
-git checkout v1.9.1
-sbt kernel/publishM2 shared/publishM2 keytool/publishM2 sdk/publishM2 dagShared/publishM2
+git checkout v3.3.2
+sbt sdk/publishM2
 ```
 
 In the root directory of this repo run
@@ -18,20 +18,12 @@ sbt assembly
 The first step is necessary because tessellation artifacts 
 are not yet available in a public repository. 
 
-## Running Snapshot Streaming in Kubernetes
-
-In the root directory of tessellation run
-
-```
-skaffold dev --trigger=manual
-```
+## Running Snapshot Streaming
 
 In the root directory of this repo run
 
 ```
-skaffold dev --trigger=manual
+java -cp target/scala-2.13/cl-snapshot-streaming-assembly-4.4.0-<version-id-hash>.jar -Dconfig.file=mainnet-streaming-cfg/application.conf   org.constellation.snapshotstreaming.App
 ```
 
-## Releasing
-
-Follow the instructions from [doc/release-flow.md](doc/release-flow.md)
+(database definition is included in [sql/snapshot.sql](sql/snapshot.sql))
