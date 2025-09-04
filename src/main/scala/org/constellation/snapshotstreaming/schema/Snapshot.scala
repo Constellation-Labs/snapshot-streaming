@@ -13,7 +13,7 @@ final case class Snapshot(
   lastSnapshotHash: String,
   epochProgress: Long,
   blocks: Set[String],
-  rewards: Set[RewardTransaction],
+  rewards: Seq[RewardTransaction],
   version: String,
   timestamp: LocalDateTime
 )
