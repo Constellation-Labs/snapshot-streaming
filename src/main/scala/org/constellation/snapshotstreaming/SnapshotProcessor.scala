@@ -254,6 +254,7 @@ object SnapshotProcessor {
                             LocalDateTime.now()
                           )
                           .flatMap { globalSnapshotsWithState =>
+                            validateMetagraphSnapshots(globalSnapshotsWithState) >>
                             queue.offer(globalSnapshotsWithState).flatMap { _ =>
                               logger.info(
                                 s"Producer: Added snapshot to queue (offered ${getSnapshotReference(globalSnapshotsWithState.snapshot)})"
@@ -272,10 +273,7 @@ object SnapshotProcessor {
                 .map { s =>
                   (Option(s.lastSnapshot, s.lastState), s.snapshotsWithState)
                 }
-                .handleErrorWith { e =>
-                  logger.error(e)("Producer: Error pulling snapshots, will retry in next cycle") >>
-                    ((lastSnapshot, lastState).some, List.empty[GlobalSnapshotWithState]).pure[F]
-                }
+
 
             case (None, _) =>
               logger.info("Producer: No last snapshot found, checking full snapshot") >>
@@ -294,6 +292,7 @@ object SnapshotProcessor {
                               LocalDateTime.now()
                             )
                           ).traverse { globalSnapshotsWithState =>
+                            validateMetagraphSnapshots(globalSnapshotsWithState) >>
                             queue.offer(globalSnapshotsWithState).flatMap { _ =>
                               logger.info(
                                 s"Producer: Added snapshot to queue (offered ${getSnapshotReference(globalSnapshotsWithState.snapshot)})"
@@ -302,13 +301,7 @@ object SnapshotProcessor {
                           }
                         )
                         .map(s => (s.map(gsws => (gsws.snapshot.signed, gsws.snapshotInfo)), s.toList))
-                        .handleErrorWith { e =>
-                          logger.error(e)("Producer: Error pulling initial snapshot, will retry in next cycle") >>
-                            (
-                              Option.empty[(Signed[GlobalIncrementalSnapshot], GlobalSnapshotInfo)],
-                              List.empty[GlobalSnapshotWithState]
-                            ).pure[F]
-                        }
+
                   case None =>
                     logger.error("Producer: No snapshots found at all!") >>
                       (
@@ -345,6 +338,12 @@ object SnapshotProcessor {
         // Run all streams concurrently
         _ <- Stream(producer, consumer).parJoin(2)
       } yield ()
+    }
+
+    private def validateMetagraphSnapshots( globalSnapshotsWithState: GlobalSnapshotWithState): F[Unit] = {
+      val mgSnapshots = globalSnapshotsWithState.currencySnapshots.map(_._2.length).sum
+      val channels = globalSnapshotsWithState.snapshot.stateChannelSnapshots.map(_._2.length).sum
+      Async[F].raiseError(new RuntimeException("Metagraph and state channel count don't match")).unlessA(channels == mgSnapshots)
     }
 
   }

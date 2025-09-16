@@ -146,8 +146,8 @@ object CurrencySnapshotMapperSuite extends MutableIOSuite {
         .make()
         .balanceDiff(snapshot, initialBalances.some, updatedInfo)
     } yield expect.same(
-      result,
-      updatedBalances - address1 - address2
+      result.toList,
+      (updatedBalances - address1 - address2).toList
     )
   }
 
@@ -164,7 +164,7 @@ object CurrencySnapshotMapperSuite extends MutableIOSuite {
       feeTransactions = SortedSet(txn1, txn2).some
       updatedBalances = applyTransactions(
         initialBalances,
-        blocks.flatMap(_.block.transactions.toList).toList,
+        blocks.flatMap(_.block.transactions.toSortedSet).toList,
         List.empty,
         feeTransactions.toList.flatten
       )
@@ -184,8 +184,8 @@ object CurrencySnapshotMapperSuite extends MutableIOSuite {
         .make()
         .balanceDiff(snapshot, initialBalances.some, updatedInfo)
     } yield expect.same(
-      result,
-      updatedBalances - address1 - address2
+      result.toList,
+      (updatedBalances - address1 - address2).toList
     )
   }
 
@@ -208,7 +208,7 @@ object CurrencySnapshotMapperSuite extends MutableIOSuite {
       )
       updatedBalances = applyTransactions(
         initialBalances,
-        blocks.flatMap(_.block.transactions.toList).toList,
+        blocks.flatMap(_.block.transactions.toSortedSet).toList,
         List.empty,
         List.empty
       )
@@ -228,8 +228,8 @@ object CurrencySnapshotMapperSuite extends MutableIOSuite {
         .make()
         .balanceDiff(snapshot, initialBalances.some, updatedInfo)
     } yield expect.same(
-      result,
-      updatedBalances - address4
+      result.toList,
+      (updatedBalances - address4).toList
     )
   }
 
@@ -264,8 +264,8 @@ object CurrencySnapshotMapperSuite extends MutableIOSuite {
 
       result = CurrencyIncrementalSnapshotMapper.make().balanceDiff(snapshot, initialBalances.some, updatedInfo)
     } yield expect.same(
-      result,
-      updatedBalances - address3 - address4
+      result.toList,
+      (updatedBalances - address3 - address4).toList
     )
   }
 
