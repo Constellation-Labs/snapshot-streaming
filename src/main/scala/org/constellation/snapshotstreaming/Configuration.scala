@@ -108,6 +108,7 @@ object Configuration {
     SharedConfig(
       env,
       c.gossip,
+      c.healthcheck,
       null, // http: HttpConfig, not needed
       c.leavingDelay,
       c.stateAfterJoining,
