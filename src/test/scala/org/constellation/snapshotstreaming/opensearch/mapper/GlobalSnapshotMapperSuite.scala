@@ -206,8 +206,8 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
         .make(sharedCfg)
         .balanceDiff(snapshot, initialBalances.some, updatedInfo)
     } yield expect.same(
-      result,
-      updatedBalances - address1 - address2
+      result.toList,
+      (updatedBalances - address1 - address2).toList
     )
   }
 
@@ -267,8 +267,8 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
         .make(sharedCfg)
         .balanceDiff(snapshot, initialBalances.some, updatedInfo)
     } yield expect.same(
-      result,
-      updatedBalances - address4
+      result.toList,
+      (updatedBalances - address4).toList
     )
   }
 
@@ -321,8 +321,8 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
 
       result = GlobalSnapshotMapper.make(sharedCfg).balanceDiff(snapshot, initialBalances.some, updatedInfo)
     } yield expect.same(
-      result,
-      updatedBalances - address3 - address4
+      result.toList,
+      (updatedBalances - address3 - address4).toList
     )
   }
 

@@ -288,7 +288,13 @@ object SnapshotDAO {
       WHERE hash IN (${varchar.list(n)})
     """.command
 
-  private val insertDelegatedStakingRewardsCommand: Command[DelegatedStakingReward] =
+  private def insertDelegatedStakingRewardsMany(size: Int): Command[List[DelegatedStakingReward]] = {
+    val enc = (
+      varchar *: varchar *: varchar *: int8 *: varchar
+    ).values.contramap { tx:DelegatedStakingReward =>
+      (tx.snapshotHash, tx.address, tx.nodeId, tx.amount, tx.stakeHash)
+    }.list(size)
+
     sql"""
       INSERT INTO delegate_stake_rewards (
         global_snapshot_hash,
@@ -296,10 +302,9 @@ object SnapshotDAO {
         node_id,
         rewards,
         stake_create_hash
-      ) VALUES ($varchar, $varchar, $varchar, $int8, $varchar)
+      ) VALUES $enc
       ON CONFLICT (global_snapshot_hash, address, node_id, rewards) DO NOTHING;
-    """.command.contramap { tx =>
-      (tx.snapshotHash, tx.address, tx.nodeId, tx.amount, tx.stakeHash)
+    """.command
     }
 
   private val insertDagRewardTxCommand: Command[(String, Int, RewardTransaction)] =
@@ -700,7 +705,6 @@ object SnapshotDAO {
             preparedDagTokenUnlock <- session.prepare(insertDagTokenUnlockCommand)
             preparedDagDelegatedStakingCreate <- session.prepare(insertDelegatedStakingCreateCommand)
             preparedDagDelegatedStakingWithdraw <- session.prepare(insertDelegatedStakingCreateWithdrawCommand)
-            preparedDagDelegatedStakingRewards <- session.prepare(insertDelegatedStakingRewardsCommand)
             preparedDagRewardTxs <- session.prepare(insertDagRewardTxCommand)
             preparedDagAddressBalance <- session.prepare(insertAddressBalanceCommand)
             preparedProofs <- session.prepare(insertProofCommand)
@@ -721,7 +725,7 @@ object SnapshotDAO {
               snapshot.completedDelegatedStakingWithdrawHashes.toList,
               updateCompletedDelegatedStakingWithdrawCommand
             )
-            _ <- executeCmd(preparedDagDelegatedStakingRewards)(snapshot.delegatedStakingRewards).timedLog("[GLOBAL] insert preparedDagDelegatedStakingRewards")
+            _ <- executeMany(session, snapshot.delegatedStakingRewards.toList, insertDelegatedStakingRewardsMany).timedLog("[GLOBAL] insert preparedDagDelegatedStakingRewards")
             _ <- executeCmd(preparedDagAddressBalance)(snapshot.balances).timedLog(s"[GLOBAL] insert preparedDagAddressBalance. snapshot.balances ${snapshot.balances.size}")
             _ <- executeCmd(preparedDagRewardTxs)(pairWith(gsHash, snapshot.snapshot.rewards.toSeq.zipWithIndex).map {case (gsHash, (tx, idx)) => (gsHash, idx, tx)}).timedLog("[GLOBAL] insert preparedDagRewardTxs")
             _ <- executeCmd(preparedBlockParent)(blockParents).timedLog("[GLOBAL] insert preparedBlockParent")
