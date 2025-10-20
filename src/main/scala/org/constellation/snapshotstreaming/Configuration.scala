@@ -126,7 +126,9 @@ object Configuration {
       c.delegatedStaking,
       c.fieldsAddedOrdinals,
       c.metagraphsSync,
-      c.priceOracle.getOrElse(env, PriceOracleConfig.default)
+      c.priceOracle.getOrElse(env, PriceOracleConfig.default),
+      c.snapshotBinarySenderTimeouts,
+      c.snapshot.timeouts
     )
 
 
