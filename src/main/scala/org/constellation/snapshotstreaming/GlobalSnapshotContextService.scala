@@ -3,14 +3,11 @@ package org.constellation.snapshotstreaming
 import cats.Parallel
 import cats.effect.kernel.Async
 import cats.syntax.all._
-import io.constellationnetwork.currency.schema.currency.{
-  CurrencyIncrementalSnapshot,
-  CurrencySnapshot,
-  CurrencySnapshotInfo
-}
+import io.constellationnetwork.currency.schema.currency.{CurrencyIncrementalSnapshot, CurrencySnapshot, CurrencySnapshotInfo}
 import io.constellationnetwork.node.shared.domain.snapshot.services.GlobalL0Service
 import io.constellationnetwork.node.shared.domain.snapshot.storage.{LastNGlobalSnapshotStorage, LastSnapshotStorage}
-import io.constellationnetwork.node.shared.infrastructure.snapshot.{GlobalSnapshotContextFunctions, GlobalSnapshotStateChannelEventsProcessor}
+import io.constellationnetwork.node.shared.infrastructure.snapshot.GlobalSnapshotContextFunctions
+import io.constellationnetwork.node.shared.infrastructure.snapshot.managers.global.GlobalSnapshotStateChannelEventsProcessor
 import io.constellationnetwork.schema.{GlobalIncrementalSnapshot, GlobalSnapshotInfo, SnapshotOrdinal}
 import io.constellationnetwork.security.signature.Signed
 import io.constellationnetwork.security.{Hashed, HasherSelector}
