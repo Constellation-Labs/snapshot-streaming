@@ -11,7 +11,9 @@ case class DelegatedStakingCreate(
   rewards: Long,
   tokenLockHash: String,
   parentHash: String,
-  transferFrom: Option[String]
+  transferFrom: Option[String],
+  currentTokenLockHash: Option[String],
+  currentAmount: Option[Long]
 )
 
 case class DelegatedStakingWithdraw(

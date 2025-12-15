@@ -196,12 +196,14 @@ abstract class GlobalSnapshotMapper[F[_]: Async] extends SnapshotMapper[F, Globa
       dsr.createdAt.value,
       dsr.event.source.value,
       dsr.event.nodeId.value.value,
-      dsr.event.amount.value,
+      dsr.amount.value,
       dsr.event.fee.value,
       dsr.rewards.value,
-      dsr.event.tokenLockRef.value,
+      dsr.tokenLockRef.value,
       dsr.event.parent.hash.value,
-      fromHash.map(_.value)
+      fromHash.map(_.value),
+      dsr.currentTokenLockRef.map(_.value),
+      dsr.currentAmount.map(_.value)
     )
 
   def activeHashedDelegatedStakes(
@@ -288,7 +290,8 @@ abstract class GlobalSnapshotMapper[F[_]: Async] extends SnapshotMapper[F, Globa
         tokenLock.unlockEpoch.map(_.value.value),
         tokenLock.ordinal.value,
         roundId.value,
-        tokenLock.parent.hash.value
+        tokenLock.parent.hash.value,
+        tokenLock.replaceTokenLockRef.map(_.value)
       )
     }
   }
