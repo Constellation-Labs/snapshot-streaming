@@ -1,6 +1,7 @@
 package org.constellation.snapshotstreaming.opensearch.mapper
 
 import java.security.KeyPair
+import cats.Show
 import cats.data.NonEmptySet
 import cats.effect.{IO, Resource}
 import cats.implicits.catsSyntaxOptionId
@@ -59,6 +60,9 @@ import io.constellationnetwork.schema.epoch.EpochProgress
 
 object GlobalSnapshotMapperSuite extends MutableIOSuite {
 
+  // Resolve ambiguous implicit between tessellation's showSortedMapAsList and cats' catsShowForSortedMap
+  implicit def showSortedMap[K: Show, V: Show]: Show[SortedMap[K, V]] = Show.catsShowForSortedMap
+
   val sharedCfg =
     Configuration.nodeSharedConfig(AppEnvironment.Dev, ConfigSource.default.loadOrThrow[SharedConfigReader])
 
@@ -73,7 +77,7 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
           key3 <- KeyPairGenerator.makeKeyPair[IO].asResource
           key4 <- KeyPairGenerator.makeKeyPair[IO].asResource
 
-          js <- JsonSerializer.forSync[IO].asResource
+          js <- JsonSerializer.forAsync[IO].asResource
           hasherSelector = {
             implicit val j: JsonSerializer[IO] = js
             HasherSelector.forSync[IO](Hasher.forJson[IO], Hasher.forKryo[IO], hashSelect)
@@ -353,7 +357,9 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
     ) = DelegatedStakeRecord(
       event = buildSignedCreateStakeEvent(address, peerId, amount, tokenLockRef),
       createdAt = SnapshotOrdinal(createdAt),
-      rewards = Amount(rewards)
+      rewards = Amount(rewards),
+      currentTokenLockRef = None,
+      currentAmount = None
     )
 
     val oldStakes = Seq(
@@ -437,6 +443,8 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
           10L,
           "TokenRef22",
           "0000000000000000000000000000000000000000000000000000000000000000",
+          None,
+          None,
           None
         ),
         DelegatedStakingCreate(
@@ -450,7 +458,9 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
           20L,
           "TokenRef3",
           "0000000000000000000000000000000000000000000000000000000000000000",
-          sorted(1).transferFrom
+          sorted(1).transferFrom,
+          None,
+          None
         )
       )
     )
@@ -475,7 +485,9 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
       event = buildSignedCreateStakeEvent(address, peerId, amount, tokenLockRef),
       rewards = Amount(rewards),
       acceptedOrdinal = SnapshotOrdinal(acceptedOrdinal),
-      createdAt = EpochProgress(epochProgress)
+      createdAt = EpochProgress(epochProgress),
+      currentTokenLockRef = None,
+      currentAmount = None
     )
 
     val addr1P1 = buildDSW(address1, "Peer1", 200L, "TokenRef1", 10L, 111L, 10L)
@@ -561,7 +573,9 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
           555L,
           12L,
           (addr1P5.createdAt |+| withdrawalTimeLimit).value.value,
-          completed = false
+          completed = false,
+          currentTokenLockHash = None,
+          currentAmount = None
         ),
         DelegatedStakingWithdraw(
           "SnapshotHash1",
@@ -571,10 +585,202 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
           444L,
           24L,
           (addr2P4.createdAt |+| withdrawalTimeLimit).value.value,
-          completed = false
+          completed = false,
+          currentTokenLockHash = None,
+          currentAmount = None
         )
       )
     ) and expect.same(completedWithdrawals.toSet, Set(completedWithdrawalHash.value) )
+  }
+
+  test("map create stake with currentTokenLockRef and currentAmount fields") { res =>
+    implicit val (hs, ks, sp, key1, key2, key3, key4) = res
+    val address1 = key1.getPublic.toAddress
+    val address2 = key2.getPublic.toAddress
+
+    def buildDSRWithCurrentFields(
+      address: Address,
+      peerId: String,
+      amount: NonNegLong,
+      tokenLockRef: String,
+      createdAt: NonNegLong,
+      rewards: NonNegLong,
+      currentTokenLockRef: Option[Hash],
+      currentAmount: Option[DelegatedStakeAmount]
+    ) = DelegatedStakeRecord(
+      event = buildSignedCreateStakeEvent(address, peerId, amount, tokenLockRef),
+      createdAt = SnapshotOrdinal(createdAt),
+      rewards = Amount(rewards),
+      currentTokenLockRef = currentTokenLockRef,
+      currentAmount = currentAmount
+    )
+
+    // Stake with increased amount - has currentTokenLockRef and currentAmount set
+    val stakeWithIncrease = buildDSRWithCurrentFields(
+      address1,
+      "Peer1",
+      100L,
+      "OriginalTokenRef",
+      10L,
+      50L,
+      Some(Hash("CurrentTokenRef123")),
+      Some(DelegatedStakeAmount(250L))
+    )
+
+    // Stake without any modifications - currentTokenLockRef and currentAmount are None
+    val stakeWithoutIncrease = buildDSRWithCurrentFields(
+      address2,
+      "Peer2",
+      200L,
+      "TokenRef2",
+      15L,
+      30L,
+      None,
+      None
+    )
+
+    val stakes = Seq(
+      address1 -> SortedSet(stakeWithIncrease),
+      address2 -> SortedSet(stakeWithoutIncrease)
+    )
+
+    val snapshotInfo = GlobalSnapshotInfo(
+      SortedMap.empty,
+      SortedMap.empty,
+      SortedMap.empty,
+      SortedMap.empty,
+      SortedMap.empty,
+      None,
+      None,
+      None,
+      None,
+      None,
+      None,
+      Some(SortedMap.from(stakes)),
+      None,
+      None,
+      None,
+      None,
+      None
+    )
+
+    implicit val hasher: Hasher[IO] = hs.getCurrent
+    val gsm = GlobalSnapshotMapper.make(sharedCfg)
+    for {
+      activeStakes <- gsm.activeHashedDelegatedStakes(snapshotInfo)
+      result <- gsm.mapDelegatedStakingCreates(
+        Hash("SnapshotHash1"),
+        activeStakes,
+        None,
+        hasher
+      )
+      sorted = result.sortBy(_.createdAtOrdinal)
+    } yield {
+      // Verify stake with increased amount has currentTokenLockHash and currentAmount set
+      expect.same(sorted.head.currentTokenLockHash, Some("CurrentTokenRef123")) and
+      expect.same(sorted.head.currentAmount, Some(250L)) and
+      // Verify stake without increase has None for both fields
+      expect.same(sorted(1).currentTokenLockHash, None) and
+      expect.same(sorted(1).currentAmount, None)
+    }
+  }
+
+  test("map stakes withdrawal with currentTokenLockRef and currentAmount fields") { res =>
+    implicit val (hs, ks, sp, key1, key2, key3, key4) = res
+    val address1 = key1.getPublic.toAddress
+    val address2 = key2.getPublic.toAddress
+
+    val withdrawalTimeLimit = sharedCfg.delegatedStaking.withdrawalTimeLimit(sharedCfg.environment)
+
+    def buildDSWWithCurrentFields(
+      address: Address,
+      peerId: String,
+      amount: NonNegLong,
+      tokenLockRef: String,
+      acceptedOrdinal: NonNegLong,
+      rewards: NonNegLong,
+      epochProgress: NonNegLong,
+      currentTokenLockRef: Option[Hash],
+      currentAmount: Option[DelegatedStakeAmount]
+    ) = PendingDelegatedStakeWithdrawal(
+      event = buildSignedCreateStakeEvent(address, peerId, amount, tokenLockRef),
+      rewards = Amount(rewards),
+      acceptedOrdinal = SnapshotOrdinal(acceptedOrdinal),
+      createdAt = EpochProgress(epochProgress),
+      currentTokenLockRef = currentTokenLockRef,
+      currentAmount = currentAmount
+    )
+
+    // Withdrawal with current token lock info (stake was increased before withdrawal)
+    val withdrawalWithCurrentInfo = buildDSWWithCurrentFields(
+      address1,
+      "Peer1",
+      100L,
+      "OriginalTokenRef",
+      10L,
+      75L,
+      20L,
+      Some(Hash("CurrentTokenRefForWithdrawal")),
+      Some(DelegatedStakeAmount(300L))
+    )
+
+    // Withdrawal without current info (original stake amount)
+    val withdrawalWithoutCurrentInfo = buildDSWWithCurrentFields(
+      address2,
+      "Peer2",
+      150L,
+      "TokenRef2",
+      12L,
+      40L,
+      25L,
+      None,
+      None
+    )
+
+    val withdrawals = Seq(
+      address1 -> SortedSet(withdrawalWithCurrentInfo),
+      address2 -> SortedSet(withdrawalWithoutCurrentInfo)
+    )
+
+    val snapshotInfo = GlobalSnapshotInfo(
+      SortedMap.empty,
+      SortedMap.empty,
+      SortedMap.empty,
+      SortedMap.empty,
+      SortedMap.empty,
+      None,
+      None,
+      None,
+      None,
+      None,
+      None,
+      None,
+      Some(SortedMap.from(withdrawals)),
+      None,
+      None,
+      None,
+      None
+    )
+
+    implicit val hasher: Hasher[IO] = hs.getCurrent
+    val gsm = GlobalSnapshotMapper.make(sharedCfg)
+    for {
+      result <- gsm.mapDelegatedStakingWithdrawals(
+        Hash("SnapshotHash1"),
+        snapshotInfo,
+        None,
+        hasher
+      )
+      (newWithdrawals, _) = result
+      sorted = newWithdrawals.sortBy(_.createdAtEpoch)
+    } yield {
+      // Verify withdrawal with current info has fields set
+      expect.same(sorted.head.currentTokenLockHash, Some("CurrentTokenRefForWithdrawal")) and
+      expect.same(sorted.head.currentAmount, Some(300L)) and
+      // Verify withdrawal without current info has None for both fields
+      expect.same(sorted(1).currentTokenLockHash, None) and
+      expect.same(sorted(1).currentAmount, None)
+    }
   }
 
 }

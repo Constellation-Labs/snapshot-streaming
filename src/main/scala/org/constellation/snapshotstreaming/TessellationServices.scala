@@ -6,7 +6,7 @@ import cats.syntax.all._
 import eu.timepit.refined.auto._
 import eu.timepit.refined.types.numeric.PosInt
 import io.constellationnetwork.env.AppEnvironment
-import io.constellationnetwork.json.{JsonBrotliBinarySerializer, JsonSerializer}
+import io.constellationnetwork.json.JsonSerializer
 import io.constellationnetwork.kryo.KryoSerializer
 import io.constellationnetwork.node.shared.config.DefaultDelegatedRewardsConfigProvider
 import io.constellationnetwork.node.shared.config.types.{AddressesConfig, DelegatedStakingConfig, PriceOracleConfig, SharedConfigReader}
@@ -23,11 +23,15 @@ import io.constellationnetwork.node.shared.domain.tokenlock.block.TokenLockBlock
 import io.constellationnetwork.node.shared.infrastructure.block.processing.BlockAcceptanceManager
 import io.constellationnetwork.node.shared.infrastructure.consensus.CurrencySnapshotEventValidationErrorStorage
 import io.constellationnetwork.node.shared.infrastructure.snapshot._
+import io.constellationnetwork.node.shared.infrastructure.snapshot.managers.currency.CurrencySnapshotAcceptanceManager
+import io.constellationnetwork.node.shared.infrastructure.snapshot.managers.global.{GlobalSnapshotAcceptanceManager, GlobalSnapshotStateChannelAcceptanceManager, GlobalSnapshotStateChannelEventsProcessor}
 import io.constellationnetwork.node.shared.infrastructure.snapshot.storage.{LastNGlobalSnapshotStorage, LastSnapshotStorage}
+import io.constellationnetwork.node.shared.logger.LoggerBundle
 import io.constellationnetwork.node.shared.modules.SharedValidators
-import io.constellationnetwork.schema.{GlobalIncrementalSnapshot, GlobalSnapshotInfo, SnapshotOrdinal}
+import io.constellationnetwork.schema.{CurrencyStateProofSelector, GlobalIncrementalSnapshot, GlobalSnapshotInfo, GlobalStateProofSelector, SnapshotOrdinal}
 import io.constellationnetwork.schema.balance.Amount
 import io.constellationnetwork.schema.epoch.EpochProgress
+import io.constellationnetwork.schema.mpt.{GlobalStateKey, MptStore}
 import io.constellationnetwork.security.signature.SignedValidator
 import io.constellationnetwork.security.{Hasher, HasherSelector, SecurityProvider}
 
@@ -36,15 +40,20 @@ object TessellationServices {
   def make[F[_] : Async : Parallel : JsonSerializer : KryoSerializer : SecurityProvider](
     env          : AppEnvironment,
     configuration: SharedConfigReader,
-    l0Service    : GlobalL0Service[F]
-  )(implicit hasherSelector: HasherSelector[F]): F[TessellationServices[F]] =
+    l0Service    : GlobalL0Service[F],mptStore: MptStore[F, GlobalStateKey],     loggerBundle: LoggerBundle[F]
+
+                                                                                        )(implicit hasherSelector: HasherSelector[F], globalStateProofSelector: GlobalStateProofSelector,
+  currencyStateProofSelector: CurrencyStateProofSelector
+  ): F[TessellationServices[F]] =
     for {
       _ <- Async[F].unit
       nodeConfig = Configuration.nodeSharedConfig(env, configuration)
       tessellation3Migration = configuration.fieldsAddedOrdinals.tessellation3Migration.getOrElse(env, SnapshotOrdinal.MinValue)
+      setSumFixOrdinal = configuration.fieldsAddedOrdinals.setSumFix.getOrElse(env, SnapshotOrdinal.MinValue)
       txHasher = Hasher.forKryo
       validators = hasherSelector.withCurrent { implicit hasher =>
         SharedValidators.make[F](
+          env,
           AddressesConfig(Set.empty),
           None,
           None,
@@ -58,7 +67,6 @@ object TessellationServices {
       }
 
       stateChannelManager <- GlobalSnapshotStateChannelAcceptanceManager.make(None)
-      jsonBrotliBinarySerializer <- JsonBrotliBinarySerializer.forSync[F]
       feeCalculator = FeeCalculator.make(nodeConfig.feeConfigs)
 
       lastNGlobalSnapshotStorage <- hasherSelector.withCurrent { implicit hasher =>
@@ -111,7 +119,6 @@ object TessellationServices {
             validators.stateChannelValidator,
             stateChannelManager,
             currencySnapshotContextFns,
-            jsonBrotliBinarySerializer,
             feeCalculator
           )
         val priceOracle = configuration.priceOracle.getOrElse(env, PriceOracleConfig.default)
@@ -131,13 +138,16 @@ object TessellationServices {
           PriceStateUpdater.make[F](env, DefaultDelegatedRewardsConfigProvider),
           configuration.collateral.get.amount,
           configuration.delegatedStaking.withdrawalTimeLimit.getOrElse(env, EpochProgress.MinValue),
+          mptStore,loggerBundle
         )
 
         val globalSnapshotContextFns = GlobalSnapshotContextFunctions.make[F](
           globalSnapshotAcceptanceManager,
           updateDelegatedStakeAcceptanceManager,
           configuration.delegatedStaking.withdrawalTimeLimit.getOrElse(env, EpochProgress.MinValue),
-          tessellation3Migration
+          tessellation3Migration,
+          setSumFixOrdinal,
+          mptStore
         )
 
         GlobalSnapshotContextService.make(globalSnapshotStateChannelEventsProcessor, globalSnapshotContextFns, lastNGlobalSnapshotStorage, lastGlobalSnapshotStorage)

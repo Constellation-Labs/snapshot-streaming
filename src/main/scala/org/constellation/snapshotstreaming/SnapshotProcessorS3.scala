@@ -13,16 +13,19 @@ import fs2.io.file.Files
 import fs2.io.net.Network
 import io.constellationnetwork.json.JsonSerializer
 import io.constellationnetwork.kryo.KryoSerializer
-import io.constellationnetwork.merkletree.StateProofValidator
 import io.constellationnetwork.node.shared.config.types.SharedConfigReader
 import io.constellationnetwork.node.shared.domain.snapshot.services.GlobalL0Service
 import io.constellationnetwork.node.shared.domain.snapshot.storage.LastSnapshotStorage
 import io.constellationnetwork.node.shared.http.p2p.clients.L0GlobalSnapshotClient
 import io.constellationnetwork.node.shared.infrastructure.cluster.storage.L0ClusterStorage
+import io.constellationnetwork.node.shared.logger.Slf4jLoggerBundle
 import io.constellationnetwork.schema.SnapshotReference.{fromHashedSnapshot => getSnapshotReference}
-import io.constellationnetwork.schema.{GlobalIncrementalSnapshot, GlobalSnapshot, GlobalSnapshotInfo, GlobalSnapshotInfoV2, SnapshotOrdinal}
+import io.constellationnetwork.schema.mpt.{GlobalStateKey, MptStore}
+import io.constellationnetwork.schema.{CurrencyStateProofSelector, GlobalIncrementalSnapshot, GlobalSnapshot, GlobalSnapshotInfo, GlobalStateProofSelector, SnapshotOrdinal}
 import io.constellationnetwork.security._
 import io.constellationnetwork.security.hash.Hash
+import io.constellationnetwork.security.mpt.producer.FileSystemMerklePatriciaProducer
+import io.constellationnetwork.validator.StateProofValidator
 import org.constellation.snapshotstreaming.SnapshotProcessor.{GlobalSnapshotWithState, L0ClusterStorageRef, ProcessedSnapshots, makeClient}
 import org.constellation.snapshotstreaming.db.SnapshotDAO
 import org.constellation.snapshotstreaming.mapper.{CurrencySnapshotMapper, GlobalSnapshotMapper}
@@ -47,26 +50,37 @@ object SnapshotProcessorS3 {
      configuration: SnapshotStreamingConfig,
      sharedConfig: SharedConfigReader,
      txHasher: Hasher[F]
-   ): Resource[F, SnapshotProcessor[F]] =
+   ): Resource[F, SnapshotProcessor[F]] = {
+    implicit val hasher = txHasher
+    implicit val globalStateProofSelector: GlobalStateProofSelector =
+      GlobalStateProofSelector(sharedConfig.lastLegacyStateProofOrdinal.getOrElse(configuration.environment, SnapshotOrdinal.unsafeApply(Long.MaxValue)))
+    implicit val currencyStateProofSelector: CurrencyStateProofSelector = CurrencyStateProofSelector.instance
     for {
       client <- makeClient(configuration.httpClient)
       s3DAO <- S3DAO.make[F](configuration.s3)
       opensearchDAO <- OpensearchDAO.make[F](configuration.opensearch)
       sessionPool <- db.session[F](configuration.db)
       snapshotDAO = SnapshotDAO.make[F](sessionPool)
-      lastIncrementalGlobalSnapshotStorage <- Resource.eval(fsGlobalIncrementalStorage(configuration))
-      globalSnapshotClient = L0GlobalSnapshotClient.make[F](client)
+      globalSnapshotClient = L0GlobalSnapshotClient.make[F](client, none, sharedConfig.snapshot.timeouts)
       l0ClusterStorage <- Resource.eval(L0ClusterStorageRef(configuration.node))
+      mptProducer <- Resource.eval(FileSystemMerklePatriciaProducer.make[F](sharedConfig.snapshot.mptSnapshotInfoPath))
+      mptStore <- Resource.eval(MptStore.make[F, GlobalStateKey](
+        mptProducer,
+        GlobalStateKey.toHex[F]
+      ))
+      lastIncrementalGlobalSnapshotStorage <- Resource.eval(fsGlobalIncrementalStorage(configuration, mptStore, globalStateProofSelector))
       l0Service = GlobalL0Service
         .make[F](
           globalSnapshotClient,
           l0ClusterStorage,
           lastIncrementalGlobalSnapshotStorage,
           configuration.node.pullLimit.some,
-          configuration.node.l0PeersMap.keys.some
+          configuration.node.l0PeersMap.keys.some,
+          mptStore
         )
+      loggerBundle <- Slf4jLoggerBundle.make[F]
       tesselationServices <- Resource.eval(
-        TessellationServices.make[F](configuration.environment, sharedConfig, l0Service)
+        TessellationServices.make[F](configuration.environment, sharedConfig, l0Service, mptStore, loggerBundle)
       )
       lastFullGlobalSnapshotStorage = FileBasedLastGlobalFullSnapshotStorage.make[F, GlobalSnapshot](
         configuration.lastSnapshotPath
@@ -81,8 +95,11 @@ object SnapshotProcessorS3 {
       CurrencySnapshotMapper.make(),
       txHasher,
       tesselationServices,
-      lastFullGlobalSnapshotStorage
+      lastFullGlobalSnapshotStorage,
+      mptStore,
+      globalStateProofSelector
     )
+  }
 
   private def makeClient[F[_]: Async: Network](httpClientConfig: HttpClientConfig) =
     EmberClientBuilder
@@ -95,9 +112,9 @@ object SnapshotProcessorS3 {
     Ref.of(nodeCfg.l0PeersMap).map(L0ClusterStorage.make(_))
 
   private def fsGlobalIncrementalStorage[F[_] : Async : Parallel: HasherSelector : Files : KryoSerializer](
-                                                                                                  configuration: SnapshotStreamingConfig
+                                                                                                  configuration: SnapshotStreamingConfig, mptStore: MptStore[F, GlobalStateKey], globalStateProofSelector: GlobalStateProofSelector
                                                                                                 ) =
-    FileBasedLastGlobalIncrementalSnapshotStorage.make[F](configuration.lastIncrementalSnapshotPath)
+    FileBasedLastGlobalIncrementalSnapshotStorage.make[F](configuration.lastIncrementalSnapshotPath, mptStore, globalStateProofSelector)
 
   def make[F[_] : Async : Parallel : HasherSelector](
                                                       configuration: SnapshotStreamingConfig,
@@ -109,10 +126,12 @@ object SnapshotProcessorS3 {
                                                       currencyMapper: CurrencySnapshotMapper[F],
                                                       txHasher: Hasher[F],
                                                       tessellationServices: TessellationServices[F],
-                                                      lastFullGlobalSnapshotStorage: FileBasedLastGlobalFullSnapshotStorage[F]
+                                                      lastFullGlobalSnapshotStorage: FileBasedLastGlobalFullSnapshotStorage[F],
+                                                      mptStore: MptStore[F, GlobalStateKey],
+                                                      globalStateProofSelector: GlobalStateProofSelector
                                                     ): SnapshotProcessor[F] = new SnapshotProcessor[F] {
     private val logger = Slf4jLogger.getLogger[F]
-
+    private implicit val stateProofSelector = globalStateProofSelector
 
     private def storeInPostgres(global: GlobalData, metagraph: MetagraphData) =
           (snapshotDAO.insertGlobalData(global, metagraph.snapshots.size) >> snapshotDAO
@@ -134,26 +153,26 @@ object SnapshotProcessorS3 {
 
     private def process(globalSnapshotWithState: GlobalSnapshotWithState, hasher: Hasher[F]): F[Unit] = {
       val GlobalSnapshotWithState(snapshot, _, snapshotInfo, _, dt) = globalSnapshotWithState
-      HasherSelector[F]
-        .forOrdinal(snapshot.ordinal) { implicit hasher =>
-          logger.info(
-            s"Global Snapshot ${snapshot.ordinal.value.value} with logic=${hasher.getLogic(snapshot.ordinal)}"
-          ) >>
-            (hasher.getLogic(snapshot.ordinal) match {
-              case JsonHash => StateProofValidator.validate(snapshot, snapshotInfo)
-              case KryoHash =>
-                StateProofValidator.validate(snapshot, GlobalSnapshotInfoV2.fromGlobalSnapshotInfo(snapshotInfo))
-            })
-        }
-        .flatMap {
-          case Validated.Valid(()) =>
-            store(globalSnapshotWithState, dt, hasher) //>>
+      JsonSerializer.forAsync.flatMap { implicit jsonSerializer =>
+        HasherSelector[F]
+          .forOrdinal(snapshot.ordinal) { implicit hasher =>
+            logger.info(
+              s"Global Snapshot ${snapshot.ordinal.value.value} with logic=${hasher.getLogic(snapshot.ordinal)}"
+            ) >>
+              snapshotInfo.stateProof(mptStore.underlying, snapshot.ordinal).flatMap { stateProof =>
+                StateProofValidator.validate(snapshot, stateProof)
+              }
+          }
+          .flatMap {
+            case Validated.Valid(()) =>
+              store(globalSnapshotWithState, dt, hasher) //>>
 
-          case Validated.Invalid(e) =>
-            logger.warn(
-              s"Calculated stateProof does not match state from snapshot: ${e}."
-            )
-        }
+            case Validated.Invalid(e) =>
+              logger.warn(
+                s"Calculated stateProof does not match state from snapshot: ${e}."
+              )
+          }
+      }
     }
 
     val searchGlobalSnapshots =

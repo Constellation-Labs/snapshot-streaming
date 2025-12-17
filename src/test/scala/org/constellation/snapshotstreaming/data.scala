@@ -54,7 +54,7 @@ object data {
     def select(ordinal: SnapshotOrdinal): HashLogic = JsonHash
   }
 
-  def incrementalGlobalSnapshot[F[_]: Parallel: Sync: HasherSelector](
+  def incrementalGlobalSnapshot[F[_]: Parallel: Async: HasherSelector](
     ordinal: NonNegLong,
     height: NonNegLong,
     subHeight: NonNegLong,
@@ -193,7 +193,7 @@ object data {
     )
   }
 
-  def incrementalCurrencySnapshot[F[_]: Parallel: Sync: HasherSelector](
+  def incrementalCurrencySnapshot[F[_]: Parallel: Async: HasherSelector](
     ordinal: NonNegLong,
     height: NonNegLong,
     subHeight: NonNegLong,

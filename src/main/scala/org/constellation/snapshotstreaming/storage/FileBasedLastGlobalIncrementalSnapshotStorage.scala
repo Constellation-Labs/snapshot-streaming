@@ -10,13 +10,16 @@ import fs2.{Stream, text}
 import io.circe.jawn
 import io.circe.syntax._
 import io.constellationnetwork.ext.kryo._
+import io.constellationnetwork.json.JsonSerializer
 import io.constellationnetwork.kryo.KryoSerializer
-import io.constellationnetwork.merkletree.StateProofValidator
+import io.constellationnetwork.node.shared.domain.snapshot.Validator.isNextSnapshot
 import io.constellationnetwork.node.shared.domain.snapshot.storage.LastSnapshotStorage
 import io.constellationnetwork.schema._
 import io.constellationnetwork.schema.height.Height
+import io.constellationnetwork.schema.mpt.{GlobalStateKey, MptStore}
 import io.constellationnetwork.schema.tokenLock.TokenLockOrdinal
 import io.constellationnetwork.security._
+import io.constellationnetwork.validator.StateProofValidator
 
 
 object FileBasedLastGlobalIncrementalSnapshotStorage {
@@ -34,7 +37,7 @@ object FileBasedLastGlobalIncrementalSnapshotStorage {
       .drain
 
   def make[F[_]: Async: Parallel: HasherSelector: Files: KryoSerializer: Compression](
-    path: Path
+    path: Path, mptStore: MptStore[F, GlobalStateKey], globalStateProofSelector: GlobalStateProofSelector
   ): F[LastSnapshotStorage[F, GlobalIncrementalSnapshot, GlobalSnapshotInfo]] = {
 
     def deserializeWithJson(data: Array[Byte]) = jawn.decode[SnapshotWithState](new String(data, "UTF-8"))
@@ -54,36 +57,46 @@ object FileBasedLastGlobalIncrementalSnapshotStorage {
           case e                      => e.raiseError[F, Option[SnapshotWithState]]
         }
 
-    readSnapshotWithState.flatMap(Ref.of[F, Option[SnapshotWithState]](_).map(make(_, path)))
+    readSnapshotWithState.flatMap(Ref.of[F, Option[SnapshotWithState]](_).map(make(_, path, mptStore, globalStateProofSelector)))
   }
 
   def make[F[_]: Async: Parallel: HasherSelector: Files: KryoSerializer: Compression](
     cachedSnapshot: Ref[F, Option[SnapshotWithState]],
-    path: Path
-  ): LastSnapshotStorage[F, GlobalIncrementalSnapshot, GlobalSnapshotInfo] =
+    path: Path, mptStore: MptStore[F, GlobalStateKey],
+    globalStateProofSelector: GlobalStateProofSelector
+  ): LastSnapshotStorage[F, GlobalIncrementalSnapshot, GlobalSnapshotInfo] = {
     new LastSnapshotStorage[F, GlobalIncrementalSnapshot, GlobalSnapshotInfo] {
+      implicit val stateProofSelector = globalStateProofSelector
 
-      private def validateStateProof(snapshot: Hashed[GlobalIncrementalSnapshot], state: GlobalSnapshotInfo): F[Unit] =
-        HasherSelector[F].forOrdinal(snapshot.ordinal) { implicit hasher =>
-          (hasher.getLogic(snapshot.ordinal) match {
-            case JsonHash => StateProofValidator.validate(snapshot, state)
-            case KryoHash =>
-              StateProofValidator.validate(snapshot, GlobalSnapshotInfoV2.fromGlobalSnapshotInfo(state))
-          }).flatMap(Async[F].fromValidated)
+      private def validateStateProof(snapshot: Hashed[GlobalIncrementalSnapshot], state: GlobalSnapshotInfo): F[Unit] = {
+        JsonSerializer.forAsync.flatMap { implicit jsonSerializer =>
+          HasherSelector[F].forOrdinal(snapshot.ordinal) { implicit hasher =>
+            state.stateProof(mptStore.underlying, snapshot.ordinal).flatMap { stateProof =>
+              StateProofValidator.validate(snapshot, stateProof)
+            }.flatMap(Async[F].fromValidated)
+          }
         }
+      }
+
+      private def doSet(snapshot: Hashed[GlobalIncrementalSnapshot], state: GlobalSnapshotInfo): F[Unit] = {
+        val snapshotWithState = SnapshotWithState(snapshot, state)
+        Files[F].move(path, Path(path.toString + ".bk"), CopyFlags(ReplaceExisting, AtomicMove)).handleErrorWith {
+          case _: java.nio.file.NoSuchFileException => Async[F].pure(None)
+          case other => Async[F].raiseError(other)
+        } >> saveSnapshotWithStateJson(path, snapshotWithState) >> cachedSnapshot.set(Some(snapshotWithState))
+      }
 
       def set(snapshot: Hashed[GlobalIncrementalSnapshot], state: GlobalSnapshotInfo): F[Unit] =
         validateStateProof(snapshot, state) >> {
-          cachedSnapshot.get.flatMap { x =>
-            x.map { _ =>
-              val snapshotWithState = SnapshotWithState(snapshot, state)
-              //move previous bk file
-              Files[F].move(path,Path(path.toString + ".bk"),  CopyFlags(ReplaceExisting, AtomicMove)).handleErrorWith {
-                case _: java.nio.file.NoSuchFileException => Async[F].pure(None)
-                case other => Async[F].raiseError(other) // Re-raise other errors
-              } >>
-              saveSnapshotWithStateJson(path, snapshotWithState) >> cachedSnapshot.set(Some(snapshotWithState))
-            }.getOrElse(setInitial(snapshot, state))
+          cachedSnapshot.get.flatMap {
+            case Some(current) if isNextSnapshot(current.snapshot, snapshot.signed.value) =>
+              doSet(snapshot, state)
+            case Some(current) if current.snapshot.hash === snapshot.hash =>
+              Async[F].unit // Same snapshot, idempotent
+            case None =>
+              setInitial(snapshot, state)
+            case _ =>
+              Async[F].raiseError(new Throwable("Failure during setting new global snapshot!"))
           }
         }
 
@@ -111,5 +124,6 @@ object FileBasedLastGlobalIncrementalSnapshotStorage {
       def getHeight: F[Option[Height]] = get.map(_.map(_.height))
 
     }
+  }
 
 }

@@ -10,7 +10,7 @@ import scala.concurrent.duration.FiniteDuration
 import fs2.io.file.Path
 import io.constellationnetwork.env.AppEnvironment
 import io.constellationnetwork.node.shared.cli.CliMethod
-import io.constellationnetwork.node.shared.config.types.{PriceOracleConfig, SharedConfig, SharedConfigReader}
+import io.constellationnetwork.node.shared.config.types.{ClickHouseAppConfig, PriceOracleConfig, SharedConfig, SharedConfigReader}
 import eu.timepit.refined.pureconfig._
 import org.http4s.Uri
 import io.constellationnetwork.node.shared.ext.pureconfig._
@@ -118,6 +118,7 @@ object Configuration {
       c.feeConfigs.get(env).map(SortedMap.from(_)).getOrElse(SortedMap.empty),
       c.forkInfoStorage,
       c.lastKryoHashOrdinal,
+      c.lastLegacyStateProofOrdinal,
       c.addresses,
       c.allowSpends,
       c.tokenLocks,
@@ -126,7 +127,12 @@ object Configuration {
       c.delegatedStaking,
       c.fieldsAddedOrdinals,
       c.metagraphsSync,
-      c.priceOracle.getOrElse(env, PriceOracleConfig.default)
+      c.priceOracle.getOrElse(env, PriceOracleConfig.default),
+      c.snapshotBinarySenderTimeouts,
+      c.snapshot.timeouts,
+      c.combinedRouteRateLimiter,
+      c.clickHouseConfig,
+      c.snapshot.mptSnapshotInfoPath
     )
 
 

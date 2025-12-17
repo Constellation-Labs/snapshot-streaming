@@ -213,11 +213,12 @@ object SnapshotDAO {
         unlock_epoch,
         ordinal,
         round_id,
-        parent_hash
-      ) VALUES ($varchar, $varchar, ${varchar.opt}, $varchar, $int8, ${int8.opt}, $int8, $uuid, $varchar)
+        parent_hash,
+        replacement_hash
+      ) VALUES ($varchar, $varchar, ${varchar.opt}, $varchar, $int8, ${int8.opt}, $int8, $uuid, $varchar, ${varchar.opt})
       ON CONFLICT DO NOTHING;
     """.command.contramap { tx: TokenLock =>
-      (tx.snapshotHash, tx.hash, tx.currencyId, tx.source, tx.amount, tx.unlockEpoch, tx.ordinal, tx.roundId, tx.parentHash)
+      (tx.snapshotHash, tx.hash, tx.currencyId, tx.source, tx.amount, tx.unlockEpoch, tx.ordinal, tx.roundId, tx.parentHash, tx.replacementHash)
     }
 
   private val insertDagTokenUnlockCommand: Command[TokenUnlock] =

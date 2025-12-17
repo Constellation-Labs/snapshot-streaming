@@ -33,7 +33,7 @@ object FileBasedLastGlobalIncrementalSnapshotStorageSuite extends MutableIOSuite
 
   override def sharedResource: Resource[IO, Res] =
     KryoSerializer.forAsync[IO](sharedKryoRegistrar ++ kryoRegistrar).flatMap { implicit ks =>
-      JsonSerializer.forSync[IO].asResource.map { implicit jsonSerializer =>
+      JsonSerializer.forAsync[IO].asResource.map { implicit jsonSerializer =>
         (ks, HasherSelector.forSync[IO](Hasher.forJson[IO], Hasher.forKryo[IO], hashSelect))
       }
     }
@@ -159,16 +159,14 @@ object FileBasedLastGlobalIncrementalSnapshotStorageSuite extends MutableIOSuite
     }
   }
 
-  test("set should fail when we try to set snapshot before the initial snapshot is set") { res =>
+  test("set should fallback to setInitial when called before initial snapshot is set") { res =>
     implicit val (ks, h) = res
 
     fileBasedStorage.use { storage =>
       mkInitialSnapshot.flatMap { initial =>
         storage
-          .set(initial, snapshotInfo)
-          .map(_ => none[Throwable])
-          .handleError(_.some)
-          .map(maybeError => verify(maybeError.isDefined, maybeError.fold("none")(_.getMessage)))
+          .set(initial, snapshotInfo) >>
+          storage.get.map(result => expect.same(Some(initial), result))
       }
     }
   }
