@@ -206,8 +206,8 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
         .make(sharedCfg)
         .balanceDiff(snapshot, initialBalances.some, updatedInfo)
     } yield expect.same(
-      result,
-      updatedBalances - address1 - address2
+      result.toList,
+      (updatedBalances - address1 - address2).toList
     )
   }
 
@@ -267,8 +267,8 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
         .make(sharedCfg)
         .balanceDiff(snapshot, initialBalances.some, updatedInfo)
     } yield expect.same(
-      result,
-      updatedBalances - address4
+      result.toList,
+      (updatedBalances - address4).toList
     )
   }
 
@@ -321,8 +321,8 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
 
       result = GlobalSnapshotMapper.make(sharedCfg).balanceDiff(snapshot, initialBalances.some, updatedInfo)
     } yield expect.same(
-      result,
-      updatedBalances - address3 - address4
+      result.toList,
+      (updatedBalances - address3 - address4).toList
     )
   }
 
@@ -370,7 +370,9 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
     ) = DelegatedStakeRecord(
       event = buildSignedCreateStakeEvent(address, peerId, amount, tokenLockRef),
       createdAt = SnapshotOrdinal(createdAt),
-      rewards = Amount(rewards)
+      rewards = Amount(rewards),
+      None,
+      None
     )
 
     val oldStakes = Seq(
@@ -454,7 +456,9 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
           10L,
           "TokenRef22",
           "0000000000000000000000000000000000000000000000000000000000000000",
-          None
+          None,
+          sorted(0).currentTokenLockHash,
+          sorted(0).currentAmount
         ),
         DelegatedStakingCreate(
           "SnapshotHash1",
@@ -467,7 +471,9 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
           20L,
           "TokenRef3",
           "0000000000000000000000000000000000000000000000000000000000000000",
-          sorted(1).transferFrom
+          sorted(1).transferFrom,
+          sorted(1).currentTokenLockHash,
+          sorted(1).currentAmount
         )
       )
     )
@@ -492,7 +498,9 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
       event = buildSignedCreateStakeEvent(address, peerId, amount, tokenLockRef),
       rewards = Amount(rewards),
       acceptedOrdinal = SnapshotOrdinal(acceptedOrdinal),
-      createdAt = EpochProgress(epochProgress)
+      createdAt = EpochProgress(epochProgress),
+      currentTokenLockRef = None,
+      currentAmount = None
     )
 
     val addr1P1 = buildDSW(address1, "Peer1", 200L, "TokenRef1", 10L, 111L, 10L)
@@ -676,8 +684,8 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
       result.size == 1,
       result.head.amount == 2000L, // Should use currentAmount
       result.head.tokenLockHash == "TokenRef2", // Should use currentTokenLockRef
-      result.head.currentTokenLockHash == Some("TokenRef2"),
-      result.head.currentAmount == Some(2000L),
+      result.head.currentTokenLockHash.contains("TokenRef2"),
+      result.head.currentAmount.contains(2000L),
       result.head.rewards == 100L,
       result.head.transferFrom.isDefined // Should be marked as an update
     )
@@ -729,8 +737,8 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
       result.size == 1,
       result.head.amount == 1000L, // Should use original amount from event
       result.head.tokenLockHash == "TokenRef1", // Should use original tokenLockRef
-      result.head.currentTokenLockHash == None, // Should be None for new stake
-      result.head.currentAmount == None, // Should be None for new stake
+      result.head.currentTokenLockHash.isEmpty, // Should be None for new stake
+      result.head.currentAmount.isEmpty, // Should be None for new stake
       result.head.rewards == 0L,
       result.head.transferFrom.isEmpty // Not an update
     )
@@ -829,12 +837,12 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
       result.size == 2,
       sorted(0).amount == 2000L,
       sorted(0).tokenLockHash == "TokenRef1_v2",
-      sorted(0).currentTokenLockHash == Some("TokenRef1_v2"),
-      sorted(0).currentAmount == Some(2000L),
+      sorted(0).currentTokenLockHash.contains("TokenRef1_v2"),
+      sorted(0).currentAmount.contains(2000L),
       sorted(1).amount == 3000L,
       sorted(1).tokenLockHash == "TokenRef2_v2",
-      sorted(1).currentTokenLockHash == Some("TokenRef2_v2"),
-      sorted(1).currentAmount == Some(3000L)
+      sorted(1).currentTokenLockHash.contains("TokenRef2_v2"),
+      sorted(1).currentAmount.contains(3000L)
     )
   }
 
@@ -870,12 +878,12 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
       result <- gsm.mapTokenLock(snapshotHash, roundId, hasher)(tokenLock)
     } yield expect.all(
       result.snapshotHash == snapshotHash.value,
-      result.source == address1.value,
+      result.source == address1.value.value,
       result.amount == 1000L,
-      result.unlockEpoch == Some(100L),
+      result.unlockEpoch.contains(100L),
       result.ordinal == 1L,
       result.roundId == roundId.value,
-      result.replaceTokenLockRef == Some(replaceRef.value)
+      result.replaceTokenLockRef.contains(replaceRef.value)
     )
   }
 
@@ -910,12 +918,12 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
       result <- gsm.mapTokenLock(snapshotHash, roundId, hasher)(tokenLock)
     } yield expect.all(
       result.snapshotHash == snapshotHash.value,
-      result.source == address1.value,
+      result.source == address1.value.value,
       result.amount == 2000L,
-      result.unlockEpoch == Some(200L),
+      result.unlockEpoch.contains(200L),
       result.ordinal == 1L,
       result.roundId == roundId.value,
-      result.replaceTokenLockRef == None
+      result.replaceTokenLockRef.isEmpty
     )
   }
 
@@ -966,10 +974,10 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
       result1 <- gsm.mapTokenLock(snapshotHash, roundId, hasher)(tokenLock1)
       result2 <- gsm.mapTokenLock(snapshotHash, roundId, hasher)(tokenLock2)
     } yield expect.all(
-      result1.replaceTokenLockRef == Some(replaceRef1.value),
-      result2.replaceTokenLockRef == None,
-      result1.source == address1.value,
-      result2.source == address2.value
+      result1.replaceTokenLockRef.contains(replaceRef1.value),
+      result2.replaceTokenLockRef.isEmpty,
+      result1.source == address1.value.value,
+      result2.source == address2.value.value
     )
   }
 

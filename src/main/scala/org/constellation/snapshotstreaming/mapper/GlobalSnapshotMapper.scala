@@ -223,7 +223,7 @@ abstract class GlobalSnapshotMapper[F[_]: Async] extends SnapshotMapper[F, Globa
     maybePrevSnapshotInfo.toSeq
       .flatTraverse(s =>
         flatten(s.activeDelegatedStakes).traverse { case (_, dsr) =>
-          dsr.event.toHashed.map(hashed => dsr.event.tokenLockRef -> hashed.hash)
+          dsr.event.toHashed.map(hashed => dsr.event.tokenLockRef -> (hashed.hash, dsr.currentTokenLockRef))
         }
       )
       .map { prevActiveTokenLocks =>
@@ -231,12 +231,14 @@ abstract class GlobalSnapshotMapper[F[_]: Async] extends SnapshotMapper[F, Globa
         activeDelegatedStakes.mapFilter { case (dsr, ev) => // keep only the new or the updated
           prevActiveTokenLocksMap.get(dsr.event.tokenLockRef) match {
             case None => Some((dsr, ev, None)) // new stake
-            case Some(oldStakeHash) =>
-              if (oldStakeHash == ev.hash)
-                None // active staking already included
-              else {
+            case Some((oldStakeHash, oldCurrentTokenLockRef)) =>
+              val hashChanged = oldStakeHash != ev.hash
+              val currentTokenLockRefChanged = oldCurrentTokenLockRef != dsr.currentTokenLockRef
+              if (hashChanged || currentTokenLockRefChanged) {
                 Some(dsr, ev, Some(oldStakeHash))
-              } // update staking
+              } else {
+                None // active staking already included
+              }
           }
         }.map { case (dsr, ev, oFromStake) =>
           mapDelegatedStakingCreate(snapshotHash, oFromStake)(dsr, ev)
@@ -276,7 +278,7 @@ abstract class GlobalSnapshotMapper[F[_]: Async] extends SnapshotMapper[F, Globa
     snapshot.spendActions.toList.flatTraverse(_.toList.flatTraverse(_._2.flatTraverse(_.spendTransactions.toList.traverse(mapSpendTx(snapshot.hash)))))
   }
 
-  private def mapTokenLock(snapshotHash: Hash, roundId: RoundId, hasher: Hasher[F])(
+  def mapTokenLock(snapshotHash: Hash, roundId: RoundId, hasher: Hasher[F])(
     tl: Signed[tokenLock.TokenLock]
   ): F[TokenLock] = {
     implicit val hs: Hasher[F] = hasher
@@ -389,7 +391,7 @@ object GlobalSnapshotMapper {
             lastSnapshotHash = snapshot.lastSnapshotHash.value,
             epochProgress = snapshot.epochProgress.value,
             blocks = blocksHashes.toSet,
-            rewards = fetchRewards(snapshot).unsorted.map(reward =>
+            rewards = fetchRewards(snapshot).toSeq.map(reward =>
               RewardTransaction(
                 reward.destination.value,
                 reward.amount.value

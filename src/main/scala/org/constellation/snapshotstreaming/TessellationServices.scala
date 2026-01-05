@@ -23,6 +23,8 @@ import io.constellationnetwork.node.shared.domain.tokenlock.block.TokenLockBlock
 import io.constellationnetwork.node.shared.infrastructure.block.processing.BlockAcceptanceManager
 import io.constellationnetwork.node.shared.infrastructure.consensus.CurrencySnapshotEventValidationErrorStorage
 import io.constellationnetwork.node.shared.infrastructure.snapshot._
+import io.constellationnetwork.node.shared.infrastructure.snapshot.managers.currency.CurrencySnapshotAcceptanceManager
+import io.constellationnetwork.node.shared.infrastructure.snapshot.managers.global.{GlobalSnapshotAcceptanceManager, GlobalSnapshotStateChannelAcceptanceManager, GlobalSnapshotStateChannelEventsProcessor}
 import io.constellationnetwork.node.shared.infrastructure.snapshot.storage.{LastNGlobalSnapshotStorage, LastSnapshotStorage}
 import io.constellationnetwork.node.shared.modules.SharedValidators
 import io.constellationnetwork.schema.{GlobalIncrementalSnapshot, GlobalSnapshotInfo, SnapshotOrdinal}
@@ -45,6 +47,7 @@ object TessellationServices {
       txHasher = Hasher.forKryo
       validators = hasherSelector.withCurrent { implicit hasher =>
         SharedValidators.make[F](
+          env,
           AddressesConfig(Set.empty),
           None,
           None,
@@ -137,7 +140,8 @@ object TessellationServices {
           globalSnapshotAcceptanceManager,
           updateDelegatedStakeAcceptanceManager,
           configuration.delegatedStaking.withdrawalTimeLimit.getOrElse(env, EpochProgress.MinValue),
-          tessellation3Migration
+          tessellation3Migration,
+          configuration.fieldsAddedOrdinals.setSumFix.getOrElse(env, SnapshotOrdinal.MinValue)
         )
 
         GlobalSnapshotContextService.make(globalSnapshotStateChannelEventsProcessor, globalSnapshotContextFns, lastNGlobalSnapshotStorage, lastGlobalSnapshotStorage)
