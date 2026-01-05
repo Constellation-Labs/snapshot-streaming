@@ -206,8 +206,8 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
         .make(sharedCfg)
         .balanceDiff(snapshot, initialBalances.some, updatedInfo)
     } yield expect.same(
-      result,
-      updatedBalances - address1 - address2
+      result.toList,
+      (updatedBalances - address1 - address2).toList
     )
   }
 
@@ -267,8 +267,8 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
         .make(sharedCfg)
         .balanceDiff(snapshot, initialBalances.some, updatedInfo)
     } yield expect.same(
-      result,
-      updatedBalances - address4
+      result.toList,
+      (updatedBalances - address4).toList
     )
   }
 
@@ -321,8 +321,8 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
 
       result = GlobalSnapshotMapper.make(sharedCfg).balanceDiff(snapshot, initialBalances.some, updatedInfo)
     } yield expect.same(
-      result,
-      updatedBalances - address3 - address4
+      result.toList,
+      (updatedBalances - address3 - address4).toList
     )
   }
 
@@ -336,6 +336,23 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
       tokenLockRef = Hash(tokenLockRef)
     ),
     signature
+  )
+
+  def buildDSR(
+    address: Address,
+    peerId: String,
+    amount: NonNegLong,
+    tokenLockRef: String,
+    createdAt: NonNegLong,
+    rewards: NonNegLong,
+    currentTokenLockRef: Option[Hash] = None,
+    currentAmount: Option[DelegatedStakeAmount] = None
+  ) = DelegatedStakeRecord(
+    event = buildSignedCreateStakeEvent(address, peerId, amount, tokenLockRef),
+    createdAt = SnapshotOrdinal(createdAt),
+    rewards = Amount(rewards),
+    currentTokenLockRef = currentTokenLockRef,
+    currentAmount = currentAmount
   )
 
   test("extract only new and updated create stake references") { res =>
@@ -353,7 +370,9 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
     ) = DelegatedStakeRecord(
       event = buildSignedCreateStakeEvent(address, peerId, amount, tokenLockRef),
       createdAt = SnapshotOrdinal(createdAt),
-      rewards = Amount(rewards)
+      rewards = Amount(rewards),
+      None,
+      None
     )
 
     val oldStakes = Seq(
@@ -437,7 +456,9 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
           10L,
           "TokenRef22",
           "0000000000000000000000000000000000000000000000000000000000000000",
-          None
+          None,
+          sorted(0).currentTokenLockHash,
+          sorted(0).currentAmount
         ),
         DelegatedStakingCreate(
           "SnapshotHash1",
@@ -450,7 +471,9 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
           20L,
           "TokenRef3",
           "0000000000000000000000000000000000000000000000000000000000000000",
-          sorted(1).transferFrom
+          sorted(1).transferFrom,
+          sorted(1).currentTokenLockHash,
+          sorted(1).currentAmount
         )
       )
     )
@@ -475,7 +498,9 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
       event = buildSignedCreateStakeEvent(address, peerId, amount, tokenLockRef),
       rewards = Amount(rewards),
       acceptedOrdinal = SnapshotOrdinal(acceptedOrdinal),
-      createdAt = EpochProgress(epochProgress)
+      createdAt = EpochProgress(epochProgress),
+      currentTokenLockRef = None,
+      currentAmount = None
     )
 
     val addr1P1 = buildDSW(address1, "Peer1", 200L, "TokenRef1", 10L, 111L, 10L)
@@ -575,6 +600,385 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
         )
       )
     ) and expect.same(completedWithdrawals.toSet, Set(completedWithdrawalHash.value) )
+  }
+
+  test("extract increased delegated stake with currentTokenLockRef and currentAmount") { res =>
+    implicit val (hs, ks, sp, key1, key2, key3, key4) = res
+    val address1 = key1.getPublic.toAddress
+
+    // Original stake with TokenRef1 and 1000 amount
+    val originalStake = buildDSR(address1, "Peer1", 1000L, "TokenRef1", 10L, 50L)
+
+    // Increased stake: same event, but currentTokenLockRef and currentAmount are updated
+    val increasedStake = buildDSR(
+      address1,
+      "Peer1",
+      1000L,
+      "TokenRef1",
+      10L,
+      100L,
+      currentTokenLockRef = Some(Hash("TokenRef2")),
+      currentAmount = Some(DelegatedStakeAmount(2000L))
+    )
+
+    val oldStakes = Seq(
+      address1 -> SortedSet(originalStake)
+    )
+
+    val newStakes = Seq(
+      address1 -> SortedSet(increasedStake)
+    )
+
+    val oldSnapshotInfo = GlobalSnapshotInfo(
+      SortedMap.empty,
+      SortedMap.empty,
+      SortedMap.empty,
+      SortedMap.empty,
+      SortedMap.empty,
+      None,
+      None,
+      None,
+      None,
+      None,
+      None,
+      Some(SortedMap.from(oldStakes)),
+      None,
+      None,
+      None,
+      None,
+      None
+    )
+
+    val newSnapshotInfo = GlobalSnapshotInfo(
+      SortedMap.empty,
+      SortedMap.empty,
+      SortedMap.empty,
+      SortedMap.empty,
+      SortedMap.empty,
+      None,
+      None,
+      None,
+      None,
+      None,
+      None,
+      Some(SortedMap.from(newStakes)),
+      None,
+      None,
+      None,
+      None,
+      None
+    )
+
+    val hasher = hs.getCurrent
+    val gsm = GlobalSnapshotMapper.make(sharedCfg)
+
+    for {
+      activeHashedDelegatedStakes <- gsm.activeHashedDelegatedStakes(newSnapshotInfo)(hasher)
+      result <- gsm.mapDelegatedStakingCreates(
+        Hash("SnapshotHash1"),
+        activeHashedDelegatedStakes,
+        Some(oldSnapshotInfo),
+        hasher
+      )
+    } yield expect.all(
+      result.size == 1,
+      result.head.amount == 2000L, // Should use currentAmount
+      result.head.tokenLockHash == "TokenRef2", // Should use currentTokenLockRef
+      result.head.currentTokenLockHash.contains("TokenRef2"),
+      result.head.currentAmount.contains(2000L),
+      result.head.rewards == 100L,
+      result.head.transferFrom.isDefined // Should be marked as an update
+    )
+  }
+
+  test("extract new stake with no currentTokenLockRef and currentAmount") { res =>
+    implicit val (hs, ks, sp, key1, key2, key3, key4) = res
+    val address1 = key1.getPublic.toAddress
+
+    // Brand new stake without any increase
+    val newStake = buildDSR(address1, "Peer1", 1000L, "TokenRef1", 10L, 0L)
+
+    val newStakes = Seq(
+      address1 -> SortedSet(newStake)
+    )
+
+    val newSnapshotInfo = GlobalSnapshotInfo(
+      SortedMap.empty,
+      SortedMap.empty,
+      SortedMap.empty,
+      SortedMap.empty,
+      SortedMap.empty,
+      None,
+      None,
+      None,
+      None,
+      None,
+      None,
+      Some(SortedMap.from(newStakes)),
+      None,
+      None,
+      None,
+      None,
+      None
+    )
+
+    val hasher = hs.getCurrent
+    val gsm = GlobalSnapshotMapper.make(sharedCfg)
+
+    for {
+      activeHashedDelegatedStakes <- gsm.activeHashedDelegatedStakes(newSnapshotInfo)(hasher)
+      result <- gsm.mapDelegatedStakingCreates(
+        Hash("SnapshotHash1"),
+        activeHashedDelegatedStakes,
+        None, // No previous snapshot
+        hasher
+      )
+    } yield expect.all(
+      result.size == 1,
+      result.head.amount == 1000L, // Should use original amount from event
+      result.head.tokenLockHash == "TokenRef1", // Should use original tokenLockRef
+      result.head.currentTokenLockHash.isEmpty, // Should be None for new stake
+      result.head.currentAmount.isEmpty, // Should be None for new stake
+      result.head.rewards == 0L,
+      result.head.transferFrom.isEmpty // Not an update
+    )
+  }
+
+  test("multiple stake increases for same address") { res =>
+    implicit val (hs, ks, sp, key1, key2, key3, key4) = res
+    val address1 = key1.getPublic.toAddress
+
+    val originalStake1 = buildDSR(address1, "Peer1", 1000L, "TokenRef1", 10L, 50L)
+    val originalStake2 = buildDSR(address1, "Peer2", 1500L, "TokenRef2", 11L, 75L)
+
+    val increasedStake1 = buildDSR(
+      address1,
+      "Peer1",
+      1000L,
+      "TokenRef1",
+      10L,
+      100L,
+      currentTokenLockRef = Some(Hash("TokenRef1_v2")),
+      currentAmount = Some(DelegatedStakeAmount(2000L))
+    )
+
+    val increasedStake2 = buildDSR(
+      address1,
+      "Peer2",
+      1500L,
+      "TokenRef2",
+      11L,
+      150L,
+      currentTokenLockRef = Some(Hash("TokenRef2_v2")),
+      currentAmount = Some(DelegatedStakeAmount(3000L))
+    )
+
+    val oldStakes = Seq(
+      address1 -> SortedSet(originalStake1, originalStake2)
+    )
+
+    val newStakes = Seq(
+      address1 -> SortedSet(increasedStake1, increasedStake2)
+    )
+
+    val oldSnapshotInfo = GlobalSnapshotInfo(
+      SortedMap.empty,
+      SortedMap.empty,
+      SortedMap.empty,
+      SortedMap.empty,
+      SortedMap.empty,
+      None,
+      None,
+      None,
+      None,
+      None,
+      None,
+      Some(SortedMap.from(oldStakes)),
+      None,
+      None,
+      None,
+      None,
+      None
+    )
+
+    val newSnapshotInfo = GlobalSnapshotInfo(
+      SortedMap.empty,
+      SortedMap.empty,
+      SortedMap.empty,
+      SortedMap.empty,
+      SortedMap.empty,
+      None,
+      None,
+      None,
+      None,
+      None,
+      None,
+      Some(SortedMap.from(newStakes)),
+      None,
+      None,
+      None,
+      None,
+      None
+    )
+
+    val hasher = hs.getCurrent
+    val gsm = GlobalSnapshotMapper.make(sharedCfg)
+
+    for {
+      activeHashedDelegatedStakes <- gsm.activeHashedDelegatedStakes(newSnapshotInfo)(hasher)
+      result <- gsm.mapDelegatedStakingCreates(
+        Hash("SnapshotHash1"),
+        activeHashedDelegatedStakes,
+        Some(oldSnapshotInfo),
+        hasher
+      )
+      sorted = result.sortBy(_.createdAtOrdinal)
+    } yield expect.all(
+      result.size == 2,
+      sorted(0).amount == 2000L,
+      sorted(0).tokenLockHash == "TokenRef1_v2",
+      sorted(0).currentTokenLockHash.contains("TokenRef1_v2"),
+      sorted(0).currentAmount.contains(2000L),
+      sorted(1).amount == 3000L,
+      sorted(1).tokenLockHash == "TokenRef2_v2",
+      sorted(1).currentTokenLockHash.contains("TokenRef2_v2"),
+      sorted(1).currentAmount.contains(3000L)
+    )
+  }
+
+  test("map token lock with replaceTokenLockRef set") { res =>
+    implicit val (hs, ks, sp, key1, _, _, _) = res
+    val address1 = key1.getPublic.toAddress
+    implicit val hasher = hs.getCurrent
+
+    import io.constellationnetwork.schema.tokenLock._
+    import io.constellationnetwork.schema.round.RoundId
+    import java.util.UUID
+
+    val replaceRef = Hash("original-token-lock-ref")
+    val tokenLock = Signed(
+      TokenLock(
+        source = address1,
+        amount = TokenLockAmount(1000L),
+        fee = TokenLockFee(10L),
+        parent = TokenLockReference.empty,
+        currencyId = None,
+        unlockEpoch = Some(EpochProgress(100L)),
+        replaceTokenLockRef = Some(replaceRef)
+      ),
+      NonEmptySet.one(SignatureProof(Id(Hex("")), Signature(Hex(""))))
+    )
+
+    val roundId = RoundId(UUID.randomUUID())
+    val snapshotHash = Hash("snapshot-hash")
+
+    val gsm = GlobalSnapshotMapper.make(sharedCfg)
+
+    for {
+      result <- gsm.mapTokenLock(snapshotHash, roundId, hasher)(tokenLock)
+    } yield expect.all(
+      result.snapshotHash == snapshotHash.value,
+      result.source == address1.value.value,
+      result.amount == 1000L,
+      result.unlockEpoch.contains(100L),
+      result.ordinal == 1L,
+      result.roundId == roundId.value,
+      result.replaceTokenLockRef.contains(replaceRef.value)
+    )
+  }
+
+  test("map token lock with replaceTokenLockRef as None") { res =>
+    implicit val (hs, ks, sp, key1, _, _, _) = res
+    val address1 = key1.getPublic.toAddress
+    implicit val hasher = hs.getCurrent
+
+    import io.constellationnetwork.schema.tokenLock._
+    import io.constellationnetwork.schema.round.RoundId
+    import java.util.UUID
+
+    val tokenLock = Signed(
+      TokenLock(
+        source = address1,
+        amount = TokenLockAmount(2000L),
+        fee = TokenLockFee(20L),
+        parent = TokenLockReference.empty,
+        currencyId = None,
+        unlockEpoch = Some(EpochProgress(200L)),
+        replaceTokenLockRef = None
+      ),
+      NonEmptySet.one(SignatureProof(Id(Hex("")), Signature(Hex(""))))
+    )
+
+    val roundId = RoundId(UUID.randomUUID())
+    val snapshotHash = Hash("snapshot-hash-2")
+
+    val gsm = GlobalSnapshotMapper.make(sharedCfg)
+
+    for {
+      result <- gsm.mapTokenLock(snapshotHash, roundId, hasher)(tokenLock)
+    } yield expect.all(
+      result.snapshotHash == snapshotHash.value,
+      result.source == address1.value.value,
+      result.amount == 2000L,
+      result.unlockEpoch.contains(200L),
+      result.ordinal == 1L,
+      result.roundId == roundId.value,
+      result.replaceTokenLockRef.isEmpty
+    )
+  }
+
+  test("map multiple token locks with different replaceTokenLockRef values") { res =>
+    implicit val (hs, ks, sp, key1, key2, _, _) = res
+    val address1 = key1.getPublic.toAddress
+    val address2 = key2.getPublic.toAddress
+    implicit val hasher = hs.getCurrent
+
+    import io.constellationnetwork.schema.tokenLock._
+    import io.constellationnetwork.schema.round.RoundId
+    import java.util.UUID
+
+    val replaceRef1 = Hash("replace-ref-1")
+
+    val tokenLock1 = Signed(
+      TokenLock(
+        source = address1,
+        amount = TokenLockAmount(1000L),
+        fee = TokenLockFee(10L),
+        parent = TokenLockReference.empty,
+        currencyId = None,
+        unlockEpoch = Some(EpochProgress(100L)),
+        replaceTokenLockRef = Some(replaceRef1)
+      ),
+      NonEmptySet.one(SignatureProof(Id(Hex("")), Signature(Hex(""))))
+    )
+
+    val tokenLock2 = Signed(
+      TokenLock(
+        source = address2,
+        amount = TokenLockAmount(3000L),
+        fee = TokenLockFee(30L),
+        parent = TokenLockReference.empty,
+        currencyId = None,
+        unlockEpoch = Some(EpochProgress(300L)),
+        replaceTokenLockRef = None
+      ),
+      NonEmptySet.one(SignatureProof(Id(Hex("")), Signature(Hex(""))))
+    )
+
+    val roundId = RoundId(UUID.randomUUID())
+    val snapshotHash = Hash("snapshot-hash-multi")
+
+    val gsm = GlobalSnapshotMapper.make(sharedCfg)
+
+    for {
+      result1 <- gsm.mapTokenLock(snapshotHash, roundId, hasher)(tokenLock1)
+      result2 <- gsm.mapTokenLock(snapshotHash, roundId, hasher)(tokenLock2)
+    } yield expect.all(
+      result1.replaceTokenLockRef.contains(replaceRef1.value),
+      result2.replaceTokenLockRef.isEmpty,
+      result1.source == address1.value.value,
+      result2.source == address2.value.value
+    )
   }
 
 }

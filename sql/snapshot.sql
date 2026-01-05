@@ -355,6 +355,7 @@ CREATE TABLE dag_token_locks (
 	round_id uuid NOT NULL,
 	parent_hash varchar NULL,
 	snapshot_hash varchar NOT NULL,
+	replace_token_lock_ref varchar NULL,
 	CONSTRAINT dag_token_locks_pk PRIMARY KEY (hash),
 	CONSTRAINT dag_token_locks_unique UNIQUE (hash, ordinal),
 	CONSTRAINT dag_token_locks_source_addr_fk FOREIGN KEY (source_addr) REFERENCES addresses(address) ON DELETE CASCADE
@@ -536,6 +537,7 @@ CREATE TABLE metagraph_token_locks (
 	round_id varchar NOT NULL,
 	parent_hash varchar NULL,
 	snapshot_hash varchar NOT NULL,
+	replace_token_lock_ref varchar NULL,
 	CONSTRAINT metagraph_token_locks_pk PRIMARY KEY (metagraph_id, hash),
 	CONSTRAINT metagraph_token_locks_unique UNIQUE (metagraph_id, ordinal),
 	CONSTRAINT metagraph_id_fk FOREIGN KEY (metagraph_id) REFERENCES metagraphs(id) ON DELETE CASCADE,

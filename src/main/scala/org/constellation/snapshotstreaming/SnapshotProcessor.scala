@@ -69,7 +69,7 @@ object SnapshotProcessor {
       opensearchDAO <- OpensearchDAO.make[F](configuration.opensearch)
       sessionPool <- db.session[F](configuration.db)
       snapshotDAO = SnapshotDAO.make[F](sessionPool)
-      globalSnapshotClient = L0GlobalSnapshotClient.make[F](client)
+      globalSnapshotClient = L0GlobalSnapshotClient.make[F](client, none, sharedConfig.snapshot.timeouts)
       l0ClusterStorage <- Resource.eval(L0ClusterStorageRef(configuration.node))
       lastIncrementalGlobalSnapshotStorage <- Resource.eval(fsGlobalIncrementalStorage(configuration))
       l0Service = GlobalL0Service

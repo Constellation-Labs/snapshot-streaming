@@ -90,7 +90,7 @@ object CurrencyIncrementalSnapshotMapper {
         subHeight = snapshot.subHeight.value,
         lastSnapshotHash = snapshot.lastSnapshotHash.value,
         blocks = blocksHashes.toSet,
-        rewards = fetchRewards(snapshot).unsorted.map(reward =>
+        rewards = fetchRewards(snapshot).toSeq.map(reward =>
           RewardTransaction(
             reward.destination.value,
             reward.amount.value
@@ -164,7 +164,8 @@ object CurrencyIncrementalSnapshotMapper {
             tokenLock.unlockEpoch.map(_.value.value),
             tokenLock.ordinal.value,
             roundId.value,
-            tokenLock.parent.hash.value
+            tokenLock.parent.hash.value,
+            tokenLock.replaceTokenLockRef.map(_.value)
           )
         }
 
