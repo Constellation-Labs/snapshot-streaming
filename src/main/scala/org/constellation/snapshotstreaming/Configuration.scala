@@ -128,7 +128,8 @@ object Configuration {
       c.metagraphsSync,
       c.priceOracle.getOrElse(env, PriceOracleConfig.default),
       c.snapshotBinarySenderTimeouts,
-      c.snapshot.timeouts
+      c.snapshot.timeouts,
+      c.combinedRouteRateLimiter
     )
 
 
