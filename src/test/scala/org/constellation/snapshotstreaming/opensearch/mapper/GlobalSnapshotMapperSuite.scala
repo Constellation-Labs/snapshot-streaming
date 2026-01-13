@@ -1,5 +1,7 @@
 package org.constellation.snapshotstreaming.opensearch.mapper
 
+import cats.Show
+
 import java.security.KeyPair
 import cats.data.NonEmptySet
 import cats.effect.{IO, Resource}
@@ -42,12 +44,7 @@ import io.constellationnetwork.node.shared.ext.pureconfig._
 import eu.timepit.refined.pureconfig._
 import io.constellationnetwork.schema.ID.Id
 import io.constellationnetwork.schema.address.Address
-import io.constellationnetwork.schema.delegatedStake.{
-  DelegatedStakeAmount,
-  DelegatedStakeRecord,
-  PendingDelegatedStakeWithdrawal,
-  UpdateDelegatedStake
-}
+import io.constellationnetwork.schema.delegatedStake.{DelegatedStakeAmount, DelegatedStakeRecord, PendingDelegatedStakeWithdrawal, UpdateDelegatedStake}
 import io.constellationnetwork.schema.peer.PeerId
 import io.constellationnetwork.security.hex.Hex
 import io.constellationnetwork.security.signature.Signed
@@ -73,7 +70,7 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
           key3 <- KeyPairGenerator.makeKeyPair[IO].asResource
           key4 <- KeyPairGenerator.makeKeyPair[IO].asResource
 
-          js <- JsonSerializer.forSync[IO].asResource
+          js <- JsonSerializer.forAsync[IO].asResource
           hasherSelector = {
             implicit val j: JsonSerializer[IO] = js
             HasherSelector.forSync[IO](Hasher.forJson[IO], Hasher.forKryo[IO], hashSelect)
@@ -205,10 +202,13 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
       result = GlobalSnapshotMapper
         .make(sharedCfg)
         .balanceDiff(snapshot, initialBalances.some, updatedInfo)
-    } yield expect.same(
-      result,
-      updatedBalances - address1 - address2
-    )
+    } yield {
+      implicit val showSortedMap: Show[SortedMap[Address, Balance]] = cats.Show.catsShowForSortedMap
+      expect.same(
+        result,
+        updatedBalances - address1 - address2
+      )
+    }
   }
 
   test("leaves addresses that changed") { res =>
@@ -266,10 +266,13 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
       result = GlobalSnapshotMapper
         .make(sharedCfg)
         .balanceDiff(snapshot, initialBalances.some, updatedInfo)
-    } yield expect.same(
-      result,
-      updatedBalances - address4
-    )
+    } yield {
+      implicit val showSortedMap: Show[SortedMap[Address, Balance]] = cats.Show.catsShowForSortedMap
+      expect.same(
+        result,
+        updatedBalances - address4
+      )
+    }
   }
 
   test("leave balances for addresses from rewards") { res =>
@@ -320,10 +323,13 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
       )
 
       result = GlobalSnapshotMapper.make(sharedCfg).balanceDiff(snapshot, initialBalances.some, updatedInfo)
-    } yield expect.same(
-      result,
-      updatedBalances - address3 - address4
-    )
+    } yield {
+      implicit val showSortedMap: Show[SortedMap[Address, Balance]] = cats.Show.catsShowForSortedMap
+      expect.same(
+        result,
+        updatedBalances - address3 - address4
+      )
+    }
   }
 
   val signature = NonEmptySet.one(SignatureProof(Id(Hex("")), Signature(Hex(""))))
@@ -353,7 +359,9 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
     ) = DelegatedStakeRecord(
       event = buildSignedCreateStakeEvent(address, peerId, amount, tokenLockRef),
       createdAt = SnapshotOrdinal(createdAt),
-      rewards = Amount(rewards)
+      rewards = Amount(rewards),
+      currentTokenLockRef = None,
+      currentAmount = None
     )
 
     val oldStakes = Seq(
@@ -475,7 +483,9 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
       event = buildSignedCreateStakeEvent(address, peerId, amount, tokenLockRef),
       rewards = Amount(rewards),
       acceptedOrdinal = SnapshotOrdinal(acceptedOrdinal),
-      createdAt = EpochProgress(epochProgress)
+      createdAt = EpochProgress(epochProgress),
+      currentTokenLockRef = None,
+      currentAmount = None
     )
 
     val addr1P1 = buildDSW(address1, "Peer1", 200L, "TokenRef1", 10L, 111L, 10L)

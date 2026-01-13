@@ -8,7 +8,7 @@ import io.constellationnetwork.ext.cats.effect._
 import io.constellationnetwork.json.JsonSerializer
 import io.constellationnetwork.kryo.KryoSerializer
 import io.constellationnetwork.node.shared.config.types.SharedConfigReader
-import io.constellationnetwork.schema.SnapshotOrdinal
+import io.constellationnetwork.schema.{GlobalStateProofSelector, CurrencyStateProofSelector, SnapshotOrdinal}
 import io.constellationnetwork.security._
 import org.typelevel.log4cats.slf4j.Slf4jLogger
 import org.typelevel.otel4s.trace.Tracer.Implicits.noop
@@ -29,8 +29,11 @@ object App extends IOApp {
         ConfigSource.default.loadF[IO, SharedConfigReader]().flatMap { sharedCfg =>
           Random.scalaUtilRandom[IO].flatMap { implicit random =>
             KryoSerializer.forAsync[IO](shared.sharedKryoRegistrar).use { implicit ks =>
-              JsonSerializer.forSync[IO].asResource.use { implicit jsonSerializer =>
+              JsonSerializer.forAsync[IO].asResource.use { implicit jsonSerializer =>
                 val hashSelect = makeHashSelect(appConfig, sharedCfg)
+                implicit val gsps: GlobalStateProofSelector =
+                  GlobalStateProofSelector(sharedCfg.lastLegacyStateProofOrdinal.getOrElse(appConfig.snapshotStreaming.environment, SnapshotOrdinal.MinValue))
+                implicit val csps: CurrencyStateProofSelector = CurrencyStateProofSelector.instance
                 implicit val hasherSelector =
                   HasherSelector.forSync[IO](Hasher.forJson[IO], Hasher.forKryo[IO], hashSelect)
 

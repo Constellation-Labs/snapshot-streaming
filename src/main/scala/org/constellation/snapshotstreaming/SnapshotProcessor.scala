@@ -10,11 +10,7 @@ import cats.Parallel
 import fs2.Stream
 import fs2.io.file.{Files, Flags, Path}
 import fs2.io.net.Network
-import io.constellationnetwork.currency.schema.currency.{
-  CurrencyIncrementalSnapshot,
-  CurrencySnapshot,
-  CurrencySnapshotInfo
-}
+import io.constellationnetwork.currency.schema.currency.{CurrencyIncrementalSnapshot, CurrencySnapshot, CurrencySnapshotInfo}
 import io.constellationnetwork.ext.cats.syntax.next._
 import io.constellationnetwork.json.JsonSerializer
 import io.constellationnetwork.kryo.KryoSerializer
@@ -26,12 +22,7 @@ import io.constellationnetwork.node.shared.http.p2p.clients.L0GlobalSnapshotClie
 import io.constellationnetwork.node.shared.infrastructure.cluster.storage.L0ClusterStorage
 import io.constellationnetwork.schema.SnapshotReference.{fromHashedSnapshot => getSnapshotReference}
 import io.constellationnetwork.schema.address.Address
-import io.constellationnetwork.schema.{
-  GlobalIncrementalSnapshot,
-  GlobalSnapshot,
-  GlobalSnapshotInfo,
-  GlobalSnapshotInfoV2
-}
+import io.constellationnetwork.schema.{CurrencyStateProofSelector, GlobalIncrementalSnapshot, GlobalSnapshot, GlobalSnapshotInfo, GlobalSnapshotInfoV2, GlobalStateProofSelector, StateProofSelector}
 import io.constellationnetwork.security._
 import io.constellationnetwork.security.signature.Signed
 import io.constellationnetwork.statechannel.StateChannelSnapshotBinary
@@ -41,11 +32,7 @@ import org.constellation.snapshotstreaming.mapper.{CurrencySnapshotMapper, Globa
 import org.constellation.snapshotstreaming.opensearch.OpensearchDAO
 import org.constellation.snapshotstreaming.s3.S3DAO
 import org.constellation.snapshotstreaming.schema.schema.{GlobalData, MetagraphData}
-import org.constellation.snapshotstreaming.storage.{
-  FileBasedLastGlobalFullSnapshotStorage,
-  FileBasedLastGlobalIncrementalSnapshotStorage,
-  SnapshotWithState
-}
+import org.constellation.snapshotstreaming.storage.{FileBasedLastGlobalFullSnapshotStorage, FileBasedLastGlobalIncrementalSnapshotStorage, SnapshotWithState}
 import org.http4s.ember.client.EmberClientBuilder
 import org.typelevel.log4cats.slf4j.Slf4jLogger
 import org.typelevel.otel4s.trace.Tracer
@@ -62,6 +49,9 @@ object SnapshotProcessor {
     configuration: SnapshotStreamingConfig,
     sharedConfig: SharedConfigReader,
     txHasher: Hasher[F]
+  )(
+    implicit globalStateProofSelector: GlobalStateProofSelector,
+    currencyStateProofSelector: CurrencyStateProofSelector
   ): Resource[F, SnapshotProcessor[F]] =
     for {
       client <- makeClient(configuration.httpClient)
@@ -69,7 +59,7 @@ object SnapshotProcessor {
       opensearchDAO <- OpensearchDAO.make[F](configuration.opensearch)
       sessionPool <- db.session[F](configuration.db)
       snapshotDAO = SnapshotDAO.make[F](sessionPool)
-      globalSnapshotClient = L0GlobalSnapshotClient.make[F](client)
+      globalSnapshotClient = L0GlobalSnapshotClient.make[F](client, None, sharedConfig.snapshot.timeouts)
       l0ClusterStorage <- Resource.eval(L0ClusterStorageRef(configuration.node))
       lastIncrementalGlobalSnapshotStorage <- Resource.eval(fsGlobalIncrementalStorage(configuration))
       l0Service = GlobalL0Service
@@ -101,7 +91,7 @@ object SnapshotProcessor {
 
   private def fsGlobalIncrementalStorage[F[_]: Async: Parallel: HasherSelector: Files: KryoSerializer](
     configuration: SnapshotStreamingConfig
-  ) =
+  )(implicit stateProofSelector: GlobalStateProofSelector) =
     FileBasedLastGlobalIncrementalSnapshotStorage.make[F](configuration.lastIncrementalSnapshotPath)
 
   private def L0ClusterStorageRef[F[_]: Async: Random](nodeCfg: NodeConfig) =
@@ -125,7 +115,7 @@ object SnapshotProcessor {
     txHasher: Hasher[F],
     tessellationServices: TessellationServices[F],
     lastFullGlobalSnapshotStorage: FileBasedLastGlobalFullSnapshotStorage[F]
-  ): SnapshotProcessor[F] = new SnapshotProcessor[F] {
+  )(implicit stateProofSelector: GlobalStateProofSelector): SnapshotProcessor[F] = new SnapshotProcessor[F] {
     private implicit val logger = Slf4jLogger.getLogger[F]
 
     private def storeInPostgres(global: GlobalData, metagraph: MetagraphData) =
@@ -254,6 +244,7 @@ object SnapshotProcessor {
                             LocalDateTime.now()
                           )
                           .flatMap { globalSnapshotsWithState =>
+                            validateMetagraphSnapshots(globalSnapshotsWithState) >>
                             queue.offer(globalSnapshotsWithState).flatMap { _ =>
                               logger.info(
                                 s"Producer: Added snapshot to queue (offered ${getSnapshotReference(globalSnapshotsWithState.snapshot)})"
@@ -272,10 +263,7 @@ object SnapshotProcessor {
                 .map { s =>
                   (Option(s.lastSnapshot, s.lastState), s.snapshotsWithState)
                 }
-                .handleErrorWith { e =>
-                  logger.error(e)("Producer: Error pulling snapshots, will retry in next cycle") >>
-                    ((lastSnapshot, lastState).some, List.empty[GlobalSnapshotWithState]).pure[F]
-                }
+
 
             case (None, _) =>
               logger.info("Producer: No last snapshot found, checking full snapshot") >>
@@ -289,11 +277,12 @@ object SnapshotProcessor {
                             GlobalSnapshotWithState(
                               nextSnapshot,
                               None,
-                              signedFullGlobalSnapshot.value.info,
+                              signedFullGlobalSnapshot.value.info.toGlobalSnapshotInfo,
                               Map.empty,
                               LocalDateTime.now()
                             )
                           ).traverse { globalSnapshotsWithState =>
+                            validateMetagraphSnapshots(globalSnapshotsWithState) >>
                             queue.offer(globalSnapshotsWithState).flatMap { _ =>
                               logger.info(
                                 s"Producer: Added snapshot to queue (offered ${getSnapshotReference(globalSnapshotsWithState.snapshot)})"
@@ -302,13 +291,7 @@ object SnapshotProcessor {
                           }
                         )
                         .map(s => (s.map(gsws => (gsws.snapshot.signed, gsws.snapshotInfo)), s.toList))
-                        .handleErrorWith { e =>
-                          logger.error(e)("Producer: Error pulling initial snapshot, will retry in next cycle") >>
-                            (
-                              Option.empty[(Signed[GlobalIncrementalSnapshot], GlobalSnapshotInfo)],
-                              List.empty[GlobalSnapshotWithState]
-                            ).pure[F]
-                        }
+
                   case None =>
                     logger.error("Producer: No snapshots found at all!") >>
                       (
@@ -345,6 +328,12 @@ object SnapshotProcessor {
         // Run all streams concurrently
         _ <- Stream(producer, consumer).parJoin(2)
       } yield ()
+    }
+
+    private def validateMetagraphSnapshots( globalSnapshotsWithState: GlobalSnapshotWithState): F[Unit] = {
+      val mgSnapshots = globalSnapshotsWithState.currencySnapshots.map(_._2.length).sum
+      val channels = globalSnapshotsWithState.snapshot.stateChannelSnapshots.map(_._2.length).sum
+      Async[F].raiseError(new RuntimeException("Metagraph and state channel count don't match")).unlessA(channels == mgSnapshots)
     }
 
   }
