@@ -20,7 +20,7 @@ import io.constellationnetwork.node.shared.domain.snapshot.storage.LastSnapshotS
 import io.constellationnetwork.node.shared.http.p2p.clients.L0GlobalSnapshotClient
 import io.constellationnetwork.node.shared.infrastructure.cluster.storage.L0ClusterStorage
 import io.constellationnetwork.schema.SnapshotReference.{fromHashedSnapshot => getSnapshotReference}
-import io.constellationnetwork.schema.{GlobalIncrementalSnapshot, GlobalSnapshot, GlobalSnapshotInfo, GlobalSnapshotInfoV2, SnapshotOrdinal}
+import io.constellationnetwork.schema.{CurrencyStateProofSelector, GlobalIncrementalSnapshot, GlobalSnapshot, GlobalSnapshotInfo, GlobalSnapshotInfoV2, GlobalStateProofSelector, SnapshotOrdinal, StateProofSelector}
 import io.constellationnetwork.security._
 import io.constellationnetwork.security.hash.Hash
 import org.constellation.snapshotstreaming.SnapshotProcessor.{GlobalSnapshotWithState, L0ClusterStorageRef, ProcessedSnapshots, makeClient}
@@ -47,7 +47,10 @@ object SnapshotProcessorS3 {
      configuration: SnapshotStreamingConfig,
      sharedConfig: SharedConfigReader,
      txHasher: Hasher[F]
-   ): Resource[F, SnapshotProcessor[F]] =
+   )(
+    implicit globalStateProofSelector: GlobalStateProofSelector,
+    currencyStateProofSelector: CurrencyStateProofSelector
+  ): Resource[F, SnapshotProcessor[F]] =
     for {
       client <- makeClient(configuration.httpClient)
       s3DAO <- S3DAO.make[F](configuration.s3)
@@ -55,7 +58,7 @@ object SnapshotProcessorS3 {
       sessionPool <- db.session[F](configuration.db)
       snapshotDAO = SnapshotDAO.make[F](sessionPool)
       lastIncrementalGlobalSnapshotStorage <- Resource.eval(fsGlobalIncrementalStorage(configuration))
-      globalSnapshotClient = L0GlobalSnapshotClient.make[F](client, none, sharedConfig.snapshot.timeouts)
+      globalSnapshotClient = L0GlobalSnapshotClient.make[F](client, None, sharedConfig.snapshot.timeouts)
       l0ClusterStorage <- Resource.eval(L0ClusterStorageRef(configuration.node))
       l0Service = GlobalL0Service
         .make[F](
@@ -96,7 +99,7 @@ object SnapshotProcessorS3 {
 
   private def fsGlobalIncrementalStorage[F[_] : Async : Parallel: HasherSelector : Files : KryoSerializer](
                                                                                                   configuration: SnapshotStreamingConfig
-                                                                                                ) =
+                                                                                                )(implicit stateProofSelector: GlobalStateProofSelector) =
     FileBasedLastGlobalIncrementalSnapshotStorage.make[F](configuration.lastIncrementalSnapshotPath)
 
   def make[F[_] : Async : Parallel : HasherSelector](
@@ -110,7 +113,7 @@ object SnapshotProcessorS3 {
                                                       txHasher: Hasher[F],
                                                       tessellationServices: TessellationServices[F],
                                                       lastFullGlobalSnapshotStorage: FileBasedLastGlobalFullSnapshotStorage[F]
-                                                    ): SnapshotProcessor[F] = new SnapshotProcessor[F] {
+                                                    )(implicit stateProofSelector: GlobalStateProofSelector): SnapshotProcessor[F] = new SnapshotProcessor[F] {
     private val logger = Slf4jLogger.getLogger[F]
 
 
@@ -207,8 +210,8 @@ object SnapshotProcessorS3 {
             }.prefetchN(reindexerConf.s3Parallelism*2)
             .evalMapAccumulate(hashedIncrementalCombinedO.map{ case (lastSnapshot, lastState) => ProcessedSnapshots(lastSnapshot.signed, lastState, List.empty)}) {
               case (None, (gsHash, snapshot, dt)) =>
-                val gss= GlobalSnapshotWithState(snapshot.copy(hash = Hash(gsHash)), None, signedFullGlobalSnapshot.value.info, Map.empty, dt)
-                (Option(ProcessedSnapshots( snapshot.signed, signedFullGlobalSnapshot.value.info , List(gss))), gss).pure
+                val gss= GlobalSnapshotWithState(snapshot.copy(hash = Hash(gsHash)), None, signedFullGlobalSnapshot.value.info.toGlobalSnapshotInfo, Map.empty, dt)
+                (Option(ProcessedSnapshots( snapshot.signed, signedFullGlobalSnapshot.value.info.toGlobalSnapshotInfo , List(gss))), gss).pure
               case (Some(processoStatus), (gsHash, snapshot, dt)) =>
                   tessellationServices.globalSnapshotContextService
                     .createContext(

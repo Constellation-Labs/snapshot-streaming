@@ -54,7 +54,7 @@ object data {
     def select(ordinal: SnapshotOrdinal): HashLogic = JsonHash
   }
 
-  def incrementalGlobalSnapshot[F[_]: Parallel: Sync: HasherSelector](
+  def incrementalGlobalSnapshot[F[_]: Parallel: Async: HasherSelector](
     ordinal: NonNegLong,
     height: NonNegLong,
     subHeight: NonNegLong,
@@ -65,7 +65,8 @@ object data {
     rewards: SortedSet[RewardTransaction] = SortedSet.empty
   ): F[Hashed[GlobalIncrementalSnapshot]] = {
     implicit val hasher = HasherSelector[F].getCurrent
-
+    implicit val gsps: GlobalStateProofSelector =
+      GlobalStateProofSelector(SnapshotOrdinal.MinValue)
     globalSnapshotInfo.stateProof(SnapshotOrdinal(ordinal)).map { sp =>
       Hashed(
         Signed(
@@ -193,7 +194,7 @@ object data {
     )
   }
 
-  def incrementalCurrencySnapshot[F[_]: Parallel: Sync: HasherSelector](
+  def incrementalCurrencySnapshot[F[_]: Parallel: Async: HasherSelector](
     ordinal: NonNegLong,
     height: NonNegLong,
     subHeight: NonNegLong,
@@ -205,7 +206,8 @@ object data {
     feeTransactions: Option[SortedSet[Signed[FeeTransaction]]] = None
   ): F[Hashed[CurrencyIncrementalSnapshot]] = {
     implicit val hasher = HasherSelector[F].getCurrent
-
+    implicit val gsps: GlobalStateProofSelector =
+      GlobalStateProofSelector(SnapshotOrdinal.MinValue)
     currencySnapshotInfo.stateProof(SnapshotOrdinal(ordinal)).map { sp =>
       Hashed(
         Signed(

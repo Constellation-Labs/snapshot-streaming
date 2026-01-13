@@ -33,7 +33,7 @@ object FileBasedLastGlobalIncrementalSnapshotStorageSuite extends MutableIOSuite
 
   override def sharedResource: Resource[IO, Res] =
     KryoSerializer.forAsync[IO](sharedKryoRegistrar ++ kryoRegistrar).flatMap { implicit ks =>
-      JsonSerializer.forSync[IO].asResource.map { implicit jsonSerializer =>
+      JsonSerializer.forAsync[IO].asResource.map { implicit jsonSerializer =>
         (ks, HasherSelector.forSync[IO](Hasher.forJson[IO], Hasher.forKryo[IO], hashSelect))
       }
     }
@@ -44,6 +44,8 @@ object FileBasedLastGlobalIncrementalSnapshotStorageSuite extends MutableIOSuite
   ): Resource[IO, LastSnapshotStorage[IO, GlobalIncrementalSnapshot, GlobalSnapshotInfo]] =
     Random.scalaUtilRandom.asResource.flatMap { rnd =>
       rnd.nextLong.asResource.map(l => Path(l.toString)).flatMap { path =>
+        implicit val gsps: GlobalStateProofSelector =
+          GlobalStateProofSelector(SnapshotOrdinal.MinValue)
         Resource.make(
           FileBasedLastGlobalIncrementalSnapshotStorage.make(path)
         )(_ => Files[IO].deleteIfExists(path).as(()))
