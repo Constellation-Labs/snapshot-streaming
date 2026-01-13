@@ -1,5 +1,6 @@
 package org.constellation.snapshotstreaming.opensearch.mapper
 
+import cats.Show
 import cats.data.NonEmptySet
 import cats.effect.{IO, Resource}
 import cats.syntax.all._
@@ -10,6 +11,7 @@ import io.constellationnetwork.json.JsonSerializer
 import io.constellationnetwork.kryo.KryoSerializer
 import io.constellationnetwork.node.shared.nodeSharedKryoRegistrar
 import io.constellationnetwork.schema.BlockAsActiveTip
+import io.constellationnetwork.schema.address.Address
 import io.constellationnetwork.schema.balance.Balance
 import io.constellationnetwork.schema.transaction._
 import io.constellationnetwork.security._
@@ -45,7 +47,7 @@ object CurrencySnapshotMapperSuite extends MutableIOSuite {
           key3 <- KeyPairGenerator.makeKeyPair[IO].asResource
           key4 <- KeyPairGenerator.makeKeyPair[IO].asResource
 
-          js <- JsonSerializer.forSync[IO].asResource
+          js <- JsonSerializer.forAsync[IO].asResource
           hasherSelector = {
             implicit val j: JsonSerializer[IO] = js
             HasherSelector.forSync[IO](Hasher.forJson[IO], Hasher.forKryo[IO], hashSelect)
@@ -145,10 +147,13 @@ object CurrencySnapshotMapperSuite extends MutableIOSuite {
       result = CurrencyIncrementalSnapshotMapper
         .make()
         .balanceDiff(snapshot, initialBalances.some, updatedInfo)
-    } yield expect.same(
-      result,
-      updatedBalances - address1 - address2
-    )
+    } yield {
+      implicit val showSortedMap: Show[SortedMap[Address, Balance]] = cats.Show.catsShowForSortedMap
+      expect.same(
+        result,
+        updatedBalances - address1 - address2
+      )
+    }
   }
 
   test("removes addresses that have fee transactions but the result balance hasn't changed") { res =>
@@ -183,10 +188,13 @@ object CurrencySnapshotMapperSuite extends MutableIOSuite {
       result = CurrencyIncrementalSnapshotMapper
         .make()
         .balanceDiff(snapshot, initialBalances.some, updatedInfo)
-    } yield expect.same(
-      result,
-      updatedBalances - address1 - address2
-    )
+    } yield {
+      implicit val showSortedMap: Show[SortedMap[Address, Balance]] = cats.Show.catsShowForSortedMap
+      expect.same(
+        result,
+        updatedBalances - address1 - address2
+      )
+    }
   }
 
   test("leaves addresses that changed") { res =>
@@ -227,10 +235,13 @@ object CurrencySnapshotMapperSuite extends MutableIOSuite {
       result = CurrencyIncrementalSnapshotMapper
         .make()
         .balanceDiff(snapshot, initialBalances.some, updatedInfo)
-    } yield expect.same(
-      result,
-      updatedBalances - address4
-    )
+    } yield {
+      implicit val showSortedMap: Show[SortedMap[Address, Balance]] = cats.Show.catsShowForSortedMap
+      expect.same(
+        result,
+        updatedBalances - address4
+      )
+    }
   }
 
   test("leave balances for addresses from rewards") { res =>
@@ -263,10 +274,13 @@ object CurrencySnapshotMapperSuite extends MutableIOSuite {
       )
 
       result = CurrencyIncrementalSnapshotMapper.make().balanceDiff(snapshot, initialBalances.some, updatedInfo)
-    } yield expect.same(
-      result,
-      updatedBalances - address3 - address4
-    )
+    } yield {
+      implicit val showSortedMap: Show[SortedMap[Address, Balance]] = cats.Show.catsShowForSortedMap
+      expect.same(
+        result,
+        updatedBalances - address3 - address4
+      )
+    }
   }
 
 }

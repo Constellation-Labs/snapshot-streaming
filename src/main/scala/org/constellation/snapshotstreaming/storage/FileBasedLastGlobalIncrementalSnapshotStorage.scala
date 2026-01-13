@@ -35,7 +35,7 @@ object FileBasedLastGlobalIncrementalSnapshotStorage {
 
   def make[F[_]: Async: Parallel: HasherSelector: Files: KryoSerializer: Compression](
     path: Path
-  ): F[LastSnapshotStorage[F, GlobalIncrementalSnapshot, GlobalSnapshotInfo]] = {
+  )(implicit stateProofSelector: StateProofSelector): F[LastSnapshotStorage[F, GlobalIncrementalSnapshot, GlobalSnapshotInfo]] = {
 
     def deserializeWithJson(data: Array[Byte]) = jawn.decode[SnapshotWithState](new String(data, "UTF-8"))
 
@@ -60,7 +60,7 @@ object FileBasedLastGlobalIncrementalSnapshotStorage {
   def make[F[_]: Async: Parallel: HasherSelector: Files: KryoSerializer: Compression](
     cachedSnapshot: Ref[F, Option[SnapshotWithState]],
     path: Path
-  ): LastSnapshotStorage[F, GlobalIncrementalSnapshot, GlobalSnapshotInfo] =
+  )(implicit stateProofSelector: StateProofSelector): LastSnapshotStorage[F, GlobalIncrementalSnapshot, GlobalSnapshotInfo] =
     new LastSnapshotStorage[F, GlobalIncrementalSnapshot, GlobalSnapshotInfo] {
 
       private def validateStateProof(snapshot: Hashed[GlobalIncrementalSnapshot], state: GlobalSnapshotInfo): F[Unit] =

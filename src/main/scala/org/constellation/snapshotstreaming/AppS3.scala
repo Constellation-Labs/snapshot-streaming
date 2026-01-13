@@ -9,7 +9,7 @@ import io.constellationnetwork.kryo.KryoSerializer
 import io.constellationnetwork.node.shared.config.types.SharedConfigReader
 import io.constellationnetwork.node.shared.ext.pureconfig._
 import eu.timepit.refined.pureconfig._
-import io.constellationnetwork.schema.SnapshotOrdinal
+import io.constellationnetwork.schema.{CurrencyStateProofSelector, GlobalStateProofSelector, SnapshotOrdinal}
 import io.constellationnetwork.security._
 import org.constellation.snapshotstreaming.schema.{kryoRegistrar, migrations}
 import org.typelevel.log4cats.slf4j.Slf4jLogger
@@ -30,11 +30,13 @@ object AppS3 extends IOApp {
         ConfigSource.default.loadF[IO, SharedConfigReader]().flatMap { sharedCfg =>
           Random.scalaUtilRandom[IO].flatMap { implicit random =>
             KryoSerializer.forAsync[IO](sharedKryoRegistrar ++ kryoRegistrar, migrations).use { implicit ks =>
-              JsonSerializer.forSync[IO].asResource.use { implicit jsonSerializer =>
+              JsonSerializer.forAsync[IO].asResource.use { implicit jsonSerializer =>
                 val hashSelect = makeHashSelect(appConfig, sharedCfg)
                 implicit val hasherSelector =
                   HasherSelector.forSync[IO](Hasher.forJson[IO], Hasher.forKryo[IO], hashSelect)
-
+                implicit val gsps: GlobalStateProofSelector =
+                  GlobalStateProofSelector(sharedCfg.lastLegacyStateProofOrdinal.getOrElse(appConfig.snapshotStreaming.environment, SnapshotOrdinal.MinValue))
+                implicit val csps: CurrencyStateProofSelector = CurrencyStateProofSelector.instance
                 val txHasher = Hasher.forKryo[IO]
 
                 SecurityProvider.forAsync[IO].use { implicit sp =>
