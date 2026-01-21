@@ -24,7 +24,9 @@ import org.constellation.snapshotstreaming.data.incrementalGlobalSnapshot
 import weaver.MutableIOSuite
 import io.constellationnetwork.security.Hasher
 import io.constellationnetwork.json.JsonSerializer
+import io.constellationnetwork.schema.mpt.{GlobalStateKey, MptStore}
 import io.constellationnetwork.security.HasherSelector
+import io.constellationnetwork.security.mpt.producer.InMemoryMerklePatriciaProducer
 import org.constellation.snapshotstreaming.schema.kryoRegistrar
 
 object FileBasedLastGlobalIncrementalSnapshotStorageSuite extends MutableIOSuite {
@@ -39,18 +41,29 @@ object FileBasedLastGlobalIncrementalSnapshotStorageSuite extends MutableIOSuite
     }
 
   def fileBasedStorage(implicit
-    ks: KryoSerializer[IO],
-    h: HasherSelector[IO]
-  ): Resource[IO, LastSnapshotStorage[IO, GlobalIncrementalSnapshot, GlobalSnapshotInfo]] =
+                       ks: KryoSerializer[IO],
+                       h: HasherSelector[IO]
+  ): Resource[IO, LastSnapshotStorage[IO, GlobalIncrementalSnapshot, GlobalSnapshotInfo]] = {
     Random.scalaUtilRandom.asResource.flatMap { rnd =>
-      rnd.nextLong.asResource.map(l => Path(l.toString)).flatMap { path =>
+      Resource.eval(rnd.nextLong).map(l => Path(l.toString)).flatMap { path =>
         implicit val gsps: GlobalStateProofSelector =
           GlobalStateProofSelector(SnapshotOrdinal.MinValue)
-        Resource.make(
-          FileBasedLastGlobalIncrementalSnapshotStorage.make(path)
-        )(_ => Files[IO].deleteIfExists(path).as(()))
+        implicit val hasher: Hasher[IO] = HasherSelector[IO].getCurrent
+        JsonSerializer.forAsync[IO].asResource.flatMap { implicit js =>
+          Resource.eval(InMemoryMerklePatriciaProducer.make[IO]()).flatMap { mptProducer =>
+            Resource.eval(MptStore.make[IO, GlobalStateKey](
+              mptProducer,
+              GlobalStateKey.toHex[IO]
+            )).flatMap { mptStore =>
+            Resource.make(
+              FileBasedLastGlobalIncrementalSnapshotStorage.make(path, mptStore)
+            )(_ => Files[IO].deleteIfExists(path).as(()))
+            }
+          }
+        }
       }
     }
+  }
 
   private val address = Address("DAG2AUdecqFwEGcgAcH1ac2wrsg8acrgGwrQojzw")
 

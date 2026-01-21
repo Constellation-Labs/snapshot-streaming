@@ -24,6 +24,8 @@ import io.constellationnetwork.node.shared.domain.tokenlock.block.TokenLockBlock
 import io.constellationnetwork.node.shared.infrastructure.block.processing.BlockAcceptanceManager
 import io.constellationnetwork.node.shared.infrastructure.consensus.CurrencySnapshotEventValidationErrorStorage
 import io.constellationnetwork.node.shared.infrastructure.snapshot._
+import io.constellationnetwork.node.shared.infrastructure.snapshot.managers.currency.CurrencySnapshotAcceptanceManager
+import io.constellationnetwork.node.shared.infrastructure.snapshot.managers.global.{GlobalSnapshotAcceptanceManager, GlobalSnapshotStateChannelAcceptanceManager, GlobalSnapshotStateChannelEventsProcessor}
 import io.constellationnetwork.node.shared.infrastructure.snapshot.storage.{LastNGlobalSnapshotStorage, LastSnapshotStorage}
 import io.constellationnetwork.node.shared.logger.NoDbLogger
 import io.constellationnetwork.node.shared.modules.SharedValidators
@@ -40,7 +42,7 @@ object TessellationServices {
   def make[F[_] : Async : Parallel : JsonSerializer : KryoSerializer : SecurityProvider](
     env          : AppEnvironment,
     configuration: SharedConfigReader,
-    l0Service    : GlobalL0Service[F]
+    mptStore: MptStore[F, GlobalStateKey]
   )(
     implicit hasherSelector: HasherSelector[F],
     globalStateProofSelector: GlobalStateProofSelector,
@@ -106,7 +108,7 @@ object TessellationServices {
               )
             val currencySnapshotValidator = CurrencySnapshotValidator
               .make[F](tessellation3Migration, currencySnapshotCreator, SignedValidator.make[F], None, None)
-            CurrencySnapshotContextFunctions.make(currencySnapshotValidator)
+            CurrencySnapshotContextFunctions.make(currencySnapshotValidator, mptStore)
           }
         }
       }
@@ -115,13 +117,6 @@ object TessellationServices {
       updateDelegatedStakeAcceptanceManager = UpdateDelegatedStakeAcceptanceManager.make[F](validators.updateDelegatedStakeValidator)
       updateNodeCollateralAcceptanceManager = UpdateNodeCollateralAcceptanceManager.make[F](validators.updateNodeCollateralValidator)
       noDbLogger <- NoDbLogger.makeUnsafe
-      mptProducer <- hasherSelector.withCurrent { implicit hasher => FileSystemMerklePatriciaProducer.make[F](configuration.snapshot.mptSnapshotInfoPath)}
-      mptStore = hasherSelector.withCurrent { implicit hasher =>
-        MptStore.make[F, GlobalStateKey](
-          mptProducer,
-          GlobalStateKey.toHex[F]
-        )
-      }
       globalSnapshotContextService = hasherSelector.withCurrent { implicit hasher => {
         val globalSnapshotStateChannelEventsProcessor =
           GlobalSnapshotStateChannelEventsProcessor.make[F](
@@ -155,7 +150,9 @@ object TessellationServices {
           globalSnapshotAcceptanceManager,
           updateDelegatedStakeAcceptanceManager,
           configuration.delegatedStaking.withdrawalTimeLimit.getOrElse(env, EpochProgress.MinValue),
-          tessellation3Migration
+          tessellation3Migration,
+          configuration.fieldsAddedOrdinals.setSumFix.getOrElse(env, SnapshotOrdinal.MinValue),
+          mptStore
         )
 
         GlobalSnapshotContextService.make(globalSnapshotStateChannelEventsProcessor, globalSnapshotContextFns, lastNGlobalSnapshotStorage, lastGlobalSnapshotStorage)
