@@ -3,7 +3,7 @@ import Dependencies._
 enablePlugins(GitVersioning)
 
 ThisBuild / organization := "org.constellation"
-ThisBuild / scalaVersion := "2.13.10"
+ThisBuild / scalaVersion := "2.13.14"
 ThisBuild / scalafixDependencies += Libraries.organizeImports
 ThisBuild / evictionErrorLevel := Level.Warn
 

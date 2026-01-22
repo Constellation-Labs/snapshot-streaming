@@ -42,7 +42,7 @@ object TessellationServices {
   def make[F[_] : Async : Parallel : JsonSerializer : KryoSerializer : SecurityProvider](
     env          : AppEnvironment,
     configuration: SharedConfigReader,
-    l0Service    : GlobalL0Service[F]
+    mptStore: MptStore[F, GlobalStateKey]
   )(
     implicit hasherSelector: HasherSelector[F],
     globalStateProofSelector: GlobalStateProofSelector,
@@ -55,7 +55,6 @@ object TessellationServices {
       txHasher = Hasher.forKryo
       validators = hasherSelector.withCurrent { implicit hasher =>
         SharedValidators.make[F](
-          env,
           AddressesConfig(Set.empty),
           None,
           None,
@@ -109,7 +108,7 @@ object TessellationServices {
               )
             val currencySnapshotValidator = CurrencySnapshotValidator
               .make[F](tessellation3Migration, currencySnapshotCreator, SignedValidator.make[F], None, None)
-            CurrencySnapshotContextFunctions.make(currencySnapshotValidator)
+            CurrencySnapshotContextFunctions.make(currencySnapshotValidator, mptStore)
           }
         }
       }
@@ -118,13 +117,6 @@ object TessellationServices {
       updateDelegatedStakeAcceptanceManager = UpdateDelegatedStakeAcceptanceManager.make[F](validators.updateDelegatedStakeValidator)
       updateNodeCollateralAcceptanceManager = UpdateNodeCollateralAcceptanceManager.make[F](validators.updateNodeCollateralValidator)
       noDbLogger <- NoDbLogger.makeUnsafe
-      mptProducer <- hasherSelector.withCurrent { implicit hasher => FileSystemMerklePatriciaProducer.make[F](configuration.snapshot.mptSnapshotInfoPath)}
-      mptStore = hasherSelector.withCurrent { implicit hasher =>
-        MptStore.make[F, GlobalStateKey](
-          mptProducer,
-          GlobalStateKey.toHex[F]
-        )
-      }
       globalSnapshotContextService = hasherSelector.withCurrent { implicit hasher => {
         val globalSnapshotStateChannelEventsProcessor =
           GlobalSnapshotStateChannelEventsProcessor.make[F](
@@ -159,7 +151,8 @@ object TessellationServices {
           updateDelegatedStakeAcceptanceManager,
           configuration.delegatedStaking.withdrawalTimeLimit.getOrElse(env, EpochProgress.MinValue),
           tessellation3Migration,
-          configuration.fieldsAddedOrdinals.setSumFix.getOrElse(env, SnapshotOrdinal.MinValue)
+          configuration.fieldsAddedOrdinals.setSumFix.getOrElse(env, SnapshotOrdinal.MinValue),
+          mptStore
         )
 
         GlobalSnapshotContextService.make(globalSnapshotStateChannelEventsProcessor, globalSnapshotContextFns, lastNGlobalSnapshotStorage, lastGlobalSnapshotStorage)
