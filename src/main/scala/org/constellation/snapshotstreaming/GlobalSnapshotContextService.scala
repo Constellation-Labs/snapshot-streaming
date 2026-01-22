@@ -1,21 +1,32 @@
 package org.constellation.snapshotstreaming
 
 import cats.Parallel
+import cats.data.NonEmptyList
 import cats.effect.kernel.Async
 import cats.syntax.all._
+
+import java.time.LocalDateTime
+
 import io.constellationnetwork.currency.schema.currency.{CurrencyIncrementalSnapshot, CurrencySnapshot, CurrencySnapshotInfo}
-import io.constellationnetwork.node.shared.domain.snapshot.services.GlobalL0Service
 import io.constellationnetwork.node.shared.domain.snapshot.storage.{LastNGlobalSnapshotStorage, LastSnapshotStorage}
 import io.constellationnetwork.node.shared.infrastructure.snapshot.GlobalSnapshotContextFunctions
 import io.constellationnetwork.node.shared.infrastructure.snapshot.managers.global.GlobalSnapshotStateChannelEventsProcessor
+import io.constellationnetwork.schema.address.Address
 import io.constellationnetwork.schema.{GlobalIncrementalSnapshot, GlobalSnapshotInfo, SnapshotOrdinal}
 import io.constellationnetwork.security.signature.Signed
 import io.constellationnetwork.security.{Hashed, HasherSelector}
 import io.constellationnetwork.statechannel.StateChannelSnapshotBinary
-import org.constellation.snapshotstreaming.SnapshotProcessor.GlobalSnapshotWithState
-import org.typelevel.log4cats.slf4j.Slf4jLogger
 
-import java.time.LocalDateTime
+/** Intermediate result from createContext - mptRoot is added by caller */
+case class GlobalSnapshotContextResult(
+  snapshot: Hashed[GlobalIncrementalSnapshot],
+  maybePrevSnapshotInfo: Option[GlobalSnapshotInfo],
+  snapshotInfo: GlobalSnapshotInfo,
+  currencySnapshots: Map[Address, NonEmptyList[
+    Either[Hashed[CurrencySnapshot], (Hashed[CurrencyIncrementalSnapshot], CurrencySnapshotInfo, Signed[StateChannelSnapshotBinary])]
+  ]],
+  ts: LocalDateTime
+)
 
 trait GlobalSnapshotContextService[F[_]] {
 
@@ -25,7 +36,7 @@ trait GlobalSnapshotContextService[F[_]] {
     artifact: Hashed[GlobalIncrementalSnapshot],
     getGlobalSnapshotByOrdinal: SnapshotOrdinal => F[Option[Hashed[GlobalIncrementalSnapshot]]],
     dt: LocalDateTime
-  ): F[GlobalSnapshotWithState]
+  ): F[GlobalSnapshotContextResult]
 
 }
 
@@ -35,7 +46,7 @@ object GlobalSnapshotContextService {
     globalSnapshotStateChannelEventsProcessor: GlobalSnapshotStateChannelEventsProcessor[F],
     globalSnapshotContextFns: GlobalSnapshotContextFunctions[F],
     lastNGlobalSnapshotStorage: LastNGlobalSnapshotStorage[F],
-    lastGlobalSnapshotStorage: LastSnapshotStorage[F,GlobalIncrementalSnapshot, GlobalSnapshotInfo],
+    lastGlobalSnapshotStorage: LastSnapshotStorage[F, GlobalIncrementalSnapshot, GlobalSnapshotInfo]
   ): GlobalSnapshotContextService[F] =
     new GlobalSnapshotContextService[F] {
 
@@ -45,7 +56,7 @@ object GlobalSnapshotContextService {
         artifact: Hashed[GlobalIncrementalSnapshot],
         getGlobalSnapshotByOrdinal: SnapshotOrdinal => F[Option[Hashed[GlobalIncrementalSnapshot]]],
         dt: LocalDateTime
-      ): F[GlobalSnapshotWithState] =
+      ): F[GlobalSnapshotContextResult] =
         for {
           lastNGlobalSnapshots <- lastNGlobalSnapshotStorage.getLastN
           lastArtifactHashed <- HasherSelector[F].forOrdinal(artifact.ordinal) { implicit hasher =>
@@ -56,7 +67,7 @@ object GlobalSnapshotContextService {
               lastNGlobalSnapshotStorage.setInitial(lastArtifactHashed, context) >>
                 lastGlobalSnapshotStorage.setInitial(lastArtifactHashed, context)
             } else {
-              ().pure
+              ().pure[F]
             }
 
           newContext <- HasherSelector[F].forOrdinal(artifact.ordinal) { implicit hasher =>
@@ -67,11 +78,12 @@ object GlobalSnapshotContextService {
               getGlobalSnapshotByOrdinal
             )
           }
-          reversedStateChannelSnapshots = artifact.signed.value.stateChannelSnapshots.map { case (address, snapshots) =>
-            address -> snapshots.reverse
+
+          reversedStateChannelSnapshots = artifact.signed.value.stateChannelSnapshots.map {
+            case (address, snapshots) => address -> snapshots.reverse
           }
 
-          result <- HasherSelector[F].forOrdinal(artifact.ordinal) { implicit hasher =>
+          currencySnapshots <- HasherSelector[F].forOrdinal(artifact.ordinal) { implicit hasher =>
             globalSnapshotStateChannelEventsProcessor
               .processCurrencySnapshots(
                 artifact.ordinal,
@@ -85,29 +97,28 @@ object GlobalSnapshotContextService {
                     (binary, currencySnapshotWithState)
                   }.toNel
                 }.traverse(_.traverse { case (binary, currencySnapshotWithState) =>
-                  for {
-                    result <- currencySnapshotWithState match {
-                      case Left(full) =>
-                        full.toHashed.map(
-                          _.asLeft[
-                            (
-                              Hashed[CurrencyIncrementalSnapshot],
-                              CurrencySnapshotInfo,
-                              Signed[StateChannelSnapshotBinary]
-                            )
-                          ]
-                        )
-                      case Right((inc, info)) =>
-                        inc.toHashed.map(hashed => (hashed, info, binary).asRight[Hashed[CurrencySnapshot]])
-                    }
-                  } yield result
+                  currencySnapshotWithState match {
+                    case Left(full) =>
+                      full.toHashed.map(
+                        _.asLeft[(Hashed[CurrencyIncrementalSnapshot], CurrencySnapshotInfo, Signed[StateChannelSnapshotBinary])]
+                      )
+                    case Right((inc, info)) =>
+                      inc.toHashed.map(hashed => (hashed, info, binary).asRight[Hashed[CurrencySnapshot]])
+                  }
                 })
               }
-              .map(GlobalSnapshotWithState(artifact, context.some, newContext, _, dt))
           }
 
-          _ <- lastNGlobalSnapshotStorage.set(result.snapshot, result.snapshotInfo)
-          _ <- lastGlobalSnapshotStorage.set(result.snapshot, result.snapshotInfo)
+          result = GlobalSnapshotContextResult(
+            artifact,
+            context.some,
+            newContext,
+            currencySnapshots,
+            dt
+          )
+
+          _ <- lastNGlobalSnapshotStorage.set(artifact, newContext)
+          _ <- lastGlobalSnapshotStorage.set(artifact, newContext)
         } yield result
 
     }

@@ -49,7 +49,7 @@ abstract class GlobalSnapshotMapper[F[_]: Async] extends SnapshotMapper[F, Globa
     txHasher: Hasher[F],
     hasher: Hasher[F]
   ): F[GlobalData] = {
-    val GlobalSnapshotWithState(globalSnapshot, maybePrevSnapshotInfo, snapshotInfo, _, ts) =
+    val GlobalSnapshotWithState(globalSnapshot, maybePrevSnapshotInfo, snapshotInfo, _, ts, _) =
       globalSnapshotWithState
     for {
       snapshot <- mapSnapshot(globalSnapshot, timestamp, hasher)

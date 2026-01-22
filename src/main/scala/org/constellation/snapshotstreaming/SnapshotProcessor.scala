@@ -22,14 +22,16 @@ import io.constellationnetwork.node.shared.http.p2p.clients.L0GlobalSnapshotClie
 import io.constellationnetwork.node.shared.infrastructure.cluster.storage.L0ClusterStorage
 import io.constellationnetwork.schema.SnapshotReference.{fromHashedSnapshot => getSnapshotReference}
 import io.constellationnetwork.schema.address.Address
-import io.constellationnetwork.schema.{CurrencyStateProofSelector, GlobalIncrementalSnapshot, GlobalSnapshot, GlobalSnapshotInfo, GlobalSnapshotInfoV2, GlobalStateProofSelector}
+import io.constellationnetwork.schema.{CurrencyStateProofSelector, GlobalIncrementalSnapshot, GlobalSnapshot, GlobalSnapshotInfo, GlobalSnapshotInfoV2, GlobalSnapshotStateProof, GlobalStateProofSelector, SnapshotOrdinal}
 import io.constellationnetwork.security._
 import io.constellationnetwork.security.signature.Signed
 import io.constellationnetwork.statechannel.StateChannelSnapshotBinary
 import io.constellationnetwork.merkletree.StateProofValidator
 import io.constellationnetwork.schema.mpt.GlobalStateConverter.syntax.GlobalSnapshotInfoMptOps
 import io.constellationnetwork.schema.mpt.{GlobalStateKey, MptStore}
-import io.constellationnetwork.security.mpt.producer.FileSystemMerklePatriciaProducer
+import io.constellationnetwork.security.hash.Hash
+import io.constellationnetwork.security.mpt.MptRoot
+import io.constellationnetwork.security.mpt.producer.{FileSystemMerklePatriciaProducer, InMemoryMerklePatriciaProducer}
 import org.constellation.snapshotstreaming.db.SnapshotDAO
 import org.constellation.snapshotstreaming.mapper.{CurrencySnapshotMapper, GlobalSnapshotMapper}
 import org.constellation.snapshotstreaming.opensearch.OpensearchDAO
@@ -64,7 +66,7 @@ object SnapshotProcessor {
       snapshotDAO = SnapshotDAO.make[F](sessionPool)
       globalSnapshotClient = L0GlobalSnapshotClient.make[F](client, None, sharedConfig.snapshot.timeouts)
       l0ClusterStorage <- Resource.eval(L0ClusterStorageRef(configuration.node))
-      mptProducer <- Resource.eval(HasherSelector[F].withCurrent { implicit hasher => FileSystemMerklePatriciaProducer.make[F](sharedConfig.snapshot.mptSnapshotInfoPath)})
+      mptProducer <- Resource.eval(HasherSelector[F].withCurrent { implicit hasher => InMemoryMerklePatriciaProducer.make[F]()})
       mptStore <- Resource.eval(HasherSelector[F].withCurrent { implicit hasher =>
         MptStore.make[F, GlobalStateKey](
           mptProducer,
@@ -98,7 +100,8 @@ object SnapshotProcessor {
       txHasher,
       tesselationServices,
       lastFullGlobalSnapshotStorage,
-      mptStore
+      mptStore,
+      sharedConfig
     )
 
   private def fsGlobalIncrementalStorage[F[_]: Async: Parallel: HasherSelector: Files: KryoSerializer: JsonSerializer](
@@ -128,7 +131,8 @@ object SnapshotProcessor {
     txHasher: Hasher[F],
     tessellationServices: TessellationServices[F],
     lastFullGlobalSnapshotStorage: FileBasedLastGlobalFullSnapshotStorage[F],
-    mptStore: MptStore[F, GlobalStateKey]
+    mptStore: MptStore[F, GlobalStateKey],
+    sharedConfigReader: SharedConfigReader
   )(implicit stateProofSelector: GlobalStateProofSelector): SnapshotProcessor[F] = new SnapshotProcessor[F] {
     private implicit val logger = Slf4jLogger.getLogger[F]
 
@@ -171,14 +175,40 @@ object SnapshotProcessor {
         .void
 
     private def process(globalSnapshotWithState: GlobalSnapshotWithState, hasher: Hasher[F]): F[Unit] = {
-      val GlobalSnapshotWithState(snapshot, _, snapshotInfo, _, _) = globalSnapshotWithState
+      val GlobalSnapshotWithState(snapshot, _, snapshotInfo, _, _, mptRoot) = globalSnapshotWithState
+
       HasherSelector[F]
         .forOrdinal(snapshot.ordinal) { implicit hasher =>
           logger.info(
             s"Global Snapshot ${snapshot.ordinal.value.value} with logic=${hasher.getLogic(snapshot.ordinal)}"
           ) >>
             (hasher.getLogic(snapshot.ordinal) match {
-              case JsonHash => StateProofValidator.validate(snapshot, snapshotInfo)
+
+              case JsonHash => if(sharedConfigReader.lastLegacyStateProofOrdinal.getOrElse(configuration.environment, SnapshotOrdinal.MinValue) < snapshot.ordinal) {
+                val stateProof = GlobalSnapshotStateProof
+                  .apply(
+                    Hash.empty,
+                    Hash.empty,
+                    Hash.empty,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    Some(mptRoot.value)
+                  )
+                StateProofValidator.validate(snapshot, stateProof)
+              } else {
+                StateProofValidator.validate(snapshot, snapshotInfo)
+              }
               case KryoHash =>
                 StateProofValidator.validate(snapshot, GlobalSnapshotInfoV2.fromGlobalSnapshotInfo(snapshotInfo))
             })
@@ -215,9 +245,7 @@ object SnapshotProcessor {
                   }
             }
           case Validated.Invalid(e) =>
-            logger.warn(
-              s"Calculated stateProof does not match state from snapshot: ${e}."
-            )
+            logger.warn(s"Calculated stateProof does not match state from snapshot: ${e}.")
         }
     }
 
@@ -240,6 +268,7 @@ object SnapshotProcessor {
               logger.info("[INIT] No initial state found") >> Async[F].unit
           }
         }
+        // Producer stream - pulls and processes snapshots
         // Producer stream - pulls and processes snapshots
         producer = Stream
           .awakeEvery(configuration.node.pullInterval)
@@ -270,24 +299,34 @@ object SnapshotProcessor {
                             l0Service.pullGlobalSnapshot,
                             LocalDateTime.now()
                           )
-                          .flatMap { globalSnapshotsWithState =>
-                            queue.offer(globalSnapshotsWithState).flatMap { _ =>
-                              logger.info(
-                                s"Producer: Added snapshot to queue (offered ${getSnapshotReference(globalSnapshotsWithState.snapshot)})"
-                              )
-                            } >> globalSnapshotsWithState.pure
-                          }
-                          .map { globalSnapshotsWithState =>
-                            ProcessedSnapshots(
-                              snapshot.signed,
-                              globalSnapshotsWithState.snapshotInfo,
-                              processedSnapshots.snapshotsWithState.appended(globalSnapshotsWithState)
-                            )
+                          .flatMap { contextResult =>
+                            mptStore.buildWithRootHash.flatMap {
+                              case Right((_, mptRoot)) =>
+                                val withRoot = GlobalSnapshotWithState(
+                                  contextResult.snapshot,
+                                  contextResult.maybePrevSnapshotInfo,
+                                  contextResult.snapshotInfo,
+                                  contextResult.currencySnapshots,
+                                  contextResult.ts,
+                                  mptRoot
+                                )
+                                queue.offer(withRoot) >>
+                                  logger.info(
+                                    s"Producer: Queued ${getSnapshotReference(withRoot.snapshot)} with mptRoot=${mptRoot.value.value.take(16)}..."
+                                  ) >>
+                                  ProcessedSnapshots(
+                                    snapshot.signed,
+                                    contextResult.snapshotInfo,
+                                    processedSnapshots.snapshotsWithState.appended(withRoot)
+                                  ).pure[F]
+                              case Left(err) =>
+                                Async[F].raiseError[ProcessedSnapshots](new RuntimeException(s"Failed to compute MPT root: $err"))
+                            }
                           }
                     }
                 }
                 .map { s =>
-                  (Option(s.lastSnapshot, s.lastState), s.snapshotsWithState)
+                  (Option((s.lastSnapshot, s.lastState)), s.snapshotsWithState)
                 }
                 .handleErrorWith { e =>
                   logger.error(e)("Producer: Error pulling snapshots, will retry in next cycle") >>
@@ -298,27 +337,44 @@ object SnapshotProcessor {
               logger.info("Producer: No last snapshot found, checking full snapshot") >>
                 lastFullGlobalSnapshotStorage.get.flatMap {
                   case Some(signedFullGlobalSnapshot) =>
+                    val initialInfo = signedFullGlobalSnapshot.value.info.toGlobalSnapshotInfo
                     logger.info(s"Producer: Found full snapshot ${signedFullGlobalSnapshot.value.ordinal}") >>
                       l0Service
                         .pullGlobalSnapshot(signedFullGlobalSnapshot.value.ordinal.next)
-                        .flatMap(
-                          _.map(nextSnapshot =>
-                            GlobalSnapshotWithState(
-                              nextSnapshot,
-                              None,
-                              signedFullGlobalSnapshot.value.info.toGlobalSnapshotInfo,
-                              Map.empty,
-                              LocalDateTime.now()
-                            )
-                          ).traverse { globalSnapshotsWithState =>
-                            queue.offer(globalSnapshotsWithState).flatMap { _ =>
-                              logger.info(
-                                s"Producer: Added snapshot to queue (offered ${getSnapshotReference(globalSnapshotsWithState.snapshot)})"
-                              )
-                            } >> globalSnapshotsWithState.pure
-                          }
-                        )
-                        .map(s => (s.map(gsws => (gsws.snapshot.signed, gsws.snapshotInfo)), s.toList))
+                        .flatMap {
+                          case Some(nextSnapshot) =>
+                            // Sync initial state and compute mptRoot
+                            HasherSelector[F].withCurrent { implicit hasher =>
+                              initialInfo.allStateEntries[F]
+                            }.flatMap { kvPairs =>
+                              mptStore.syncFull(kvPairs, nextSnapshot.ordinal)
+                            } >>
+                              mptStore.buildWithRootHash.flatMap {
+                                case Right((_, mptRoot)) =>
+                                  val gsws = GlobalSnapshotWithState(
+                                    nextSnapshot,
+                                    None,
+                                    initialInfo,
+                                    Map.empty,
+                                    LocalDateTime.now(),
+                                    mptRoot
+                                  )
+                                  queue.offer(gsws) >>
+                                    logger.info(
+                                      s"Producer: Added initial snapshot to queue with mptRoot=${mptRoot.value.value.take(16)}..."
+                                    ) >>
+                                    (Option((gsws.snapshot.signed, gsws.snapshotInfo)), List(gsws)).pure[F]
+                                case Left(err) =>
+                                  Async[F].raiseError[(Option[(Signed[GlobalIncrementalSnapshot], GlobalSnapshotInfo)], List[GlobalSnapshotWithState])](
+                                    new RuntimeException(s"Failed to compute initial MPT root: $err")
+                                  )
+                              }
+                          case None =>
+                            (
+                              Option.empty[(Signed[GlobalIncrementalSnapshot], GlobalSnapshotInfo)],
+                              List.empty[GlobalSnapshotWithState]
+                            ).pure[F]
+                        }
                         .handleErrorWith { e =>
                           logger.error(e)("Producer: Error pulling initial snapshot, will retry in next cycle") >>
                             (
@@ -371,11 +427,10 @@ object SnapshotProcessor {
     maybePrevSnapshotInfo: Option[GlobalSnapshotInfo],
     snapshotInfo: GlobalSnapshotInfo,
     currencySnapshots: Map[Address, NonEmptyList[
-      Either[Hashed[
-        CurrencySnapshot
-      ], (Hashed[CurrencyIncrementalSnapshot], CurrencySnapshotInfo, Signed[StateChannelSnapshotBinary])]
+      Either[Hashed[CurrencySnapshot], (Hashed[CurrencyIncrementalSnapshot], CurrencySnapshotInfo, Signed[StateChannelSnapshotBinary])]
     ]],
-    ts: LocalDateTime
+    ts: LocalDateTime,
+    mptRoot: MptRoot
   )
 
   case class ProcessedSnapshots(
