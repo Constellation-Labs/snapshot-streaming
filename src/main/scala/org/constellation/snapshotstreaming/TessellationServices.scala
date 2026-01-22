@@ -55,6 +55,7 @@ object TessellationServices {
       txHasher = Hasher.forKryo
       validators = hasherSelector.withCurrent { implicit hasher =>
         SharedValidators.make[F](
+          env,
           AddressesConfig(Set.empty),
           None,
           None,

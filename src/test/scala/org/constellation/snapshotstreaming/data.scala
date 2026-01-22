@@ -29,6 +29,7 @@ import cats.effect.Async
 import io.constellationnetwork.currency.schema.currency.CurrencyIncrementalSnapshot
 import io.constellationnetwork.currency.schema.currency.CurrencySnapshotInfo
 import io.constellationnetwork.currency.dataApplication.FeeTransaction
+import io.constellationnetwork.json.JsonSerializer
 import io.constellationnetwork.kryo.KryoSerializer
 import io.constellationnetwork.schema.address.Address
 import io.constellationnetwork.schema.balance.Amount
@@ -54,7 +55,7 @@ object data {
     def select(ordinal: SnapshotOrdinal): HashLogic = JsonHash
   }
 
-  def incrementalGlobalSnapshot[F[_]: Parallel: Async: HasherSelector](
+  def incrementalGlobalSnapshot[F[_]: Parallel: Async: HasherSelector: JsonSerializer](
     ordinal: NonNegLong,
     height: NonNegLong,
     subHeight: NonNegLong,
@@ -194,7 +195,7 @@ object data {
     )
   }
 
-  def incrementalCurrencySnapshot[F[_]: Parallel: Async: HasherSelector](
+  def incrementalCurrencySnapshot[F[_]: Parallel: Async: HasherSelector: JsonSerializer](
     ordinal: NonNegLong,
     height: NonNegLong,
     subHeight: NonNegLong,

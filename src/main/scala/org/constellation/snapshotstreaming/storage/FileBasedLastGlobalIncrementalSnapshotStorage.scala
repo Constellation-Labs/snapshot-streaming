@@ -10,6 +10,7 @@ import fs2.{Stream, text}
 import io.circe.jawn
 import io.circe.syntax._
 import io.constellationnetwork.ext.kryo._
+import io.constellationnetwork.json.JsonSerializer
 import io.constellationnetwork.kryo.KryoSerializer
 import io.constellationnetwork.merkletree.StateProofValidator
 import io.constellationnetwork.node.shared.domain.snapshot.storage.LastSnapshotStorage
@@ -36,7 +37,7 @@ object FileBasedLastGlobalIncrementalSnapshotStorage {
       .compile
       .drain
 
-  def make[F[_]: Async: Parallel: HasherSelector: Files: KryoSerializer: Compression](
+  def make[F[_]: Async: Parallel: HasherSelector: Files: KryoSerializer: Compression: JsonSerializer](
     path: Path,
     mptStore: MptStore[F, GlobalStateKey]
   )(implicit stateProofSelector: StateProofSelector): F[LastSnapshotStorage[F, GlobalIncrementalSnapshot, GlobalSnapshotInfo]] = {
@@ -61,7 +62,7 @@ object FileBasedLastGlobalIncrementalSnapshotStorage {
     readSnapshotWithState.flatMap(Ref.of[F, Option[SnapshotWithState]](_).map(make(_, path, mptStore)))
   }
 
-  def make[F[_]: Async: Parallel: HasherSelector: Files: KryoSerializer: Compression](
+  def make[F[_]: Async: Parallel: HasherSelector: Files: KryoSerializer: Compression: JsonSerializer](
     cachedSnapshot: Ref[F, Option[SnapshotWithState]],
     path: Path,
     mptStore: MptStore[F, GlobalStateKey]
