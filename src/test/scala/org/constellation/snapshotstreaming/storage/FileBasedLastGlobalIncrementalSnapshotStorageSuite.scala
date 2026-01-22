@@ -31,12 +31,12 @@ import org.constellation.snapshotstreaming.schema.kryoRegistrar
 
 object FileBasedLastGlobalIncrementalSnapshotStorageSuite extends MutableIOSuite {
 
-  type Res = (KryoSerializer[IO], HasherSelector[IO])
+  type Res = (KryoSerializer[IO], HasherSelector[IO], JsonSerializer[IO])
 
   override def sharedResource: Resource[IO, Res] =
     KryoSerializer.forAsync[IO](sharedKryoRegistrar ++ kryoRegistrar).flatMap { implicit ks =>
       JsonSerializer.forAsync[IO].asResource.map { implicit jsonSerializer =>
-        (ks, HasherSelector.forSync[IO](Hasher.forJson[IO], Hasher.forKryo[IO], hashSelect))
+        (ks, HasherSelector.forSync[IO](Hasher.forJson[IO], Hasher.forKryo[IO], hashSelect), jsonSerializer)
       }
     }
 
@@ -87,11 +87,11 @@ object FileBasedLastGlobalIncrementalSnapshotStorageSuite extends MutableIOSuite
     None
   )
 
-  private def mkInitialSnapshot()(implicit ks: KryoSerializer[IO], h: HasherSelector[IO]) =
+  private def mkInitialSnapshot()(implicit ks: KryoSerializer[IO], h: HasherSelector[IO], jsonSerializer: JsonSerializer[IO]) =
     incrementalGlobalSnapshot[IO](100L, 10L, 20L, Hash("abc"), Hash("def"), snapshotInfo)
 
   test("get should return None before initial snapshot is set") { res =>
-    implicit val (ks, h) = res
+    implicit val (ks, h, js) = res
 
     fileBasedStorage.use { storage =>
       storage.get
@@ -100,7 +100,7 @@ object FileBasedLastGlobalIncrementalSnapshotStorageSuite extends MutableIOSuite
   }
 
   test("getCombined should return None before initial snapshot is set") { res =>
-    implicit val (ks, h) = res
+    implicit val (ks, h, js) = res
 
     fileBasedStorage.use { storage =>
       storage.get
@@ -109,7 +109,7 @@ object FileBasedLastGlobalIncrementalSnapshotStorageSuite extends MutableIOSuite
   }
 
   test("get should return last snapshot after it's set") { res =>
-    implicit val (ks, h) = res
+    implicit val (ks, h, js) = res
 
     fileBasedStorage.use { storage =>
       mkInitialSnapshot().flatMap { initial =>
@@ -121,7 +121,7 @@ object FileBasedLastGlobalIncrementalSnapshotStorageSuite extends MutableIOSuite
   }
 
   test("getCombined should return last snapshot after it's set") { res =>
-    implicit val (ks, h) = res
+    implicit val (ks, h, js) = res
 
     fileBasedStorage.use { storage =>
       mkInitialSnapshot().flatMap { initial =>
@@ -133,7 +133,7 @@ object FileBasedLastGlobalIncrementalSnapshotStorageSuite extends MutableIOSuite
   }
 
   test("getOrdinal should return None before initial snapshot is set") { res =>
-    implicit val (ks, h) = res
+    implicit val (ks, h, js) = res
 
     fileBasedStorage.use { storage =>
       storage.getOrdinal
@@ -142,7 +142,7 @@ object FileBasedLastGlobalIncrementalSnapshotStorageSuite extends MutableIOSuite
   }
 
   test("getOrdinal should return last snapshot's ordinal after it's set") { res =>
-    implicit val (ks, h) = res
+    implicit val (ks, h, js) = res
 
     fileBasedStorage.use { storage =>
       mkInitialSnapshot().flatMap { initial =>
@@ -154,7 +154,7 @@ object FileBasedLastGlobalIncrementalSnapshotStorageSuite extends MutableIOSuite
   }
 
   test("getHeight should return None before initial snapshot is set") { res =>
-    implicit val (ks, h) = res
+    implicit val (ks, h, js) = res
 
     fileBasedStorage.use { storage =>
       storage.getHeight
@@ -163,7 +163,7 @@ object FileBasedLastGlobalIncrementalSnapshotStorageSuite extends MutableIOSuite
   }
 
   test("getHeight should return last snapshot's height after it's set") { res =>
-    implicit val (ks, h) = res
+    implicit val (ks, h, js) = res
 
     fileBasedStorage.use { storage =>
       mkInitialSnapshot.flatMap { initial =>
@@ -175,7 +175,7 @@ object FileBasedLastGlobalIncrementalSnapshotStorageSuite extends MutableIOSuite
   }
 
   test("set should fail when we try to set snapshot before the initial snapshot is set") { res =>
-    implicit val (ks, h) = res
+    implicit val (ks, h, js) = res
 
     fileBasedStorage.use { storage =>
       mkInitialSnapshot.flatMap { initial =>
@@ -189,7 +189,7 @@ object FileBasedLastGlobalIncrementalSnapshotStorageSuite extends MutableIOSuite
   }
 
   test("set should fail when we try to set a snapshot that's not the next one") { res =>
-    implicit val (ks, h) = res
+    implicit val (ks, h, js) = res
 
     fileBasedStorage.use { storage =>
       mkInitialSnapshot.flatMap { initial =>
@@ -206,7 +206,7 @@ object FileBasedLastGlobalIncrementalSnapshotStorageSuite extends MutableIOSuite
   }
 
   test("set should fail when we try to set a snapshot with not matching state") { res =>
-    implicit val (ks, h) = res
+    implicit val (ks, h, js) = res
 
     fileBasedStorage.use { storage =>
       mkInitialSnapshot.flatMap { initial =>
@@ -223,7 +223,7 @@ object FileBasedLastGlobalIncrementalSnapshotStorageSuite extends MutableIOSuite
   }
 
   test("set should successfully set a snapshot if it is the next one") { res =>
-    implicit val (ks, h) = res
+    implicit val (ks, h, js) = res
 
     fileBasedStorage.use { storage =>
       mkInitialSnapshot.flatMap { initial =>
@@ -238,7 +238,7 @@ object FileBasedLastGlobalIncrementalSnapshotStorageSuite extends MutableIOSuite
   }
 
   test("setInitial should fail if the initial snapshot already exists") { res =>
-    implicit val (ks, h) = res
+    implicit val (ks, h, js) = res
 
     fileBasedStorage.use { storage =>
       mkInitialSnapshot.flatMap { initial =>
@@ -253,7 +253,7 @@ object FileBasedLastGlobalIncrementalSnapshotStorageSuite extends MutableIOSuite
   }
 
   test("setInitial should fail when we try to set initial snapshot with not matching state") { res =>
-    implicit val (ks, h) = res
+    implicit val (ks, h, js) = res
 
     fileBasedStorage.use { storage =>
       mkInitialSnapshot.flatMap { initial =>
@@ -267,7 +267,7 @@ object FileBasedLastGlobalIncrementalSnapshotStorageSuite extends MutableIOSuite
   }
 
   test("setInitial should successfully set initial snapshot if it not yet exists") { res =>
-    implicit val (ks, h) = res
+    implicit val (ks, h, js) = res
 
     fileBasedStorage.use { storage =>
       mkInitialSnapshot.flatMap { initial =>

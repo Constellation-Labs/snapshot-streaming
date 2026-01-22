@@ -59,7 +59,7 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
   val sharedCfg =
     Configuration.nodeSharedConfig(AppEnvironment.Dev, ConfigSource.default.loadOrThrow[SharedConfigReader])
 
-  type Res = (HasherSelector[IO], KryoSerializer[IO], SecurityProvider[IO], KeyPair, KeyPair, KeyPair, KeyPair)
+  type Res = (HasherSelector[IO], KryoSerializer[IO], SecurityProvider[IO], KeyPair, KeyPair, KeyPair, KeyPair, JsonSerializer[IO])
 
   override def sharedResource: Resource[IO, Res] =
     SecurityProvider.forAsync[IO].flatMap { implicit sp =>
@@ -75,15 +75,15 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
             implicit val j: JsonSerializer[IO] = js
             HasherSelector.forSync[IO](Hasher.forJson[IO], Hasher.forKryo[IO], hashSelect)
           }
-        } yield (hasherSelector, kp, sp, key1, key2, key3, key4)
+        } yield (hasherSelector, kp, sp, key1, key2, key3, key4, js)
       }
     }
 
-  def mkInitialSnapshot()(implicit h: HasherSelector[IO]): IO[Hashed[GlobalIncrementalSnapshot]] =
+  def mkInitialSnapshot()(implicit h: HasherSelector[IO], js: JsonSerializer[IO]): IO[Hashed[GlobalIncrementalSnapshot]] =
     incrementalGlobalSnapshot[IO](100L, 10L, 20L, Hash("abc"), Hash("def"))
 
   test("explicitly sets balance to 0 for addressees missing in in info") { res =>
-    implicit val (h, ks, sp, key1, key2, key3, _) = res
+    implicit val (h, ks, sp, key1, key2, key3, _, js) = res
     val address1 = key1.getPublic.toAddress
     val address2 = key2.getPublic.toAddress
     val address3 = key3.getPublic.toAddress
@@ -151,7 +151,7 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
   }
 
   test("removes addresses that have transactions but the result balance hasn't changed") { res =>
-    implicit val (h, ks, sp, key1, key2, _, _) = res
+    implicit val (h, ks, sp, key1, key2, _, _, js) = res
     val address1 = key1.getPublic.toAddress
     val address2 = key2.getPublic.toAddress
     val initialBalances = createBalances(address1, address2)
@@ -212,7 +212,7 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
   }
 
   test("leaves addresses that changed") { res =>
-    implicit val (h, ks, sp, key1, key2, key3, key4) = res
+    implicit val (h, ks, sp, key1, key2, key3, key4, js) = res
     val address1 = key1.getPublic.toAddress
     val address2 = key2.getPublic.toAddress
     val address3 = key3.getPublic.toAddress
@@ -276,7 +276,7 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
   }
 
   test("leave balances for addresses from rewards") { res =>
-    implicit val (h, ks, _, key1, key2, key3, key4) = res
+    implicit val (h, ks, _, key1, key2, key3, key4, js) = res
     val address1 = key1.getPublic.toAddress
     val address2 = key2.getPublic.toAddress
     val address3 = key3.getPublic.toAddress
@@ -345,7 +345,7 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
   )
 
   test("extract only new and updated create stake references") { res =>
-    implicit val (hs, ks, sp, key1, key2, key3, key4) = res
+    implicit val (hs, ks, sp, key1, key2, key3, key4, js) = res
     val address1 = key1.getPublic.toAddress
     val address2 = key2.getPublic.toAddress
 
@@ -465,7 +465,7 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
   }
 
   test("extract only new and completed stakes withdrawal") { res =>
-    implicit val (hs, ks, sp, key1, key2, key3, key4) = res
+    implicit val (hs, ks, sp, key1, key2, key3, key4, js) = res
     val address1 = key1.getPublic.toAddress
     val address2 = key2.getPublic.toAddress
 

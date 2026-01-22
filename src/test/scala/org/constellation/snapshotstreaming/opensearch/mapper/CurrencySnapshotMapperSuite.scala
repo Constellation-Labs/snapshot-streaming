@@ -57,7 +57,7 @@ object CurrencySnapshotMapperSuite extends MutableIOSuite {
     }
 
   def mkInitialSnapshot()(implicit
-    h: HasherSelector[IO]
+    h: HasherSelector[IO], js: JsonSerializer[IO],
   ): IO[Hashed[CurrencyIncrementalSnapshot]] =
     incrementalCurrencySnapshot[IO](100L, 10L, 20L, Hash("abc"), Hash("def"))
 
