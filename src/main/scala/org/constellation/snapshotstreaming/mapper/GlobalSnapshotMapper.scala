@@ -152,7 +152,9 @@ abstract class GlobalSnapshotMapper[F[_]: Async] extends SnapshotMapper[F, Globa
         (pendingWithdrawal.createdAt |+| sharedCfg.delegatedStaking.withdrawalTimeLimit(
           sharedCfg.environment
         )).value.value,
-        isCompleted
+        isCompleted,
+        pendingWithdrawal.currentTokenLockRef.map(_.value),
+        pendingWithdrawal.currentAmount.map(_.value)
       )
     }
 

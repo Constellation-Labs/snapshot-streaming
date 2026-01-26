@@ -27,6 +27,8 @@ CREATE TABLE delegate_stake_withdraw_events (
     source_addr varchar NOT NULL REFERENCES addresses(address) ON DELETE CASCADE,
     stake_create_hash varchar NOT NULL REFERENCES delegate_stake_create_events(hash) ON DELETE CASCADE,
     global_snapshot_hash varchar NOT NULL REFERENCES global_snapshots(hash) ON DELETE CASCADE,
+    current_lock_reference_hash varchar,
+    current_amount int8,
     created_at timestamp DEFAULT now() NOT NULL,
     updated_at timestamp DEFAULT now() NOT NULL
 );
