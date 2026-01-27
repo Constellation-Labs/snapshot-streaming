@@ -13,7 +13,6 @@ import fs2.io.file.Files
 import fs2.io.net.Network
 import io.constellationnetwork.json.JsonSerializer
 import io.constellationnetwork.kryo.KryoSerializer
-import io.constellationnetwork.merkletree.StateProofValidator
 import io.constellationnetwork.node.shared.config.types.SharedConfigReader
 import io.constellationnetwork.node.shared.domain.snapshot.services.GlobalL0Service
 import io.constellationnetwork.node.shared.domain.snapshot.storage.LastSnapshotStorage
@@ -27,6 +26,7 @@ import io.constellationnetwork.security._
 import io.constellationnetwork.security.hash.Hash
 import io.constellationnetwork.security.mpt.MptRoot
 import io.constellationnetwork.security.mpt.producer.InMemoryMerklePatriciaProducer
+import io.constellationnetwork.validator.StateProofValidator
 import org.constellation.snapshotstreaming.SnapshotProcessor.{GlobalSnapshotWithState, L0ClusterStorageRef, ProcessedSnapshots, makeClient}
 import org.constellation.snapshotstreaming.db.SnapshotDAO
 import org.constellation.snapshotstreaming.mapper.{CurrencySnapshotMapper, GlobalSnapshotMapper}
@@ -190,15 +190,15 @@ object SnapshotProcessorS3 {
       }.flatMap { kvPairs =>
         mptStore.syncFull(kvPairs, snapshot.ordinal)
       } >>
-        mptStore.buildWithRootHash.flatMap {
-          case Right((_, mptRoot)) =>
+        mptStore.build.flatMap {
+          case Right(mpt) =>
             GlobalSnapshotWithState(
               snapshot,
               maybePrevSnapshotInfo,
               snapshotInfo,
               Map.empty,
               dt,
-              mptRoot
+              mpt.rootHash
             ).pure[F]
           case Left(err) =>
             Async[F].raiseError[GlobalSnapshotWithState](new RuntimeException(s"Failed to compute MPT root: $err"))
@@ -276,15 +276,15 @@ object SnapshotProcessorS3 {
                     dt
                   )
                   .flatMap { contextResult =>
-                    mptStore.buildWithRootHash.flatMap {
-                      case Right((_, mptRoot)) =>
+                    mptStore.build.flatMap {
+                      case Right(mpt) =>
                         val gss = GlobalSnapshotWithState(
                           contextResult.snapshot,
                           contextResult.maybePrevSnapshotInfo,
                           contextResult.snapshotInfo,
                           contextResult.currencySnapshots,
                           contextResult.ts,
-                          mptRoot
+                          mpt.rootHash
                         )
                         val updatedStatus = ProcessedSnapshots(
                           gss.snapshot.signed,

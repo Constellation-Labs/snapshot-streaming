@@ -12,7 +12,6 @@ import io.circe.syntax._
 import io.constellationnetwork.ext.kryo._
 import io.constellationnetwork.json.JsonSerializer
 import io.constellationnetwork.kryo.KryoSerializer
-import io.constellationnetwork.merkletree.StateProofValidator
 import io.constellationnetwork.node.shared.domain.snapshot.storage.LastSnapshotStorage
 import io.constellationnetwork.schema._
 import io.constellationnetwork.schema.height.Height
@@ -20,6 +19,7 @@ import io.constellationnetwork.schema.mpt.GlobalStateConverter.syntax.GlobalSnap
 import io.constellationnetwork.schema.mpt.{GlobalStateKey, MptStore}
 import io.constellationnetwork.schema.tokenLock.TokenLockOrdinal
 import io.constellationnetwork.security._
+import io.constellationnetwork.validator.StateProofValidator
 import org.typelevel.log4cats.slf4j.Slf4jLogger
 
 

@@ -26,12 +26,12 @@ import io.constellationnetwork.schema.{CurrencyStateProofSelector, GlobalIncreme
 import io.constellationnetwork.security._
 import io.constellationnetwork.security.signature.Signed
 import io.constellationnetwork.statechannel.StateChannelSnapshotBinary
-import io.constellationnetwork.merkletree.StateProofValidator
 import io.constellationnetwork.schema.mpt.GlobalStateConverter.syntax.GlobalSnapshotInfoMptOps
 import io.constellationnetwork.schema.mpt.{GlobalStateKey, MptStore}
 import io.constellationnetwork.security.hash.Hash
 import io.constellationnetwork.security.mpt.MptRoot
 import io.constellationnetwork.security.mpt.producer.{FileSystemMerklePatriciaProducer, InMemoryMerklePatriciaProducer}
+import io.constellationnetwork.validator.StateProofValidator
 import org.constellation.snapshotstreaming.db.SnapshotDAO
 import org.constellation.snapshotstreaming.mapper.{CurrencySnapshotMapper, GlobalSnapshotMapper}
 import org.constellation.snapshotstreaming.opensearch.OpensearchDAO
@@ -300,19 +300,19 @@ object SnapshotProcessor {
                             LocalDateTime.now()
                           )
                           .flatMap { contextResult =>
-                            mptStore.buildWithRootHash.flatMap {
-                              case Right((_, mptRoot)) =>
+                            mptStore.build.flatMap {
+                              case Right(mpt) =>
                                 val withRoot = GlobalSnapshotWithState(
                                   contextResult.snapshot,
                                   contextResult.maybePrevSnapshotInfo,
                                   contextResult.snapshotInfo,
                                   contextResult.currencySnapshots,
                                   contextResult.ts,
-                                  mptRoot
+                                  mpt.rootHash
                                 )
                                 queue.offer(withRoot) >>
                                   logger.info(
-                                    s"Producer: Queued ${getSnapshotReference(withRoot.snapshot)} with mptRoot=${mptRoot.value.value.take(16)}..."
+                                    s"Producer: Queued ${getSnapshotReference(withRoot.snapshot)} with mptRoot=${mpt.rootHash.value.value.take(16)}..."
                                   ) >>
                                   ProcessedSnapshots(
                                     snapshot.signed,
@@ -349,19 +349,19 @@ object SnapshotProcessor {
                             }.flatMap { kvPairs =>
                               mptStore.syncFull(kvPairs, nextSnapshot.ordinal)
                             } >>
-                              mptStore.buildWithRootHash.flatMap {
-                                case Right((_, mptRoot)) =>
+                              mptStore.build.flatMap {
+                                case Right(mpt) =>
                                   val gsws = GlobalSnapshotWithState(
                                     nextSnapshot,
                                     None,
                                     initialInfo,
                                     Map.empty,
                                     LocalDateTime.now(),
-                                    mptRoot
+                                    mpt.rootHash
                                   )
                                   queue.offer(gsws) >>
                                     logger.info(
-                                      s"Producer: Added initial snapshot to queue with mptRoot=${mptRoot.value.value.take(16)}..."
+                                      s"Producer: Added initial snapshot to queue with mptRoot=${mpt.rootHash.value.value.take(16)}..."
                                     ) >>
                                     (Option((gsws.snapshot.signed, gsws.snapshotInfo)), List(gsws)).pure[F]
                                 case Left(err) =>

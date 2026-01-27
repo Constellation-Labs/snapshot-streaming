@@ -27,7 +27,7 @@ import io.constellationnetwork.node.shared.infrastructure.snapshot._
 import io.constellationnetwork.node.shared.infrastructure.snapshot.managers.currency.CurrencySnapshotAcceptanceManager
 import io.constellationnetwork.node.shared.infrastructure.snapshot.managers.global.{GlobalSnapshotAcceptanceManager, GlobalSnapshotStateChannelAcceptanceManager, GlobalSnapshotStateChannelEventsProcessor}
 import io.constellationnetwork.node.shared.infrastructure.snapshot.storage.{LastNGlobalSnapshotStorage, LastSnapshotStorage}
-import io.constellationnetwork.node.shared.logger.NoDbLogger
+import io.constellationnetwork.node.shared.logger.Slf4jLoggerBundle
 import io.constellationnetwork.node.shared.modules.SharedValidators
 import io.constellationnetwork.schema.{CurrencyStateProofSelector, GlobalIncrementalSnapshot, GlobalSnapshotInfo, GlobalStateProofSelector, SnapshotOrdinal}
 import io.constellationnetwork.schema.balance.Amount
@@ -109,7 +109,7 @@ object TessellationServices {
               )
             val currencySnapshotValidator = CurrencySnapshotValidator
               .make[F](tessellation3Migration, currencySnapshotCreator, SignedValidator.make[F], None, None)
-            CurrencySnapshotContextFunctions.make(currencySnapshotValidator, mptStore)
+            CurrencySnapshotContextFunctions.make(currencySnapshotValidator)
           }
         }
       }
@@ -117,7 +117,7 @@ object TessellationServices {
       updateNodeParametersAcceptanceManager = UpdateNodeParametersAcceptanceManager.make[F](validators.updateNodeParametersValidator)
       updateDelegatedStakeAcceptanceManager = UpdateDelegatedStakeAcceptanceManager.make[F](validators.updateDelegatedStakeValidator)
       updateNodeCollateralAcceptanceManager = UpdateNodeCollateralAcceptanceManager.make[F](validators.updateNodeCollateralValidator)
-      noDbLogger <- NoDbLogger.makeUnsafe
+      noDbLogger <- Slf4jLoggerBundle.makeUnsafe
       globalSnapshotContextService = hasherSelector.withCurrent { implicit hasher => {
         val globalSnapshotStateChannelEventsProcessor =
           GlobalSnapshotStateChannelEventsProcessor.make[F](
@@ -143,8 +143,8 @@ object TessellationServices {
           PriceStateUpdater.make[F](env, DefaultDelegatedRewardsConfigProvider),
           configuration.collateral.get.amount,
           configuration.delegatedStaking.withdrawalTimeLimit.getOrElse(env, EpochProgress.MinValue),
-          noDbLogger,
-          mptStore
+          mptStore,
+          noDbLogger
         )
 
         val globalSnapshotContextFns = GlobalSnapshotContextFunctions.make[F](
