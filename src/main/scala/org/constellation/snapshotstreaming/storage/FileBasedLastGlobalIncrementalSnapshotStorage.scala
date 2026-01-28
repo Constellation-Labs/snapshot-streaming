@@ -81,10 +81,6 @@ object FileBasedLastGlobalIncrementalSnapshotStorage {
 
       def set(snapshot: Hashed[GlobalIncrementalSnapshot], state: GlobalSnapshotInfo): F[Unit] = {
         for {
-//          kvPairs <- HasherSelector[F].withCurrent(implicit hasher => state.allStateEntries[F])
-//          _ <- mptStore.sync(kvPairs, snapshot.ordinal)
-//          _ <- logger.info("Validating stateProof before save file")
-//          _ <- validateStateProof(snapshot, state)
           _ <- cachedSnapshot.get.flatMap { x =>
             x.map { _ =>
               val snapshotWithState = SnapshotWithState(snapshot, state)
@@ -102,10 +98,13 @@ object FileBasedLastGlobalIncrementalSnapshotStorage {
 
       def setInitial(snapshot: Hashed[GlobalIncrementalSnapshot], state: GlobalSnapshotInfo): F[Unit] = {
         val snapshotWithState = SnapshotWithState(snapshot, state)
-        validateStateProof(snapshot, state) >> saveSnapshotWithStateJson(path,
-          snapshotWithState,
-          Flags(Flag.Write, Flag.CreateNew)
-        ) >> cachedSnapshot.set(Some(snapshotWithState))
+        for {
+          kvPairs <- HasherSelector[F].withCurrent(implicit hasher => state.allStateEntries[F])
+          _ <- mptStore.syncFull(kvPairs, snapshot.ordinal)
+          _ <- validateStateProof(snapshot, state)
+          _ <- saveSnapshotWithStateJson(path, snapshotWithState, Flags(Flag.Write, Flag.CreateNew))
+          _ <- cachedSnapshot.set(Some(snapshotWithState))
+        } yield ()
       }
 
       def get: F[Option[Hashed[GlobalIncrementalSnapshot]]] =
