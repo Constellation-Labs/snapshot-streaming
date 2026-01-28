@@ -1,5 +1,7 @@
 package org.constellation.snapshotstreaming.opensearch.mapper
 
+import cats.Show
+
 import java.security.KeyPair
 import cats.Show
 import cats.data.NonEmptySet
@@ -43,12 +45,7 @@ import io.constellationnetwork.node.shared.ext.pureconfig._
 import eu.timepit.refined.pureconfig._
 import io.constellationnetwork.schema.ID.Id
 import io.constellationnetwork.schema.address.Address
-import io.constellationnetwork.schema.delegatedStake.{
-  DelegatedStakeAmount,
-  DelegatedStakeRecord,
-  PendingDelegatedStakeWithdrawal,
-  UpdateDelegatedStake
-}
+import io.constellationnetwork.schema.delegatedStake.{DelegatedStakeAmount, DelegatedStakeRecord, PendingDelegatedStakeWithdrawal, UpdateDelegatedStake}
 import io.constellationnetwork.schema.peer.PeerId
 import io.constellationnetwork.security.hex.Hex
 import io.constellationnetwork.security.signature.Signed
@@ -209,10 +206,13 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
       result = GlobalSnapshotMapper
         .make(sharedCfg)
         .balanceDiff(snapshot, initialBalances.some, updatedInfo)
-    } yield expect.same(
-      result,
-      updatedBalances - address1 - address2
-    )
+    } yield {
+      implicit val showSortedMap: Show[SortedMap[Address, Balance]] = cats.Show.catsShowForSortedMap
+      expect.same(
+        result,
+        updatedBalances - address1 - address2
+      )
+    }
   }
 
   test("leaves addresses that changed") { res =>
@@ -270,10 +270,13 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
       result = GlobalSnapshotMapper
         .make(sharedCfg)
         .balanceDiff(snapshot, initialBalances.some, updatedInfo)
-    } yield expect.same(
-      result,
-      updatedBalances - address4
-    )
+    } yield {
+      implicit val showSortedMap: Show[SortedMap[Address, Balance]] = cats.Show.catsShowForSortedMap
+      expect.same(
+        result,
+        updatedBalances - address4
+      )
+    }
   }
 
   test("leave balances for addresses from rewards") { res =>
@@ -324,10 +327,13 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
       )
 
       result = GlobalSnapshotMapper.make(sharedCfg).balanceDiff(snapshot, initialBalances.some, updatedInfo)
-    } yield expect.same(
-      result,
-      updatedBalances - address3 - address4
-    )
+    } yield {
+      implicit val showSortedMap: Show[SortedMap[Address, Balance]] = cats.Show.catsShowForSortedMap
+      expect.same(
+        result,
+        updatedBalances - address3 - address4
+      )
+    }
   }
 
   val signature = NonEmptySet.one(SignatureProof(Id(Hex("")), Signature(Hex(""))))
