@@ -269,7 +269,6 @@ object SnapshotProcessor {
           }
         }
         // Producer stream - pulls and processes snapshots
-        // Producer stream - pulls and processes snapshots
         producer = Stream
           .awakeEvery(configuration.node.pullInterval)
           .evalTap { _ =>
@@ -343,7 +342,6 @@ object SnapshotProcessor {
                         .pullGlobalSnapshot(signedFullGlobalSnapshot.value.ordinal.next)
                         .flatMap {
                           case Some(nextSnapshot) =>
-                            // Sync initial state and compute mptRoot
                             HasherSelector[F].withCurrent { implicit hasher =>
                               initialInfo.allStateEntries[F]
                             }.flatMap { kvPairs =>
