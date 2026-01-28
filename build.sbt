@@ -3,7 +3,7 @@ import Dependencies._
 enablePlugins(GitVersioning)
 
 ThisBuild / organization := "org.constellation"
-ThisBuild / scalaVersion := "2.13.10"
+ThisBuild / scalaVersion := "2.13.14"
 ThisBuild / scalafixDependencies += Libraries.organizeImports
 ThisBuild / evictionErrorLevel := Level.Warn
 
@@ -11,8 +11,14 @@ githubTokenSource := (TokenSource.GitConfig("github.token") || TokenSource.Envir
 git.useGitDescribe := true
 
 ThisBuild / assemblyMergeStrategy := {
-  case "logback.xml"                                       => MergeStrategy.first
-  case PathList(xs @ _*) if xs.last == "module-info.class" => MergeStrategy.first
+  case "logback.xml"                                             => MergeStrategy.first
+  case PathList(xs @ _*) if xs.last == "module-info.class"       => MergeStrategy.first
+  case PathList("META-INF", "versions", _, "OSGI-INF", _*)       => MergeStrategy.first
+  case PathList("META-INF", "MANIFEST.MF")                       => MergeStrategy.discard
+  case PathList("META-INF", "services", _*)                      => MergeStrategy.concat
+  case PathList("META-INF", xs @ _*) if xs.lastOption.exists(x =>
+    x.endsWith(".SF") || x.endsWith(".DSA") || x.endsWith(".RSA")
+  )                                                              => MergeStrategy.discard
   case x =>
     val oldStrategy = (assembly / assemblyMergeStrategy).value
     oldStrategy(x)
@@ -37,7 +43,7 @@ lazy val commonSettings = Seq(
     "-deprecation"
   ),
   resolvers ++= Resolver.sonatypeOssRepos("snapshots"),
-  resolvers ++=  List(
+  resolvers ++= List(
     Resolver.githubPackages("abankowski", "http-request-signer"),
     Resolver.mavenLocal
   )

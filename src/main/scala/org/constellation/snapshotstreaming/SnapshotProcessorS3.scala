@@ -13,16 +13,20 @@ import fs2.io.file.Files
 import fs2.io.net.Network
 import io.constellationnetwork.json.JsonSerializer
 import io.constellationnetwork.kryo.KryoSerializer
-import io.constellationnetwork.merkletree.StateProofValidator
 import io.constellationnetwork.node.shared.config.types.SharedConfigReader
 import io.constellationnetwork.node.shared.domain.snapshot.services.GlobalL0Service
 import io.constellationnetwork.node.shared.domain.snapshot.storage.LastSnapshotStorage
 import io.constellationnetwork.node.shared.http.p2p.clients.L0GlobalSnapshotClient
 import io.constellationnetwork.node.shared.infrastructure.cluster.storage.L0ClusterStorage
 import io.constellationnetwork.schema.SnapshotReference.{fromHashedSnapshot => getSnapshotReference}
-import io.constellationnetwork.schema.{GlobalIncrementalSnapshot, GlobalSnapshot, GlobalSnapshotInfo, GlobalSnapshotInfoV2, SnapshotOrdinal}
+import io.constellationnetwork.schema.mpt.{GlobalStateKey, MptStore}
+import io.constellationnetwork.schema.mpt.GlobalStateConverter.syntax.GlobalSnapshotInfoMptOps
+import io.constellationnetwork.schema.{CurrencyStateProofSelector, GlobalIncrementalSnapshot, GlobalSnapshot, GlobalSnapshotInfo, GlobalSnapshotInfoV2, GlobalStateProofSelector, SnapshotOrdinal}
 import io.constellationnetwork.security._
 import io.constellationnetwork.security.hash.Hash
+import io.constellationnetwork.security.mpt.MptRoot
+import io.constellationnetwork.security.mpt.producer.InMemoryMerklePatriciaProducer
+import io.constellationnetwork.validator.StateProofValidator
 import org.constellation.snapshotstreaming.SnapshotProcessor.{GlobalSnapshotWithState, L0ClusterStorageRef, ProcessedSnapshots, makeClient}
 import org.constellation.snapshotstreaming.db.SnapshotDAO
 import org.constellation.snapshotstreaming.mapper.{CurrencySnapshotMapper, GlobalSnapshotMapper}
@@ -42,31 +46,39 @@ trait SnapshotProcessorS3[F[_]] {
 
 object SnapshotProcessorS3 {
 
-  def make[F[_] : Async : Parallel : KryoSerializer : JsonSerializer : SecurityProvider : Random
-  : HasherSelector : Network : Files : Tracer : Console](
-     configuration: SnapshotStreamingConfig,
-     sharedConfig: SharedConfigReader,
-     txHasher: Hasher[F]
-   ): Resource[F, SnapshotProcessor[F]] =
+  def make[F[_]: Async: Parallel: KryoSerializer: JsonSerializer: SecurityProvider: Random: HasherSelector: Network: Files: Tracer: Console](
+    configuration: SnapshotStreamingConfig,
+    sharedConfig: SharedConfigReader,
+    txHasher: Hasher[F]
+  )(implicit
+    globalStateProofSelector: GlobalStateProofSelector,
+    currencyStateProofSelector: CurrencyStateProofSelector
+  ): Resource[F, SnapshotProcessor[F]] =
     for {
       client <- makeClient(configuration.httpClient)
       s3DAO <- S3DAO.make[F](configuration.s3)
       opensearchDAO <- OpensearchDAO.make[F](configuration.opensearch)
       sessionPool <- db.session[F](configuration.db)
       snapshotDAO = SnapshotDAO.make[F](sessionPool)
-      lastIncrementalGlobalSnapshotStorage <- Resource.eval(fsGlobalIncrementalStorage(configuration))
-      globalSnapshotClient = L0GlobalSnapshotClient.make[F](client)
+      globalSnapshotClient = L0GlobalSnapshotClient.make[F](client, None, sharedConfig.snapshot.timeouts)
       l0ClusterStorage <- Resource.eval(L0ClusterStorageRef(configuration.node))
-      l0Service = GlobalL0Service
-        .make[F](
-          globalSnapshotClient,
-          l0ClusterStorage,
-          lastIncrementalGlobalSnapshotStorage,
-          configuration.node.pullLimit.some,
-          configuration.node.l0PeersMap.keys.some
-        )
+      mptProducer <- Resource.eval(HasherSelector[F].withCurrent { implicit hasher =>
+        InMemoryMerklePatriciaProducer.make[F]()
+      })
+      mptStore <- Resource.eval(HasherSelector[F].withCurrent { implicit hasher =>
+        MptStore.make[F, GlobalStateKey](mptProducer, GlobalStateKey.toHex[F])
+      })
+      lastIncrementalGlobalSnapshotStorage <- Resource.eval(fsGlobalIncrementalStorage(configuration, mptStore))
+      l0Service = GlobalL0Service.make[F](
+        globalSnapshotClient,
+        l0ClusterStorage,
+        lastIncrementalGlobalSnapshotStorage,
+        configuration.node.pullLimit.some,
+        configuration.node.l0PeersMap.keys.some,
+        mptStore
+      )
       tesselationServices <- Resource.eval(
-        TessellationServices.make[F](configuration.environment, sharedConfig, l0Service)
+        TessellationServices.make[F](configuration.environment, sharedConfig, mptStore)
       )
       lastFullGlobalSnapshotStorage = FileBasedLastGlobalFullSnapshotStorage.make[F, GlobalSnapshot](
         configuration.lastSnapshotPath
@@ -81,7 +93,8 @@ object SnapshotProcessorS3 {
       CurrencySnapshotMapper.make(),
       txHasher,
       tesselationServices,
-      lastFullGlobalSnapshotStorage
+      lastFullGlobalSnapshotStorage,
+      mptStore
     )
 
   private def makeClient[F[_]: Async: Network](httpClientConfig: HttpClientConfig) =
@@ -94,33 +107,33 @@ object SnapshotProcessorS3 {
   private def L0ClusterStorageRef[F[_]: Async: Random](nodeCfg: NodeConfig) =
     Ref.of(nodeCfg.l0PeersMap).map(L0ClusterStorage.make(_))
 
-  private def fsGlobalIncrementalStorage[F[_] : Async : Parallel: HasherSelector : Files : KryoSerializer](
-                                                                                                  configuration: SnapshotStreamingConfig
-                                                                                                ) =
-    FileBasedLastGlobalIncrementalSnapshotStorage.make[F](configuration.lastIncrementalSnapshotPath)
+  private def fsGlobalIncrementalStorage[F[_]: Async: Parallel: HasherSelector: Files: KryoSerializer: JsonSerializer](
+    configuration: SnapshotStreamingConfig,
+    mptStore: MptStore[F, GlobalStateKey]
+  )(implicit stateProofSelector: GlobalStateProofSelector) =
+    FileBasedLastGlobalIncrementalSnapshotStorage.make[F](configuration.lastIncrementalSnapshotPath, mptStore)
 
-  def make[F[_] : Async : Parallel : HasherSelector](
-                                                      configuration: SnapshotStreamingConfig,
-                                                      lastIncrementalGlobalSnapshotStorage: LastSnapshotStorage[F, GlobalIncrementalSnapshot, GlobalSnapshotInfo],
-                                                      s3DAO: S3DAO[F],
-                                                      snapshotDAO: SnapshotDAO[F],
-                                                      opensearchDAO: OpensearchDAO[F],
-                                                      globalMapper: GlobalSnapshotMapper[F],
-                                                      currencyMapper: CurrencySnapshotMapper[F],
-                                                      txHasher: Hasher[F],
-                                                      tessellationServices: TessellationServices[F],
-                                                      lastFullGlobalSnapshotStorage: FileBasedLastGlobalFullSnapshotStorage[F]
-                                                    ): SnapshotProcessor[F] = new SnapshotProcessor[F] {
+  def make[F[_]: Async: Parallel: HasherSelector: JsonSerializer](
+    configuration: SnapshotStreamingConfig,
+    lastIncrementalGlobalSnapshotStorage: LastSnapshotStorage[F, GlobalIncrementalSnapshot, GlobalSnapshotInfo],
+    s3DAO: S3DAO[F],
+    snapshotDAO: SnapshotDAO[F],
+    opensearchDAO: OpensearchDAO[F],
+    globalMapper: GlobalSnapshotMapper[F],
+    currencyMapper: CurrencySnapshotMapper[F],
+    txHasher: Hasher[F],
+    tessellationServices: TessellationServices[F],
+    lastFullGlobalSnapshotStorage: FileBasedLastGlobalFullSnapshotStorage[F],
+    mptStore: MptStore[F, GlobalStateKey]
+  )(implicit stateProofSelector: GlobalStateProofSelector): SnapshotProcessor[F] = new SnapshotProcessor[F] {
     private val logger = Slf4jLogger.getLogger[F]
 
-
     private def storeInPostgres(global: GlobalData, metagraph: MetagraphData) =
-          (snapshotDAO.insertGlobalData(global, metagraph.snapshots.size) >> snapshotDAO
-          .insertMetagraphData(global.snapshot.hash, metagraph)
-          .whenA(metagraph.snapshots.nonEmpty)).timed.flatMap{ t =>
-        logger
-          .info(s"Snapshot ${global.snapshot.ordinal} (hash: ${global.snapshot.hash.show}) sent to postgres in ${t._1.toSeconds}.") }
-          .handleErrorWith(s => logger.error(s)("Error in database layer") >> s.raiseError[F, Unit])
+      (snapshotDAO.insertGlobalData(global, metagraph.snapshots.size) >> snapshotDAO
+        .insertMetagraphData(global.snapshot.hash, metagraph)
+        .whenA(metagraph.snapshots.nonEmpty)).timed.flatMap { t =>
+        logger.info(s"Snapshot ${global.snapshot.ordinal} (hash: ${global.snapshot.hash.show}) sent to postgres in ${t._1.toSeconds}.")
+      }.handleErrorWith(s => logger.error(s)("Error in database layer") >> s.raiseError[F, Unit])
 
     private def splitData(globalSnapshotWithState: GlobalSnapshotWithState, d: LocalDateTime, hasher: Hasher[F]) = (
       globalMapper.mapGlobalSnapshot(globalSnapshotWithState, d, hasher, txHasher),
@@ -133,28 +146,63 @@ object SnapshotProcessorS3 {
       }.void
 
     private def process(globalSnapshotWithState: GlobalSnapshotWithState, hasher: Hasher[F]): F[Unit] = {
-      val GlobalSnapshotWithState(snapshot, _, snapshotInfo, _, dt) = globalSnapshotWithState
+      val GlobalSnapshotWithState(snapshot, _, snapshotInfo, _, dt, mptRoot) = globalSnapshotWithState
       HasherSelector[F]
         .forOrdinal(snapshot.ordinal) { implicit hasher =>
+          val expectedMptRoot = snapshot.signed.value.stateProof.mptRoot
+
           logger.info(
             s"Global Snapshot ${snapshot.ordinal.value.value} with logic=${hasher.getLogic(snapshot.ordinal)}"
           ) >>
-            (hasher.getLogic(snapshot.ordinal) match {
-              case JsonHash => StateProofValidator.validate(snapshot, snapshotInfo)
-              case KryoHash =>
-                StateProofValidator.validate(snapshot, GlobalSnapshotInfoV2.fromGlobalSnapshotInfo(snapshotInfo))
-            })
+            logger.debug(s"Comparing mptRoot: computed=${mptRoot.value.value.take(16)}... expected=${expectedMptRoot.map(_.value.take(16))}...") >>
+            {
+              val isValid = expectedMptRoot.contains(mptRoot.value)
+
+              if (isValid) {
+                Validated.valid[StateProofValidator.StateBroken, Unit](()).pure[F]
+              } else {
+                logger.error(
+                  s"StateProof Broken at ordinal ${snapshot.ordinal}. Expected mptRoot: $expectedMptRoot, Found: ${mptRoot.value}"
+                ) >>
+                  Validated.invalid[StateProofValidator.StateBroken, Unit](
+                    StateProofValidator.StateBroken(snapshot.ordinal, snapshot.hash)
+                  ).pure[F]
+              }
+            }
         }
         .flatMap {
           case Validated.Valid(()) =>
-            store(globalSnapshotWithState, dt, hasher) //>>
-
+            store(globalSnapshotWithState, dt, hasher)
           case Validated.Invalid(e) =>
-            logger.warn(
-              s"Calculated stateProof does not match state from snapshot: ${e}."
-            )
+            logger.warn(s"Calculated stateProof does not match state from snapshot: ${e}.")
         }
     }
+
+    /** Compute mptRoot from snapshotInfo and create GlobalSnapshotWithState */
+    private def buildWithMptRoot(
+      snapshot: Hashed[GlobalIncrementalSnapshot],
+      maybePrevSnapshotInfo: Option[GlobalSnapshotInfo],
+      snapshotInfo: GlobalSnapshotInfo,
+      dt: LocalDateTime
+    ): F[GlobalSnapshotWithState] =
+      HasherSelector[F].withCurrent { implicit hasher =>
+        snapshotInfo.allStateEntries[F]
+      }.flatMap { kvPairs =>
+        mptStore.syncFull(kvPairs, snapshot.ordinal)
+      } >>
+        mptStore.build.flatMap {
+          case Right(mpt) =>
+            GlobalSnapshotWithState(
+              snapshot,
+              maybePrevSnapshotInfo,
+              snapshotInfo,
+              Map.empty,
+              dt,
+              mpt.rootHash
+            ).pure[F]
+          case Left(err) =>
+            Async[F].raiseError[GlobalSnapshotWithState](new RuntimeException(s"Failed to compute MPT root: $err"))
+        }
 
     val searchGlobalSnapshots =
       search(configuration.opensearch.indexes.snapshots)
@@ -174,12 +222,11 @@ object SnapshotProcessorS3 {
 
     def cursorMapper(hit: SearchHit) = hit.sourceAsMap.get("ordinal").map(_.toString.toLong)
 
-
-    def getGlobalSnapshotByOrdinal(ordinal: SnapshotOrdinal)(implicit hs: HasherSelector[F]) : F[Option[Hashed[GlobalIncrementalSnapshot]]] = {
+    def getGlobalSnapshotByOrdinal(ordinal: SnapshotOrdinal)(implicit hs: HasherSelector[F]): F[Option[Hashed[GlobalIncrementalSnapshot]]] = {
       implicit val hasher = hs.getForOrdinal(ordinal)
-      val q= search(configuration.opensearch.indexes.snapshots)
+      val q = search(configuration.opensearch.indexes.snapshots)
         .query(termQuery("ordinal", ordinal.value.value))
-      opensearchDAO.singleQuery(q, hitMapper).flatMap ( _.traverse { case (hash, _) =>
+      opensearchDAO.singleQuery(q, hitMapper).flatMap(_.traverse { case (hash, _) =>
         s3DAO.downloadSnapshot(Hash(hash)).flatMap(_.toHashed)
       })
     }
@@ -190,8 +237,8 @@ object SnapshotProcessorS3 {
 
       Stream
         .eval(lastFullGlobalSnapshotStorage.get.map(_.get))
-        .evalMap(full => lastIncrementalGlobalSnapshotStorage.getCombined.map(inc => (full, inc) ))
-        .flatMap { case (signedFullGlobalSnapshot, hashedIncrementalCombinedO)  =>
+        .evalMap(full => lastIncrementalGlobalSnapshotStorage.getCombined.map(inc => (full, inc)))
+        .flatMap { case (signedFullGlobalSnapshot, hashedIncrementalCombinedO) =>
 
           val startAfterOrdinal = hashedIncrementalCombinedO.map(_._1.ordinal).orElse(signedFullGlobalSnapshot.value.ordinal.some).map(_.value.value)
 
@@ -204,37 +251,62 @@ object SnapshotProcessorS3 {
                   logger.info(s" ordinal ${snapshot.ordinal} for hash ${h}")
                   snapshot.toHashed[F]
                 }.map((h, _, ts))
-            }.prefetchN(reindexerConf.s3Parallelism*2)
-            .evalMapAccumulate(hashedIncrementalCombinedO.map{ case (lastSnapshot, lastState) => ProcessedSnapshots(lastSnapshot.signed, lastState, List.empty)}) {
+            }.prefetchN(reindexerConf.s3Parallelism * 2)
+            .evalMapAccumulate(hashedIncrementalCombinedO.map { case (lastSnapshot, lastState) =>
+              ProcessedSnapshots(lastSnapshot.signed, lastState, List.empty)
+            }) {
               case (None, (gsHash, snapshot, dt)) =>
-                val gss= GlobalSnapshotWithState(snapshot.copy(hash = Hash(gsHash)), None, signedFullGlobalSnapshot.value.info, Map.empty, dt)
-                (Option(ProcessedSnapshots( snapshot.signed, signedFullGlobalSnapshot.value.info , List(gss))), gss).pure
-              case (Some(processoStatus), (gsHash, snapshot, dt)) =>
-                  tessellationServices.globalSnapshotContextService
-                    .createContext(
-                      processoStatus.lastState,
-                      processoStatus.lastSnapshot,
-                      snapshot,
-                      getGlobalSnapshotByOrdinal,
-                      dt
-                    ).map { newContext =>
-                      val updatedSnapshot = newContext.snapshot
-                      val updatedPprocessoStatus = processoStatus.copy(
-                        lastSnapshot = updatedSnapshot.signed,
-                        lastState = newContext.snapshotInfo,
-                        List(newContext)
-                      )
-                      (Option(updatedPprocessoStatus), newContext)
+                val initialInfo = signedFullGlobalSnapshot.value.info.toGlobalSnapshotInfo
+                buildWithMptRoot(
+                  snapshot.copy(hash = Hash(gsHash)),
+                  None,
+                  initialInfo,
+                  dt
+                ).map { gss =>
+                  (Option(ProcessedSnapshots(snapshot.signed, initialInfo, List(gss))), gss)
+                }
+
+              case (Some(processStatus), (gsHash, snapshot, dt)) =>
+                tessellationServices.globalSnapshotContextService
+                  .createContext(
+                    processStatus.lastState,
+                    processStatus.lastSnapshot,
+                    snapshot,
+                    getGlobalSnapshotByOrdinal,
+                    dt
+                  )
+                  .flatMap { contextResult =>
+                    mptStore.build.flatMap {
+                      case Right(mpt) =>
+                        val gss = GlobalSnapshotWithState(
+                          contextResult.snapshot,
+                          contextResult.maybePrevSnapshotInfo,
+                          contextResult.snapshotInfo,
+                          contextResult.currencySnapshots,
+                          contextResult.ts,
+                          mpt.rootHash
+                        )
+                        val updatedStatus = ProcessedSnapshots(
+                          gss.snapshot.signed,
+                          contextResult.snapshotInfo,
+                          List(gss)
+                        )
+                        (Option(updatedStatus), gss).pure[F]
+                      case Left(err) =>
+                        Async[F].raiseError[(Option[ProcessedSnapshots], GlobalSnapshotWithState)](
+                          new RuntimeException(s"Failed to compute MPT root: $err")
+                        )
                     }
+                  }
             }
         }.map(_._2)
         .prefetchN(reindexerConf.snapshotContextPrefetch)
-        .evalTap { case GlobalSnapshotWithState(snapshot, _, _, _, _) =>
-            logger.info(s"Pulled following global snapshot: ${getSnapshotReference(snapshot).show}")
+        .evalTap { case GlobalSnapshotWithState(snapshot, _, _, _, _, _) =>
+          logger.info(s"Pulled following global snapshot: ${getSnapshotReference(snapshot).show}")
         }
-        .parEvalMap(reindexerConf.dbParallelism) { case state@GlobalSnapshotWithState(snapshot, _, _, _, _) =>
-            val hasher = HasherSelector[F].getForOrdinal(snapshot.ordinal)
-            process(state, hasher).map(_ => state)
+        .parEvalMap(reindexerConf.dbParallelism) { case state @ GlobalSnapshotWithState(snapshot, _, _, _, _, _) =>
+          val hasher = HasherSelector[F].getForOrdinal(snapshot.ordinal)
+          process(state, hasher).map(_ => state)
         }.chunkMin(configuration.checkpointEvery)
         .evalMap { snapshots =>
           snapshots.last.traverse { last =>

@@ -10,13 +10,17 @@ import fs2.{Stream, text}
 import io.circe.jawn
 import io.circe.syntax._
 import io.constellationnetwork.ext.kryo._
+import io.constellationnetwork.json.JsonSerializer
 import io.constellationnetwork.kryo.KryoSerializer
-import io.constellationnetwork.merkletree.StateProofValidator
 import io.constellationnetwork.node.shared.domain.snapshot.storage.LastSnapshotStorage
 import io.constellationnetwork.schema._
 import io.constellationnetwork.schema.height.Height
+import io.constellationnetwork.schema.mpt.GlobalStateConverter.syntax.GlobalSnapshotInfoMptOps
+import io.constellationnetwork.schema.mpt.{GlobalStateKey, MptStore}
 import io.constellationnetwork.schema.tokenLock.TokenLockOrdinal
 import io.constellationnetwork.security._
+import io.constellationnetwork.validator.StateProofValidator
+import org.typelevel.log4cats.slf4j.Slf4jLogger
 
 
 object FileBasedLastGlobalIncrementalSnapshotStorage {
@@ -33,9 +37,10 @@ object FileBasedLastGlobalIncrementalSnapshotStorage {
       .compile
       .drain
 
-  def make[F[_]: Async: Parallel: HasherSelector: Files: KryoSerializer: Compression](
-    path: Path
-  ): F[LastSnapshotStorage[F, GlobalIncrementalSnapshot, GlobalSnapshotInfo]] = {
+  def make[F[_]: Async: Parallel: HasherSelector: Files: KryoSerializer: Compression: JsonSerializer](
+    path: Path,
+    mptStore: MptStore[F, GlobalStateKey]
+  )(implicit stateProofSelector: StateProofSelector): F[LastSnapshotStorage[F, GlobalIncrementalSnapshot, GlobalSnapshotInfo]] = {
 
     def deserializeWithJson(data: Array[Byte]) = jawn.decode[SnapshotWithState](new String(data, "UTF-8"))
 
@@ -54,27 +59,29 @@ object FileBasedLastGlobalIncrementalSnapshotStorage {
           case e                      => e.raiseError[F, Option[SnapshotWithState]]
         }
 
-    readSnapshotWithState.flatMap(Ref.of[F, Option[SnapshotWithState]](_).map(make(_, path)))
+    readSnapshotWithState.flatMap(Ref.of[F, Option[SnapshotWithState]](_).map(make(_, path, mptStore)))
   }
 
-  def make[F[_]: Async: Parallel: HasherSelector: Files: KryoSerializer: Compression](
+  def make[F[_]: Async: Parallel: HasherSelector: Files: KryoSerializer: Compression: JsonSerializer](
     cachedSnapshot: Ref[F, Option[SnapshotWithState]],
-    path: Path
-  ): LastSnapshotStorage[F, GlobalIncrementalSnapshot, GlobalSnapshotInfo] =
+    path: Path,
+    mptStore: MptStore[F, GlobalStateKey]
+  )(implicit stateProofSelector: StateProofSelector): LastSnapshotStorage[F, GlobalIncrementalSnapshot, GlobalSnapshotInfo] =
     new LastSnapshotStorage[F, GlobalIncrementalSnapshot, GlobalSnapshotInfo] {
+      private val logger = Slf4jLogger.getLoggerFromName[F](this.getClass.getName)
 
       private def validateStateProof(snapshot: Hashed[GlobalIncrementalSnapshot], state: GlobalSnapshotInfo): F[Unit] =
         HasherSelector[F].forOrdinal(snapshot.ordinal) { implicit hasher =>
           (hasher.getLogic(snapshot.ordinal) match {
-            case JsonHash => StateProofValidator.validate(snapshot, state)
+            case JsonHash => StateProofValidator.validate(snapshot, state, mptStore)
             case KryoHash =>
-              StateProofValidator.validate(snapshot, GlobalSnapshotInfoV2.fromGlobalSnapshotInfo(state))
+              StateProofValidator.validate(snapshot, GlobalSnapshotInfoV2.fromGlobalSnapshotInfo(state), mptStore)
           }).flatMap(Async[F].fromValidated)
         }
 
-      def set(snapshot: Hashed[GlobalIncrementalSnapshot], state: GlobalSnapshotInfo): F[Unit] =
-        validateStateProof(snapshot, state) >> {
-          cachedSnapshot.get.flatMap { x =>
+      def set(snapshot: Hashed[GlobalIncrementalSnapshot], state: GlobalSnapshotInfo): F[Unit] = {
+        for {
+          _ <- cachedSnapshot.get.flatMap { x =>
             x.map { _ =>
               val snapshotWithState = SnapshotWithState(snapshot, state)
               //move previous bk file
@@ -82,19 +89,22 @@ object FileBasedLastGlobalIncrementalSnapshotStorage {
                 case _: java.nio.file.NoSuchFileException => Async[F].pure(None)
                 case other => Async[F].raiseError(other) // Re-raise other errors
               } >>
-              saveSnapshotWithStateJson(path, snapshotWithState) >> cachedSnapshot.set(Some(snapshotWithState))
+                saveSnapshotWithStateJson(path, snapshotWithState) >> cachedSnapshot.set(Some(snapshotWithState))
             }.getOrElse(setInitial(snapshot, state))
           }
-        }
-
+        } yield ()
+      }
 
 
       def setInitial(snapshot: Hashed[GlobalIncrementalSnapshot], state: GlobalSnapshotInfo): F[Unit] = {
         val snapshotWithState = SnapshotWithState(snapshot, state)
-        validateStateProof(snapshot, state) >> saveSnapshotWithStateJson(path,
-          snapshotWithState,
-          Flags(Flag.Write, Flag.CreateNew)
-        ) >> cachedSnapshot.set(Some(snapshotWithState))
+        for {
+          kvPairs <- HasherSelector[F].withCurrent(implicit hasher => state.allStateEntries[F])
+          _ <- mptStore.syncFull(kvPairs, snapshot.ordinal)
+          _ <- validateStateProof(snapshot, state)
+          _ <- saveSnapshotWithStateJson(path, snapshotWithState, Flags(Flag.Write, Flag.CreateNew))
+          _ <- cachedSnapshot.set(Some(snapshotWithState))
+        } yield ()
       }
 
       def get: F[Option[Hashed[GlobalIncrementalSnapshot]]] =

@@ -1,5 +1,7 @@
 package org.constellation.snapshotstreaming.opensearch.mapper
 
+import cats.Show
+
 import java.security.KeyPair
 import cats.data.NonEmptySet
 import cats.effect.{IO, Resource}
@@ -42,12 +44,7 @@ import io.constellationnetwork.node.shared.ext.pureconfig._
 import eu.timepit.refined.pureconfig._
 import io.constellationnetwork.schema.ID.Id
 import io.constellationnetwork.schema.address.Address
-import io.constellationnetwork.schema.delegatedStake.{
-  DelegatedStakeAmount,
-  DelegatedStakeRecord,
-  PendingDelegatedStakeWithdrawal,
-  UpdateDelegatedStake
-}
+import io.constellationnetwork.schema.delegatedStake.{DelegatedStakeAmount, DelegatedStakeRecord, PendingDelegatedStakeWithdrawal, UpdateDelegatedStake}
 import io.constellationnetwork.schema.peer.PeerId
 import io.constellationnetwork.security.hex.Hex
 import io.constellationnetwork.security.signature.Signed
@@ -62,7 +59,7 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
   val sharedCfg =
     Configuration.nodeSharedConfig(AppEnvironment.Dev, ConfigSource.default.loadOrThrow[SharedConfigReader])
 
-  type Res = (HasherSelector[IO], KryoSerializer[IO], SecurityProvider[IO], KeyPair, KeyPair, KeyPair, KeyPair)
+  type Res = (HasherSelector[IO], KryoSerializer[IO], SecurityProvider[IO], KeyPair, KeyPair, KeyPair, KeyPair, JsonSerializer[IO])
 
   override def sharedResource: Resource[IO, Res] =
     SecurityProvider.forAsync[IO].flatMap { implicit sp =>
@@ -73,20 +70,20 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
           key3 <- KeyPairGenerator.makeKeyPair[IO].asResource
           key4 <- KeyPairGenerator.makeKeyPair[IO].asResource
 
-          js <- JsonSerializer.forSync[IO].asResource
+          js <- JsonSerializer.forAsync[IO].asResource
           hasherSelector = {
             implicit val j: JsonSerializer[IO] = js
             HasherSelector.forSync[IO](Hasher.forJson[IO], Hasher.forKryo[IO], hashSelect)
           }
-        } yield (hasherSelector, kp, sp, key1, key2, key3, key4)
+        } yield (hasherSelector, kp, sp, key1, key2, key3, key4, js)
       }
     }
 
-  def mkInitialSnapshot()(implicit h: HasherSelector[IO]): IO[Hashed[GlobalIncrementalSnapshot]] =
+  def mkInitialSnapshot()(implicit h: HasherSelector[IO], js: JsonSerializer[IO]): IO[Hashed[GlobalIncrementalSnapshot]] =
     incrementalGlobalSnapshot[IO](100L, 10L, 20L, Hash("abc"), Hash("def"))
 
   test("explicitly sets balance to 0 for addressees missing in in info") { res =>
-    implicit val (h, ks, sp, key1, key2, key3, _) = res
+    implicit val (h, ks, sp, key1, key2, key3, _, js) = res
     val address1 = key1.getPublic.toAddress
     val address2 = key2.getPublic.toAddress
     val address3 = key3.getPublic.toAddress
@@ -154,7 +151,7 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
   }
 
   test("removes addresses that have transactions but the result balance hasn't changed") { res =>
-    implicit val (h, ks, sp, key1, key2, _, _) = res
+    implicit val (h, ks, sp, key1, key2, _, _, js) = res
     val address1 = key1.getPublic.toAddress
     val address2 = key2.getPublic.toAddress
     val initialBalances = createBalances(address1, address2)
@@ -205,14 +202,17 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
       result = GlobalSnapshotMapper
         .make(sharedCfg)
         .balanceDiff(snapshot, initialBalances.some, updatedInfo)
-    } yield expect.same(
-      result,
-      updatedBalances - address1 - address2
-    )
+    } yield {
+      implicit val showSortedMap: Show[SortedMap[Address, Balance]] = cats.Show.catsShowForSortedMap
+      expect.same(
+        result,
+        updatedBalances - address1 - address2
+      )
+    }
   }
 
   test("leaves addresses that changed") { res =>
-    implicit val (h, ks, sp, key1, key2, key3, key4) = res
+    implicit val (h, ks, sp, key1, key2, key3, key4, js) = res
     val address1 = key1.getPublic.toAddress
     val address2 = key2.getPublic.toAddress
     val address3 = key3.getPublic.toAddress
@@ -266,14 +266,17 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
       result = GlobalSnapshotMapper
         .make(sharedCfg)
         .balanceDiff(snapshot, initialBalances.some, updatedInfo)
-    } yield expect.same(
-      result,
-      updatedBalances - address4
-    )
+    } yield {
+      implicit val showSortedMap: Show[SortedMap[Address, Balance]] = cats.Show.catsShowForSortedMap
+      expect.same(
+        result,
+        updatedBalances - address4
+      )
+    }
   }
 
   test("leave balances for addresses from rewards") { res =>
-    implicit val (h, ks, _, key1, key2, key3, key4) = res
+    implicit val (h, ks, _, key1, key2, key3, key4, js) = res
     val address1 = key1.getPublic.toAddress
     val address2 = key2.getPublic.toAddress
     val address3 = key3.getPublic.toAddress
@@ -320,10 +323,13 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
       )
 
       result = GlobalSnapshotMapper.make(sharedCfg).balanceDiff(snapshot, initialBalances.some, updatedInfo)
-    } yield expect.same(
-      result,
-      updatedBalances - address3 - address4
-    )
+    } yield {
+      implicit val showSortedMap: Show[SortedMap[Address, Balance]] = cats.Show.catsShowForSortedMap
+      expect.same(
+        result,
+        updatedBalances - address3 - address4
+      )
+    }
   }
 
   val signature = NonEmptySet.one(SignatureProof(Id(Hex("")), Signature(Hex(""))))
@@ -339,7 +345,7 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
   )
 
   test("extract only new and updated create stake references") { res =>
-    implicit val (hs, ks, sp, key1, key2, key3, key4) = res
+    implicit val (hs, ks, sp, key1, key2, key3, key4, js) = res
     val address1 = key1.getPublic.toAddress
     val address2 = key2.getPublic.toAddress
 
@@ -353,7 +359,9 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
     ) = DelegatedStakeRecord(
       event = buildSignedCreateStakeEvent(address, peerId, amount, tokenLockRef),
       createdAt = SnapshotOrdinal(createdAt),
-      rewards = Amount(rewards)
+      rewards = Amount(rewards),
+      currentTokenLockRef = None,
+      currentAmount = None
     )
 
     val oldStakes = Seq(
@@ -457,7 +465,7 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
   }
 
   test("extract only new and completed stakes withdrawal") { res =>
-    implicit val (hs, ks, sp, key1, key2, key3, key4) = res
+    implicit val (hs, ks, sp, key1, key2, key3, key4, js) = res
     val address1 = key1.getPublic.toAddress
     val address2 = key2.getPublic.toAddress
 
@@ -475,7 +483,9 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
       event = buildSignedCreateStakeEvent(address, peerId, amount, tokenLockRef),
       rewards = Amount(rewards),
       acceptedOrdinal = SnapshotOrdinal(acceptedOrdinal),
-      createdAt = EpochProgress(epochProgress)
+      createdAt = EpochProgress(epochProgress),
+      currentTokenLockRef = None,
+      currentAmount = None
     )
 
     val addr1P1 = buildDSW(address1, "Peer1", 200L, "TokenRef1", 10L, 111L, 10L)

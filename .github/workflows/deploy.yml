@@ -37,6 +37,20 @@ jobs:
           cd tessellation
           sbt clean publishM2
 
+      - name: Get Tessellation version and update Dependencies.scala (testnet only)
+        if: github.ref_name == 'release/testnet'
+        run: |
+          # Extract version from tessellation's version.sbt
+          TESSELLATION_VERSION=$(cd tessellation && sbt -no-colors "print version" | tail -1 | tr -d '[:space:]')
+          echo "Tessellation version: $TESSELLATION_VERSION"
+          
+          # Update Dependencies.scala with the new tessellation version
+          sed -i "s/val tessellation = \".*\"/val tessellation = \"$TESSELLATION_VERSION\"/" project/Dependencies.scala
+          
+          # Verify the change
+          echo "Updated Dependencies.scala:"
+          grep "val tessellation" project/Dependencies.scala
+
       - name: Setup Java and scala
         with:
           JAVA_VERSION: 11
