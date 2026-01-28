@@ -185,11 +185,6 @@ object SnapshotProcessorS3 {
       snapshotInfo: GlobalSnapshotInfo,
       dt: LocalDateTime
     ): F[GlobalSnapshotWithState] =
-      HasherSelector[F].withCurrent { implicit hasher =>
-        snapshotInfo.allStateEntries[F]
-      }.flatMap { kvPairs =>
-        mptStore.syncFull(kvPairs, snapshot.ordinal)
-      } >>
         mptStore.build.flatMap {
           case Right(mpt) =>
             GlobalSnapshotWithState(
