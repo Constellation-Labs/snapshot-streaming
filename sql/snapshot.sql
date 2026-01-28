@@ -355,6 +355,7 @@ CREATE TABLE dag_token_locks (
 	round_id uuid NOT NULL,
 	parent_hash varchar NULL,
 	snapshot_hash varchar NOT NULL,
+	replacement_hash varchar NULL,
 	CONSTRAINT dag_token_locks_pk PRIMARY KEY (hash),
 	CONSTRAINT dag_token_locks_unique UNIQUE (hash, ordinal),
 	CONSTRAINT dag_token_locks_source_addr_fk FOREIGN KEY (source_addr) REFERENCES addresses(address) ON DELETE CASCADE

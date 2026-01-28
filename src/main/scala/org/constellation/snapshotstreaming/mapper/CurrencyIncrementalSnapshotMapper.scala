@@ -164,7 +164,8 @@ object CurrencyIncrementalSnapshotMapper {
             tokenLock.unlockEpoch.map(_.value.value),
             tokenLock.ordinal.value,
             roundId.value,
-            tokenLock.parent.hash.value
+            tokenLock.parent.hash.value,
+            tokenLock.replaceTokenLockRef.map(_.value)
           )
         }
 

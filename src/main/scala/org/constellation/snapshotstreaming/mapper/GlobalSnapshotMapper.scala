@@ -152,7 +152,9 @@ abstract class GlobalSnapshotMapper[F[_]: Async] extends SnapshotMapper[F, Globa
         (pendingWithdrawal.createdAt |+| sharedCfg.delegatedStaking.withdrawalTimeLimit(
           sharedCfg.environment
         )).value.value,
-        isCompleted
+        isCompleted,
+        pendingWithdrawal.currentTokenLockRef.map(_.value),
+        pendingWithdrawal.currentAmount.map(_.value)
       )
     }
 
@@ -201,7 +203,9 @@ abstract class GlobalSnapshotMapper[F[_]: Async] extends SnapshotMapper[F, Globa
       dsr.rewards.value,
       dsr.event.tokenLockRef.value,
       dsr.event.parent.hash.value,
-      fromHash.map(_.value)
+      fromHash.map(_.value),
+      dsr.currentTokenLockRef.map(_.value),
+      dsr.currentAmount.map(_.value)
     )
 
   def activeHashedDelegatedStakes(
@@ -288,7 +292,8 @@ abstract class GlobalSnapshotMapper[F[_]: Async] extends SnapshotMapper[F, Globa
         tokenLock.unlockEpoch.map(_.value.value),
         tokenLock.ordinal.value,
         roundId.value,
-        tokenLock.parent.hash.value
+        tokenLock.parent.hash.value,
+        tokenLock.replaceTokenLockRef.map(_.value)
       )
     }
   }

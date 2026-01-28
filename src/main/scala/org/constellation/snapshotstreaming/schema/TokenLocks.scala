@@ -13,7 +13,8 @@ object TokenLocks {
     unlockEpoch: Option[Long],
     ordinal: Long,
     roundId: UUID,
-    parentHash: String
+    parentHash: String,
+    replacementHash: Option[String]
   )
 
   case class TokenUnlock(
