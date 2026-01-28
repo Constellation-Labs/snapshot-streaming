@@ -283,9 +283,7 @@ object SnapshotDAO {
         global_snapshot_hash,
         created_at_epoch,
         unlock_epoch,
-        is_completed,
-        current_token_lock_hash,
-        current_amount
+        is_completed
       ) VALUES ($varchar, $varchar, $varchar, $varchar, $int8, $int8, $bool, ${varchar.opt}, ${int8.opt})
       ON CONFLICT (hash) DO NOTHING;
     """.command.contramap { tx: DelegatedStakingWithdraw =>
