@@ -43,12 +43,7 @@ import io.constellationnetwork.node.shared.ext.pureconfig._
 import eu.timepit.refined.pureconfig._
 import io.constellationnetwork.schema.ID.Id
 import io.constellationnetwork.schema.address.Address
-import io.constellationnetwork.schema.delegatedStake.{
-  DelegatedStakeAmount,
-  DelegatedStakeRecord,
-  PendingDelegatedStakeWithdrawal,
-  UpdateDelegatedStake
-}
+import io.constellationnetwork.schema.delegatedStake.{DelegatedStakeAmount, DelegatedStakeRecord, PendingDelegatedStakeWithdrawal, UpdateDelegatedStake}
 import io.constellationnetwork.schema.peer.PeerId
 import io.constellationnetwork.security.hex.Hex
 import io.constellationnetwork.security.signature.Signed
@@ -57,6 +52,7 @@ import org.constellation.snapshotstreaming.schema.{DelegatedStakingCreate, Deleg
 import pureconfig.module.enumeratum._
 import eu.timepit.refined.types.all._
 import io.constellationnetwork.schema.epoch.EpochProgress
+import org.constellation.snapshotstreaming.opensearch.mapper.GlobalSnapshotMapperSuite.buildDSR
 
 object GlobalSnapshotMapperSuite extends MutableIOSuite {
 
@@ -783,4 +779,97 @@ object GlobalSnapshotMapperSuite extends MutableIOSuite {
     }
   }
 
+  def buildDSR(
+                address: Address,
+                peerId: String,
+                amount: NonNegLong,
+                tokenLockRef: String,
+                createdAt: NonNegLong,
+                rewards: NonNegLong,
+                currentTokenLockRef: Option[Hash] = None,
+                currentAmount: Option[DelegatedStakeAmount] = None
+              ) = DelegatedStakeRecord(
+    event = buildSignedCreateStakeEvent(address, peerId, amount, tokenLockRef),
+    createdAt = SnapshotOrdinal(createdAt),
+    rewards = Amount(rewards),
+    currentTokenLockRef = currentTokenLockRef,
+    currentAmount = currentAmount
+  )
+
+  test("extract increased delegated stake with currentTokenLockRef and currentAmount") { res =>
+    implicit val (hs, ks, sp, key1, key2, key3, key4, ser) = res
+    val address1 = key1.getPublic.toAddress
+
+    // Original stake with TokenRef1 and 1000 amount
+    val originalStake = buildDSR(address1, "Peer1", 1000L, "TokenRef1", 10L, 50L)
+
+    // Increased stake: same event, but currentTokenLockRef and currentAmount are updated
+    val increasedStake = originalStake.copy(currentTokenLockRef = Some(Hash("TokenRef2")), currentAmount = Some(DelegatedStakeAmount(2000L)))
+    val oldStakes = Seq(
+      address1 -> SortedSet(originalStake)
+    )
+
+    val newStakes = Seq(
+      address1 -> SortedSet(increasedStake)
+    )
+
+    val oldSnapshotInfo = GlobalSnapshotInfo(
+      SortedMap.empty,
+      SortedMap.empty,
+      SortedMap.empty,
+      SortedMap.empty,
+      SortedMap.empty,
+      None,
+      None,
+      None,
+      None,
+      None,
+      None,
+      Some(SortedMap.from(oldStakes)),
+      None,
+      None,
+      None,
+      None,
+      None
+    )
+
+    val newSnapshotInfo = GlobalSnapshotInfo(
+      SortedMap.empty,
+      SortedMap.empty,
+      SortedMap.empty,
+      SortedMap.empty,
+      SortedMap.empty,
+      None,
+      None,
+      None,
+      None,
+      None,
+      None,
+      Some(SortedMap.from(newStakes)),
+      None,
+      None,
+      None,
+      None,
+      None
+    )
+
+    val hasher = hs.getCurrent
+    val gsm = GlobalSnapshotMapper.make(sharedCfg)
+
+    for {
+      activeHashedDelegatedStakes <- gsm.activeHashedDelegatedStakes(newSnapshotInfo)(hasher)
+      result <- gsm.mapDelegatedStakingCreates(
+        Hash("SnapshotHash1"),
+        activeHashedDelegatedStakes,
+        Some(oldSnapshotInfo),
+        hasher
+      )
+    } yield expect(result.nonEmpty) && expect.eql(result.size, 1) &&
+      expect.eql(result.head.amount, 2000L) && // Should use currentAmount
+      expect.eql(result.head.tokenLockHash, "TokenRef2") && // Should use currentTokenLockRef
+      expect.eql(result.head.currentTokenLockHash, Some("TokenRef2")) &&
+      expect.eql(result.head.currentAmount, Some(2000L)) &&
+      expect.eql(result.head.rewards, 50L) &&
+      expect(result.head.transferFrom.isDefined) // Should be marked as an update
+  }
 }

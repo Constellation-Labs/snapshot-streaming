@@ -198,10 +198,10 @@ abstract class GlobalSnapshotMapper[F[_]: Async] extends SnapshotMapper[F, Globa
       dsr.createdAt.value,
       dsr.event.source.value,
       dsr.event.nodeId.value.value,
-      dsr.event.amount.value,
+      dsr.amount.value,
       dsr.event.fee.value,
       dsr.rewards.value,
-      dsr.event.tokenLockRef.value,
+      dsr.tokenLockRef.value,
       dsr.event.parent.hash.value,
       fromHash.map(_.value),
       dsr.currentTokenLockRef.map(_.value),
@@ -225,7 +225,7 @@ abstract class GlobalSnapshotMapper[F[_]: Async] extends SnapshotMapper[F, Globa
     maybePrevSnapshotInfo.toSeq
       .flatTraverse(s =>
         flatten(s.activeDelegatedStakes).traverse { case (_, dsr) =>
-          dsr.event.toHashed.map(hashed => dsr.event.tokenLockRef -> hashed.hash)
+          dsr.event.toHashed.map(hashed => dsr.event.tokenLockRef -> (hashed.hash, dsr.currentTokenLockRef))
         }
       )
       .map { prevActiveTokenLocks =>
@@ -233,8 +233,8 @@ abstract class GlobalSnapshotMapper[F[_]: Async] extends SnapshotMapper[F, Globa
         activeDelegatedStakes.mapFilter { case (dsr, ev) => // keep only the new or the updated
           prevActiveTokenLocksMap.get(dsr.event.tokenLockRef) match {
             case None => Some((dsr, ev, None)) // new stake
-            case Some(oldStakeHash) =>
-              if (oldStakeHash == ev.hash)
+            case Some((oldStakeHash, oldCurrentTokenLockRef)) =>
+              if (oldStakeHash == ev.hash && oldCurrentTokenLockRef == dsr.currentTokenLockRef)
                 None // active staking already included
               else {
                 Some(dsr, ev, Some(oldStakeHash))
