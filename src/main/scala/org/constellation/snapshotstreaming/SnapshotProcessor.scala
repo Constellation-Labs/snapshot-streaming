@@ -255,6 +255,20 @@ object SnapshotProcessor {
 
         incrementalCombined <- Stream.eval(lastIncrementalGlobalSnapshotStorage.getCombined)
         initialState = incrementalCombined.map { case (hashedSnapshot, state) => (hashedSnapshot.signed, state) }
+        _ <- Stream.eval {
+          initialState match {
+            case Some((snapshot, state)) =>
+              for {
+                _ <- logger.info(s"Found initial state at ordinal ${snapshot.ordinal}")
+                kvPairs <- HasherSelector[F].withCurrent(implicit hasher => state.allStateEntries[F])
+                _ <- logger.info(s"Syncing ${kvPairs.keys.size} state entries")
+                _ <- mptStore.syncFull(kvPairs, snapshot.ordinal)
+              } yield ()
+            case None =>
+              logger.info("[INIT] No initial state found") >> Async[F].unit
+          }
+        }
+        // Producer stream - pulls and processes snapshots
         producer = Stream
           .awakeEvery(configuration.node.pullInterval)
           .evalTap { _ =>
@@ -328,6 +342,11 @@ object SnapshotProcessor {
                         .pullGlobalSnapshot(signedFullGlobalSnapshot.value.ordinal.next)
                         .flatMap {
                           case Some(nextSnapshot) =>
+                            HasherSelector[F].withCurrent { implicit hasher =>
+                              initialInfo.allStateEntries[F]
+                            }.flatMap { kvPairs =>
+                              mptStore.syncFull(kvPairs, nextSnapshot.ordinal)
+                            } >>
                               mptStore.build.flatMap {
                                 case Right(mpt) =>
                                   val gsws = GlobalSnapshotWithState(
