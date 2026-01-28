@@ -248,9 +248,15 @@ object SnapshotDAO {
         lock_reference_hash,
         parent_hash,
         transfer_from_hash,
-        global_snapshot_hash
-      ) VALUES ($varchar, $int8, $varchar, $varchar, $int8, $int8, $varchar, $varchar, ${varchar.opt}, $varchar)
-      ON CONFLICT (hash) DO NOTHING;
+        global_snapshot_hash,
+        current_token_lock_hash,
+        current_amount
+      ) VALUES ($varchar, $int8, $varchar, $varchar, $int8, $int8, $varchar, $varchar, ${varchar.opt}, $varchar, ${varchar.opt}, ${int8.opt})
+      ON CONFLICT (hash) DO UPDATE SET
+        current_token_lock_hash = EXCLUDED.current_token_lock_hash,
+        current_amount = EXCLUDED.current_amount,
+        transfer_from_hash = EXCLUDED.transfer_from_hash,
+        updated_at = now();
     """.command.contramap { tx: DelegatedStakingCreate =>
       (
         tx.hash,
@@ -262,7 +268,9 @@ object SnapshotDAO {
         tx.tokenLockHash,
         tx.parentHash,
         tx.transferFrom,
-        tx.snapshotHash
+        tx.snapshotHash,
+        tx.currentTokenLockHash,
+        tx.currentAmount
       )
     }
 
@@ -275,11 +283,13 @@ object SnapshotDAO {
         global_snapshot_hash,
         created_at_epoch,
         unlock_epoch,
-        is_completed
-      ) VALUES ($varchar, $varchar, $varchar, $varchar, $int8, $int8, $bool)
+        is_completed,
+        current_token_lock_hash,
+        current_amount
+      ) VALUES ($varchar, $varchar, $varchar, $varchar, $int8, $int8, $bool, ${varchar.opt}, ${int8.opt})
       ON CONFLICT (hash) DO NOTHING;
     """.command.contramap { tx: DelegatedStakingWithdraw =>
-      (tx.hash, tx.sourceAddress, tx.stakeCreateHash, tx.snapshotHash, tx.createdAtEpoch, tx.unlockEpoch, tx.completed)
+      (tx.hash, tx.sourceAddress, tx.stakeCreateHash, tx.snapshotHash, tx.createdAtEpoch, tx.unlockEpoch, tx.completed, tx.currentTokenLockHash, tx.currentAmount)
     }
 
   private def updateCompletedDelegatedStakingWithdrawCommand(n: Int): Command[List[String]] =

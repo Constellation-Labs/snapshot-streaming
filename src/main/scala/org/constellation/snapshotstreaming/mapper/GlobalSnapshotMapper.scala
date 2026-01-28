@@ -278,7 +278,7 @@ abstract class GlobalSnapshotMapper[F[_]: Async] extends SnapshotMapper[F, Globa
     snapshot.spendActions.toList.flatTraverse(_.toList.flatTraverse(_._2.flatTraverse(_.spendTransactions.toList.traverse(mapSpendTx(snapshot.hash)))))
   }
 
-  private def mapTokenLock(snapshotHash: Hash, roundId: RoundId, hasher: Hasher[F])(
+  def mapTokenLock(snapshotHash: Hash, roundId: RoundId, hasher: Hasher[F])(
     tl: Signed[tokenLock.TokenLock]
   ): F[TokenLock] = {
     implicit val hs: Hasher[F] = hasher

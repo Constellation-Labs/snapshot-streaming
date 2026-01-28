@@ -18,6 +18,7 @@ CREATE TABLE delegate_stake_create_events (
 CREATE INDEX delegate_stake_create_events_source_addr_idx ON public.delegate_stake_create_events USING btree (source_addr);
 CREATE INDEX delegate_stake_create_events_lock_reference_hash_idx ON public.delegate_stake_create_events USING btree (lock_reference_hash);
 CREATE INDEX delegate_stake_create_events_global_snapshot_hash_idx ON public.delegate_stake_create_events USING btree (global_snapshot_hash);
+CREATE INDEX delegate_stake_create_events_current_token_lock_hash_idx ON public.delegate_stake_create_events USING btree (current_token_lock_hash);
 
 
 
