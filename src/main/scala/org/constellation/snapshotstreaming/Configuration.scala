@@ -119,6 +119,7 @@ object Configuration {
       c.forkInfoStorage,
       c.lastKryoHashOrdinal,
       c.lastLegacyStateProofOrdinal,
+      c.incrementalDelegatedStakingStartingOrdinal,
       c.addresses,
       c.allowSpends,
       c.tokenLocks,
