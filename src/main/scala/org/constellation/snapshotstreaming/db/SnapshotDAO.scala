@@ -284,10 +284,10 @@ object SnapshotDAO {
         created_at_epoch,
         unlock_epoch,
         is_completed
-      ) VALUES ($varchar, $varchar, $varchar, $varchar, $int8, $int8, $bool, ${varchar.opt}, ${int8.opt})
+      ) VALUES ($varchar, $varchar, $varchar, $varchar, $int8, $int8, $bool)
       ON CONFLICT (hash) DO NOTHING;
     """.command.contramap { tx: DelegatedStakingWithdraw =>
-      (tx.hash, tx.sourceAddress, tx.stakeCreateHash, tx.snapshotHash, tx.createdAtEpoch, tx.unlockEpoch, tx.completed, tx.currentTokenLockHash, tx.currentAmount)
+      (tx.hash, tx.sourceAddress, tx.stakeCreateHash, tx.snapshotHash, tx.createdAtEpoch, tx.unlockEpoch, tx.completed)
     }
 
   private def updateCompletedDelegatedStakingWithdrawCommand(n: Int): Command[List[String]] =
