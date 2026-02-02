@@ -153,7 +153,8 @@ object TessellationServices {
           configuration.delegatedStaking.withdrawalTimeLimit.getOrElse(env, EpochProgress.MinValue),
           tessellation3Migration,
           configuration.fieldsAddedOrdinals.setSumFix.getOrElse(env, SnapshotOrdinal.MinValue),
-          mptStore
+          mptStore,
+          configuration.incrementalDelegatedStakingStartingOrdinal.getOrElse(env, SnapshotOrdinal.MinValue),
         )
 
         GlobalSnapshotContextService.make(globalSnapshotStateChannelEventsProcessor, globalSnapshotContextFns, lastNGlobalSnapshotStorage, lastGlobalSnapshotStorage)
