@@ -4,28 +4,43 @@ import cats.Show
 import cats.data.NonEmptySet
 import cats.effect.{IO, Resource}
 import cats.syntax.all._
+
+import scala.collection.immutable.SortedMap
 import eu.timepit.refined.auto._
 import io.constellationnetwork.currency.schema.currency.{CurrencyIncrementalSnapshot, CurrencySnapshotInfo}
 import io.constellationnetwork.ext.cats.effect.ResourceIO
 import io.constellationnetwork.json.JsonSerializer
 import io.constellationnetwork.kryo.KryoSerializer
 import io.constellationnetwork.node.shared.nodeSharedKryoRegistrar
-import io.constellationnetwork.schema.BlockAsActiveTip
+import io.constellationnetwork.schema.{BlockAsActiveTip, SnapshotOrdinal}
 import io.constellationnetwork.schema.address.Address
 import io.constellationnetwork.schema.balance.Balance
+import io.constellationnetwork.schema.epoch.EpochProgress
+import io.constellationnetwork.schema.round.RoundId
+import io.constellationnetwork.schema.tokenLock.{TokenLock => TessTokenLock, TokenLockAmount, TokenLockBlock, TokenLockFee, TokenLockReference}
 import io.constellationnetwork.schema.transaction._
 import io.constellationnetwork.security._
 import io.constellationnetwork.security.hash.Hash
+import io.constellationnetwork.security.hex.Hex
 import io.constellationnetwork.security.key.ops.PublicKeyOps
+import io.constellationnetwork.security.signature.Signed
+import io.constellationnetwork.security.signature.signature.{Signature, SignatureProof}
+import io.constellationnetwork.schema.ID.Id
 import io.constellationnetwork.shared.sharedKryoRegistrar
 import org.constellation.snapshotstreaming.data._
 import org.constellation.snapshotstreaming.mapper.CurrencyIncrementalSnapshotMapper
+import org.constellation.snapshotstreaming.schema.TokenLocks.{TokenLock => SchemaTokenLock}
 import weaver.MutableIOSuite
 
 import java.security.KeyPair
+import java.time.LocalDateTime
+import java.util.UUID
 import scala.collection.immutable.{SortedMap, SortedSet}
 
 object CurrencySnapshotMapperSuite extends MutableIOSuite {
+
+  // Resolve ambiguous implicit between tessellation's showSortedMapAsList and cats' catsShowForSortedMap
+  implicit def showSortedMap[K: Show, V: Show]: Show[SortedMap[K, V]] = Show.catsShowForSortedMap
 
   type Res = (
     HasherSelector[IO],
@@ -280,6 +295,73 @@ object CurrencySnapshotMapperSuite extends MutableIOSuite {
         result,
         updatedBalances - address3 - address4
       )
+    }
+  }
+
+  val testSignature = NonEmptySet.one(SignatureProof(Id(Hex("")), Signature(Hex(""))))
+
+  test("map TokenLocks with replacementHash field") { res =>
+    implicit val (h, ks, js, sp, key1, key2, _, _) = res
+    val address1 = key1.getPublic.toAddress
+    val address2 = key2.getPublic.toAddress
+
+    val roundId = RoundId(UUID.randomUUID())
+
+    // Token lock with replacement (e.g., increased stake)
+    val tokenLockWithReplacement = TessTokenLock(
+      source = address1,
+      amount = TokenLockAmount(1000L),
+      fee = TokenLockFee(10L),
+      parent = TokenLockReference.empty,
+      currencyId = None,
+      unlockEpoch = Some(EpochProgress(100L)),
+      replaceTokenLockRef = Some(Hash("ReplacedTokenLockHash123"))
+    )
+
+    // Token lock without replacement (original lock)
+    val tokenLockWithoutReplacement = TessTokenLock(
+      source = address2,
+      amount = TokenLockAmount(2000L),
+      fee = TokenLockFee(20L),
+      parent = TokenLockReference.empty,
+      currencyId = None,
+      unlockEpoch = None,
+      replaceTokenLockRef = None
+    )
+
+    val tokenLockBlock = TokenLockBlock(
+      roundId = roundId,
+      tokenLocks = NonEmptySet.of(
+        Signed(tokenLockWithReplacement, testSignature),
+        Signed(tokenLockWithoutReplacement, testSignature)
+      )
+    )
+
+    implicit val hasher: Hasher[IO] = h.getCurrent
+    val mapper = CurrencyIncrementalSnapshotMapper.make[IO]()
+
+    for {
+      snapshot <- incrementalCurrencySnapshot[IO](100L, 10L, 20L, Hash("abc"), Hash("def"))
+      // Create a snapshot with token lock blocks
+      snapshotWithTokenLocks = Hashed(
+        Signed(
+          snapshot.signed.value.copy(
+            tokenLockBlocks = Some(SortedSet(Signed(tokenLockBlock, testSignature)))
+          ),
+          snapshot.signed.proofs
+        ),
+        snapshot.hash,
+        snapshot.proofsHash
+      )
+      result <- mapper.mapTokenLocks(snapshotWithTokenLocks, LocalDateTime.now(), hasher)
+      sorted = result.sortBy(_.amount)
+    } yield {
+      // Verify token lock with replacement has replacementHash set
+      expect.same(sorted.head.replacementHash, Some("ReplacedTokenLockHash123")) and
+      expect.same(sorted.head.amount, 1000L) and
+      // Verify token lock without replacement has None for replacementHash
+      expect.same(sorted(1).replacementHash, None) and
+      expect.same(sorted(1).amount, 2000L)
     }
   }
 

@@ -213,11 +213,12 @@ object SnapshotDAO {
         unlock_epoch,
         ordinal,
         round_id,
-        parent_hash
-      ) VALUES ($varchar, $varchar, ${varchar.opt}, $varchar, $int8, ${int8.opt}, $int8, $uuid, $varchar)
+        parent_hash,
+        replacement_hash
+      ) VALUES ($varchar, $varchar, ${varchar.opt}, $varchar, $int8, ${int8.opt}, $int8, $uuid, $varchar, ${varchar.opt})
       ON CONFLICT DO NOTHING;
     """.command.contramap { tx: TokenLock =>
-      (tx.snapshotHash, tx.hash, tx.currencyId, tx.source, tx.amount, tx.unlockEpoch, tx.ordinal, tx.roundId, tx.parentHash)
+      (tx.snapshotHash, tx.hash, tx.currencyId, tx.source, tx.amount, tx.unlockEpoch, tx.ordinal, tx.roundId, tx.parentHash, tx.replacementHash)
     }
 
   private val insertDagTokenUnlockCommand: Command[TokenUnlock] =
@@ -247,9 +248,15 @@ object SnapshotDAO {
         lock_reference_hash,
         parent_hash,
         transfer_from_hash,
-        global_snapshot_hash
-      ) VALUES ($varchar, $int8, $varchar, $varchar, $int8, $int8, $varchar, $varchar, ${varchar.opt}, $varchar)
-      ON CONFLICT (hash) DO NOTHING;
+        global_snapshot_hash,
+        current_token_lock_hash,
+        current_amount
+      ) VALUES ($varchar, $int8, $varchar, $varchar, $int8, $int8, $varchar, $varchar, ${varchar.opt}, $varchar, ${varchar.opt}, ${int8.opt})
+      ON CONFLICT (hash) DO UPDATE SET
+        current_token_lock_hash = EXCLUDED.current_token_lock_hash,
+        current_amount = EXCLUDED.current_amount,
+        transfer_from_hash = EXCLUDED.transfer_from_hash,
+        updated_at = now();
     """.command.contramap { tx: DelegatedStakingCreate =>
       (
         tx.hash,
@@ -261,7 +268,9 @@ object SnapshotDAO {
         tx.tokenLockHash,
         tx.parentHash,
         tx.transferFrom,
-        tx.snapshotHash
+        tx.snapshotHash,
+        tx.currentTokenLockHash,
+        tx.currentAmount
       )
     }
 
