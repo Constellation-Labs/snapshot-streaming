@@ -10,14 +10,16 @@ CREATE TABLE delegate_stake_create_events (
     parent_hash varchar NOT NULL,
     global_snapshot_hash varchar NOT NULL REFERENCES global_snapshots(hash) ON DELETE CASCADE,
     is_update boolean NOT NULL,
-    created_at timestamp DEFAULT now() NOT NULL,
-    updated_at timestamp DEFAULT now() NOT NULL,
     current_token_lock_hash varchar NULL,
-    current_amount int8 NULL
+    current_amount int8 NULL,
+    created_at timestamp DEFAULT now() NOT NULL,
+    updated_at timestamp DEFAULT now() NOT NULL
+
 );
 CREATE INDEX delegate_stake_create_events_source_addr_idx ON public.delegate_stake_create_events USING btree (source_addr);
 CREATE INDEX delegate_stake_create_events_lock_reference_hash_idx ON public.delegate_stake_create_events USING btree (lock_reference_hash);
 CREATE INDEX delegate_stake_create_events_global_snapshot_hash_idx ON public.delegate_stake_create_events USING btree (global_snapshot_hash);
+CREATE INDEX delegate_stake_create_events_current_token_lock_hash_idx ON public.delegate_stake_create_events USING btree (current_token_lock_hash);
 
 
 
@@ -27,9 +29,7 @@ CREATE TABLE delegate_stake_withdraw_events (
     stake_create_hash varchar NOT NULL REFERENCES delegate_stake_create_events(hash) ON DELETE CASCADE,
     global_snapshot_hash varchar NOT NULL REFERENCES global_snapshots(hash) ON DELETE CASCADE,
     created_at timestamp DEFAULT now() NOT NULL,
-    updated_at timestamp DEFAULT now() NOT NULL,
-    current_token_lock_hash varchar NULL,
-    current_amount int8 NULL
+    updated_at timestamp DEFAULT now() NOT NULL
 );
 CREATE INDEX delegate_stake_withdraw_events_source_addr_idx ON public.delegate_stake_withdraw_events USING btree (source_addr);
 CREATE INDEX delegate_stake_withdraw_events_stake_create_hash_idx ON public.delegate_stake_withdraw_events USING btree (stake_create_hash);
