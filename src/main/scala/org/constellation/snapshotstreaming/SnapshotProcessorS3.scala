@@ -4,7 +4,7 @@ import cats.effect._
 import cats.effect.std.{Console, Random}
 import cats.syntax.all._
 import cats.Parallel
-import cats.data.Validated
+import cats.data.{OptionT, Validated}
 import cats.effect.implicits.clockOps
 import com.sksamuel.elastic4s.ElasticApi.{fieldSort, matchAllQuery, search, termQuery}
 import com.sksamuel.elastic4s.requests.searches.SearchHit
@@ -25,7 +25,7 @@ import io.constellationnetwork.schema.{CurrencyStateProofSelector, GlobalIncreme
 import io.constellationnetwork.security._
 import io.constellationnetwork.security.hash.Hash
 import io.constellationnetwork.security.mpt.MptRoot
-import io.constellationnetwork.security.mpt.producer.InMemoryMerklePatriciaProducer
+import io.constellationnetwork.security.mpt.producer.FileSystemMerklePatriciaProducer
 import io.constellationnetwork.validator.StateProofValidator
 import org.constellation.snapshotstreaming.SnapshotProcessor.{GlobalSnapshotWithState, L0ClusterStorageRef, ProcessedSnapshots, makeClient}
 import org.constellation.snapshotstreaming.db.SnapshotDAO
@@ -63,7 +63,7 @@ object SnapshotProcessorS3 {
       globalSnapshotClient = L0GlobalSnapshotClient.make[F](client, None, sharedConfig.snapshot.timeouts)
       l0ClusterStorage <- Resource.eval(L0ClusterStorageRef(configuration.node))
       mptProducer <- Resource.eval(HasherSelector[F].withCurrent { implicit hasher =>
-        InMemoryMerklePatriciaProducer.make[F]()
+        FileSystemMerklePatriciaProducer.make[F](sharedConfig.snapshot.mptSnapshotInfoPath)
       })
       mptStore <- Resource.eval(HasherSelector[F].withCurrent { implicit hasher =>
         MptStore.make[F, GlobalStateKey](mptProducer, GlobalStateKey.toHex[F])
@@ -190,16 +190,20 @@ object SnapshotProcessorS3 {
       }.flatMap { kvPairs =>
         mptStore.syncFull(kvPairs, snapshot.ordinal)
       } >>
-        mptStore.build.flatMap {
-          case Right(mpt) =>
-            GlobalSnapshotWithState(
-              snapshot,
-              maybePrevSnapshotInfo,
-              snapshotInfo,
-              Map.empty,
-              dt,
-              mpt.rootHash
-            ).pure[F]
+        mptStore.build(snapshot.ordinal).flatMap {
+          case Right(_) =>
+            for {
+              maybeRootHash <- mptStore.underlying.getRootHashForOrdinal(snapshot.ordinal)
+              rootHash <- OptionT.fromOption(maybeRootHash).getOrRaise(new IllegalStateException("Could not get root hash"))
+              gsws <- GlobalSnapshotWithState(
+                snapshot,
+                maybePrevSnapshotInfo,
+                snapshotInfo,
+                Map.empty,
+                dt,
+                rootHash
+              ).pure[F]
+            } yield gsws
           case Left(err) =>
             Async[F].raiseError[GlobalSnapshotWithState](new RuntimeException(s"Failed to compute MPT root: $err"))
         }
@@ -276,22 +280,27 @@ object SnapshotProcessorS3 {
                     dt
                   )
                   .flatMap { contextResult =>
-                    mptStore.build.flatMap {
+                    mptStore.build(snapshot.ordinal).flatMap {
                       case Right(mpt) =>
-                        val gss = GlobalSnapshotWithState(
-                          contextResult.snapshot,
-                          contextResult.maybePrevSnapshotInfo,
-                          contextResult.snapshotInfo,
-                          contextResult.currencySnapshots,
-                          contextResult.ts,
-                          mpt.rootHash
-                        )
-                        val updatedStatus = ProcessedSnapshots(
-                          gss.snapshot.signed,
-                          contextResult.snapshotInfo,
-                          List(gss)
-                        )
-                        (Option(updatedStatus), gss).pure[F]
+                        for {
+                          maybeRootHash <- mptStore.underlying.getRootHashForOrdinal(snapshot.ordinal)
+                          rootHash <- OptionT.fromOption(maybeRootHash).getOrRaise(new IllegalStateException("Could not get root hash"))
+                          gsws = GlobalSnapshotWithState(
+                            contextResult.snapshot,
+                            contextResult.maybePrevSnapshotInfo,
+                            contextResult.snapshotInfo,
+                            contextResult.currencySnapshots,
+                            contextResult.ts,
+                            rootHash
+                          )
+                          updatedStatus = ProcessedSnapshots(
+                            gsws.snapshot.signed,
+                            contextResult.snapshotInfo,
+                            List(gsws)
+                          )
+                          result <- (Option(updatedStatus), gsws).pure[F]
+                        } yield result
+
                       case Left(err) =>
                         Async[F].raiseError[(Option[ProcessedSnapshots], GlobalSnapshotWithState)](
                           new RuntimeException(s"Failed to compute MPT root: $err")

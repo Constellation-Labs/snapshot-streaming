@@ -33,7 +33,6 @@ import io.constellationnetwork.schema.{CurrencyStateProofSelector, GlobalIncreme
 import io.constellationnetwork.schema.balance.Amount
 import io.constellationnetwork.schema.epoch.EpochProgress
 import io.constellationnetwork.schema.mpt.{GlobalStateKey, MptStore}
-import io.constellationnetwork.security.mpt.producer.{FileSystemMerklePatriciaProducer, InMemoryMerklePatriciaProducer}
 import io.constellationnetwork.security.signature.SignedValidator
 import io.constellationnetwork.security.{Hasher, HasherSelector, SecurityProvider}
 

@@ -1,7 +1,7 @@
 package org.constellation.snapshotstreaming
 
 import java.time.{Instant, LocalDateTime, ZoneId}
-import cats.data.{NonEmptyList, Validated}
+import cats.data.{NonEmptyList, OptionT, Validated}
 import cats.effect._
 import cats.effect.implicits.clockOps
 import cats.effect.std.{Console, Queue, Random}
@@ -30,7 +30,7 @@ import io.constellationnetwork.schema.mpt.GlobalStateConverter.syntax.GlobalSnap
 import io.constellationnetwork.schema.mpt.{GlobalStateKey, MptStore}
 import io.constellationnetwork.security.hash.Hash
 import io.constellationnetwork.security.mpt.MptRoot
-import io.constellationnetwork.security.mpt.producer.{FileSystemMerklePatriciaProducer, InMemoryMerklePatriciaProducer}
+import io.constellationnetwork.security.mpt.producer.FileSystemMerklePatriciaProducer
 import io.constellationnetwork.validator.StateProofValidator
 import org.constellation.snapshotstreaming.db.SnapshotDAO
 import org.constellation.snapshotstreaming.mapper.{CurrencySnapshotMapper, GlobalSnapshotMapper}
@@ -66,7 +66,7 @@ object SnapshotProcessor {
       snapshotDAO = SnapshotDAO.make[F](sessionPool)
       globalSnapshotClient = L0GlobalSnapshotClient.make[F](client, None, sharedConfig.snapshot.timeouts)
       l0ClusterStorage <- Resource.eval(L0ClusterStorageRef(configuration.node))
-      mptProducer <- Resource.eval(HasherSelector[F].withCurrent { implicit hasher => InMemoryMerklePatriciaProducer.make[F]()})
+      mptProducer <- Resource.eval(HasherSelector[F].withCurrent { implicit hasher => FileSystemMerklePatriciaProducer.make[F](sharedConfig.snapshot.mptSnapshotInfoPath)})
       mptStore <- Resource.eval(HasherSelector[F].withCurrent { implicit hasher =>
         MptStore.make[F, GlobalStateKey](
           mptProducer,
@@ -180,10 +180,40 @@ object SnapshotProcessor {
 
       HasherSelector[F]
         .forOrdinal(snapshot.ordinal) { implicit hasher =>
-          logger.info(
-            s"Global Snapshot ${snapshot.ordinal.value.value} with logic=${hasher.getLogic(snapshot.ordinal)}"
-          ) >>
-            validator.validate(snapshot, snapshotInfo)
+            for {
+              _ <- logger.info(
+                s"Global Snapshot ${snapshot.ordinal.value.value} with logic=${hasher.getLogic(snapshot.ordinal)}"
+              )
+
+              result <- if( snapshot.ordinal > sharedConfigReader.lastLegacyStateProofOrdinal.getOrElse(configuration.environment, SnapshotOrdinal.MinValue)){
+                val stateProof = GlobalSnapshotStateProof
+                  .apply(
+                    Hash.empty,
+                    Hash.empty,
+                    Hash.empty,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    Some(mptRoot.value)
+                  )
+                logger.info(
+                  s"Validating mptProof for ordinal ${snapshot.ordinal.value.value}"
+                ) >>
+                StateProofValidator.validateProof(snapshot, stateProof)
+              } else {
+                validator.validate(snapshot, snapshotInfo)
+              }
+            } yield result
         }
         .flatMap {
           case Validated.Valid(()) =>
@@ -271,25 +301,29 @@ object SnapshotProcessor {
                             LocalDateTime.now()
                           )
                           .flatMap { contextResult =>
-                            mptStore.build.flatMap {
+                            mptStore.build(snapshot.ordinal).flatMap {
                               case Right(mpt) =>
-                                val withRoot = GlobalSnapshotWithState(
-                                  contextResult.snapshot,
-                                  contextResult.maybePrevSnapshotInfo,
-                                  contextResult.snapshotInfo,
-                                  contextResult.currencySnapshots,
-                                  contextResult.ts,
-                                  mpt.rootHash
-                                )
-                                queue.offer(withRoot) >>
-                                  logger.info(
-                                    s"Producer: Queued ${getSnapshotReference(withRoot.snapshot)} with mptRoot=${mpt.rootHash.value.value.take(16)}..."
-                                  ) >>
-                                  ProcessedSnapshots(
-                                    snapshot.signed,
+                                for {
+                                  maybeRootHash <- mptStore.underlying.getRootHashForOrdinal(snapshot.ordinal)
+                                  rootHash <- OptionT.fromOption(maybeRootHash).getOrRaise(new IllegalStateException("Could not get root hash"))
+                                  withRoot = GlobalSnapshotWithState(
+                                    contextResult.snapshot,
+                                    contextResult.maybePrevSnapshotInfo,
                                     contextResult.snapshotInfo,
-                                    processedSnapshots.snapshotsWithState.appended(withRoot)
-                                  ).pure[F]
+                                    contextResult.currencySnapshots,
+                                    contextResult.ts,
+                                    rootHash
+                                  )
+                                  result <- queue.offer(withRoot) >>
+                                    logger.info(
+                                      s"Producer: Queued ${getSnapshotReference(withRoot.snapshot)} with mptRoot=${mpt.rootHash.value.value.take(16)}..."
+                                    ) >>
+                                    ProcessedSnapshots(
+                                      snapshot.signed,
+                                      contextResult.snapshotInfo,
+                                      processedSnapshots.snapshotsWithState.appended(withRoot)
+                                    ).pure[F]
+                                } yield result
                               case Left(err) =>
                                 Async[F].raiseError[ProcessedSnapshots](new RuntimeException(s"Failed to compute MPT root: $err"))
                             }
@@ -319,21 +353,25 @@ object SnapshotProcessor {
                             }.flatMap { kvPairs =>
                               mptStore.syncFull(kvPairs, nextSnapshot.ordinal)
                             } >>
-                              mptStore.build.flatMap {
+                              mptStore.build(nextSnapshot.ordinal).flatMap {
                                 case Right(mpt) =>
-                                  val gsws = GlobalSnapshotWithState(
-                                    nextSnapshot,
-                                    None,
-                                    initialInfo,
-                                    Map.empty,
-                                    LocalDateTime.now(),
-                                    mpt.rootHash
-                                  )
-                                  queue.offer(gsws) >>
-                                    logger.info(
-                                      s"Producer: Added initial snapshot to queue with mptRoot=${mpt.rootHash.value.value.take(16)}..."
-                                    ) >>
-                                    (Option((gsws.snapshot.signed, gsws.snapshotInfo)), List(gsws)).pure[F]
+                                  for {
+                                    maybeRootHash <- mptStore.underlying.getRootHashForOrdinal(nextSnapshot.ordinal)
+                                    rootHash <- OptionT.fromOption(maybeRootHash).getOrRaise(new IllegalStateException("Could not get root hash"))
+                                    gsws = GlobalSnapshotWithState(
+                                      nextSnapshot,
+                                      None,
+                                      initialInfo,
+                                      Map.empty,
+                                      LocalDateTime.now(),
+                                      rootHash
+                                    )
+                                    result <- queue.offer(gsws) >>
+                                      logger.info(
+                                        s"Producer: Added initial snapshot to queue with mptRoot=${mpt.rootHash.value.value.take(16)}..."
+                                      ) >>
+                                      (Option((gsws.snapshot.signed, gsws.snapshotInfo)), List(gsws)).pure[F]
+                                  } yield result
                                 case Left(err) =>
                                   Async[F].raiseError[(Option[(Signed[GlobalIncrementalSnapshot], GlobalSnapshotInfo)], List[GlobalSnapshotWithState])](
                                     new RuntimeException(s"Failed to compute initial MPT root: $err")
