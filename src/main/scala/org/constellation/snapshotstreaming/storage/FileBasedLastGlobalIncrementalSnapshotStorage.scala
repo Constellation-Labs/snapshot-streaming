@@ -40,7 +40,7 @@ object FileBasedLastGlobalIncrementalSnapshotStorage {
   def make[F[_]: Async: Parallel: HasherSelector: Files: KryoSerializer: Compression: JsonSerializer](
     path: Path,
     mptStore: MptStore[F, GlobalStateKey]
-  )(implicit stateProofSelector: StateProofSelector): F[LastSnapshotStorage[F, GlobalIncrementalSnapshot, GlobalSnapshotInfo]] = {
+  )(implicit stateProofSelector: GlobalStateProofSelector): F[LastSnapshotStorage[F, GlobalIncrementalSnapshot, GlobalSnapshotInfo]] = {
 
     def deserializeWithJson(data: Array[Byte]) = jawn.decode[SnapshotWithState](new String(data, "UTF-8"))
 
@@ -66,17 +66,14 @@ object FileBasedLastGlobalIncrementalSnapshotStorage {
     cachedSnapshot: Ref[F, Option[SnapshotWithState]],
     path: Path,
     mptStore: MptStore[F, GlobalStateKey]
-  )(implicit stateProofSelector: StateProofSelector): LastSnapshotStorage[F, GlobalIncrementalSnapshot, GlobalSnapshotInfo] =
+  )(implicit stateProofSelector: GlobalStateProofSelector): LastSnapshotStorage[F, GlobalIncrementalSnapshot, GlobalSnapshotInfo] =
     new LastSnapshotStorage[F, GlobalIncrementalSnapshot, GlobalSnapshotInfo] {
       private val logger = Slf4jLogger.getLoggerFromName[F](this.getClass.getName)
+      private val validator = StateProofValidator.forGlobal(Some(mptStore.underlying))
 
       private def validateStateProof(snapshot: Hashed[GlobalIncrementalSnapshot], state: GlobalSnapshotInfo): F[Unit] =
         HasherSelector[F].forOrdinal(snapshot.ordinal) { implicit hasher =>
-          (hasher.getLogic(snapshot.ordinal) match {
-            case JsonHash => StateProofValidator.validate(snapshot, state, mptStore)
-            case KryoHash =>
-              StateProofValidator.validate(snapshot, GlobalSnapshotInfoV2.fromGlobalSnapshotInfo(state), mptStore)
-          }).flatMap(Async[F].fromValidated)
+          validator.validate(snapshot, state).flatMap(Async[F].fromValidated)
         }
 
       def set(snapshot: Hashed[GlobalIncrementalSnapshot], state: GlobalSnapshotInfo): F[Unit] = {

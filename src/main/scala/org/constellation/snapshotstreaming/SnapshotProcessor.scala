@@ -135,6 +135,7 @@ object SnapshotProcessor {
     sharedConfigReader: SharedConfigReader
   )(implicit stateProofSelector: GlobalStateProofSelector): SnapshotProcessor[F] = new SnapshotProcessor[F] {
     private implicit val logger = Slf4jLogger.getLogger[F]
+    private val validator = StateProofValidator.forGlobal(Some(mptStore.underlying))
 
     private def storeInPostgres(global: GlobalData, metagraph: MetagraphData) =
       (snapshotDAO.insertGlobalData(global, metagraph.snapshots.size) >> snapshotDAO
@@ -182,36 +183,7 @@ object SnapshotProcessor {
           logger.info(
             s"Global Snapshot ${snapshot.ordinal.value.value} with logic=${hasher.getLogic(snapshot.ordinal)}"
           ) >>
-            (hasher.getLogic(snapshot.ordinal) match {
-
-              case JsonHash => if(sharedConfigReader.lastLegacyStateProofOrdinal.getOrElse(configuration.environment, SnapshotOrdinal.MinValue) < snapshot.ordinal) {
-                val stateProof = GlobalSnapshotStateProof
-                  .apply(
-                    Hash.empty,
-                    Hash.empty,
-                    Hash.empty,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    Some(mptRoot.value)
-                  )
-                StateProofValidator.validate(snapshot, stateProof)
-              } else {
-                StateProofValidator.validate(snapshot, snapshotInfo)
-              }
-              case KryoHash =>
-                StateProofValidator.validate(snapshot, GlobalSnapshotInfoV2.fromGlobalSnapshotInfo(snapshotInfo))
-            })
+            validator.validate(snapshot, snapshotInfo)
         }
         .flatMap {
           case Validated.Valid(()) =>
