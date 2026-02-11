@@ -131,7 +131,6 @@ object Configuration {
       c.priceOracle.getOrElse(env, PriceOracleConfig.default),
       c.snapshotBinarySenderTimeouts,
       c.snapshot.timeouts,
-      c.combinedRouteRateLimiter,
       c.clickHouseConfig,
       c.snapshot.mptSnapshotInfoPath
     )
