@@ -13,3 +13,4 @@ logs/
 .java-version
 .DS_Store
 .direnv/
+*.bk
