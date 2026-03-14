@@ -14,7 +14,6 @@ object TokenLocks {
     ordinal: Long,
     roundId: UUID,
     parentHash: String,
-    replacementHash: Option[String]
   )
 
   case class TokenUnlock(

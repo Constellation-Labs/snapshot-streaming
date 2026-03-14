@@ -12,8 +12,6 @@ case class DelegatedStakingCreate(
   tokenLockHash: String,
   parentHash: String,
   transferFrom: Option[String],
-  currentTokenLockHash: Option[String],
-  currentAmount: Option[Long]
 )
 
 case class DelegatedStakingWithdraw(
@@ -25,8 +23,6 @@ case class DelegatedStakingWithdraw(
   createdAtEpoch: Long,
   unlockEpoch: Long,
   completed: Boolean,
-  currentTokenLockHash: Option[String],
-  currentAmount: Option[Long]
 )
 
 case class DelegatedStakingReward(snapshotHash: String, stakeHash: String, address: String, nodeId: String, amount: Long)

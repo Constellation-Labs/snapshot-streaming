@@ -49,7 +49,7 @@ abstract class GlobalSnapshotMapper[F[_]: Async] extends SnapshotMapper[F, Globa
     txHasher: Hasher[F],
     hasher: Hasher[F]
   ): F[GlobalData] = {
-    val GlobalSnapshotWithState(globalSnapshot, maybePrevSnapshotInfo, snapshotInfo, _, ts, _) =
+    val GlobalSnapshotWithState(globalSnapshot, maybePrevSnapshotInfo, snapshotInfo, _, ts) =
       globalSnapshotWithState
     for {
       snapshot <- mapSnapshot(globalSnapshot, timestamp, hasher)
@@ -152,9 +152,7 @@ abstract class GlobalSnapshotMapper[F[_]: Async] extends SnapshotMapper[F, Globa
         (pendingWithdrawal.createdAt |+| sharedCfg.delegatedStaking.withdrawalTimeLimit(
           sharedCfg.environment
         )).value.value,
-        isCompleted,
-        pendingWithdrawal.currentTokenLockRef.map(_.value),
-        pendingWithdrawal.currentAmount.map(_.value)
+        isCompleted
       )
     }
 
@@ -198,14 +196,12 @@ abstract class GlobalSnapshotMapper[F[_]: Async] extends SnapshotMapper[F, Globa
       dsr.createdAt.value,
       dsr.event.source.value,
       dsr.event.nodeId.value.value,
-      dsr.amount.value,
+      dsr.event.amount.value,
       dsr.event.fee.value,
       dsr.rewards.value,
-      dsr.tokenLockRef.value,
+      dsr.event.tokenLockRef.value,
       dsr.event.parent.hash.value,
       fromHash.map(_.value),
-      dsr.currentTokenLockRef.map(_.value),
-      dsr.currentAmount.map(_.value)
     )
 
   def activeHashedDelegatedStakes(
@@ -225,7 +221,7 @@ abstract class GlobalSnapshotMapper[F[_]: Async] extends SnapshotMapper[F, Globa
     maybePrevSnapshotInfo.toSeq
       .flatTraverse(s =>
         flatten(s.activeDelegatedStakes).traverse { case (_, dsr) =>
-          dsr.event.toHashed.map(hashed => dsr.event.tokenLockRef -> (hashed.hash, dsr.currentTokenLockRef))
+          dsr.event.toHashed.map(hashed => dsr.event.tokenLockRef -> hashed.hash)
         }
       )
       .map { prevActiveTokenLocks =>
@@ -233,8 +229,8 @@ abstract class GlobalSnapshotMapper[F[_]: Async] extends SnapshotMapper[F, Globa
         activeDelegatedStakes.mapFilter { case (dsr, ev) => // keep only the new or the updated
           prevActiveTokenLocksMap.get(dsr.event.tokenLockRef) match {
             case None => Some((dsr, ev, None)) // new stake
-            case Some((oldStakeHash, oldCurrentTokenLockRef)) =>
-              if (oldStakeHash == ev.hash && oldCurrentTokenLockRef == dsr.currentTokenLockRef)
+            case Some(oldStakeHash) =>
+              if (oldStakeHash == ev.hash)
                 None // active staking already included
               else {
                 Some(dsr, ev, Some(oldStakeHash))
@@ -278,7 +274,7 @@ abstract class GlobalSnapshotMapper[F[_]: Async] extends SnapshotMapper[F, Globa
     snapshot.spendActions.toList.flatTraverse(_.toList.flatTraverse(_._2.flatTraverse(_.spendTransactions.toList.traverse(mapSpendTx(snapshot.hash)))))
   }
 
-  def mapTokenLock(snapshotHash: Hash, roundId: RoundId, hasher: Hasher[F])(
+  private def mapTokenLock(snapshotHash: Hash, roundId: RoundId, hasher: Hasher[F])(
     tl: Signed[tokenLock.TokenLock]
   ): F[TokenLock] = {
     implicit val hs: Hasher[F] = hasher
@@ -292,8 +288,7 @@ abstract class GlobalSnapshotMapper[F[_]: Async] extends SnapshotMapper[F, Globa
         tokenLock.unlockEpoch.map(_.value.value),
         tokenLock.ordinal.value,
         roundId.value,
-        tokenLock.parent.hash.value,
-        tokenLock.replaceTokenLockRef.map(_.value)
+        tokenLock.parent.hash.value
       )
     }
   }

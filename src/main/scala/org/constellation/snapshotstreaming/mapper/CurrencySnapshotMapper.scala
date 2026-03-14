@@ -64,7 +64,7 @@ object CurrencySnapshotMapper {
         hasher: Hasher[F]
       ): F[CurrencySnapshotMapperResult] = {
 
-        val GlobalSnapshotWithState(_, maybePrevLastSnapshots, _, currencySnapshots, _, _) =
+        val GlobalSnapshotWithState(_, maybePrevLastSnapshots, _, currencySnapshots, _) =
           globalSnapshotWithState
 
         val maybeLastSnapshots = maybePrevLastSnapshots.map(_.lastCurrencySnapshots)

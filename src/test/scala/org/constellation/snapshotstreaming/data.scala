@@ -29,7 +29,6 @@ import cats.effect.Async
 import io.constellationnetwork.currency.schema.currency.CurrencyIncrementalSnapshot
 import io.constellationnetwork.currency.schema.currency.CurrencySnapshotInfo
 import io.constellationnetwork.currency.dataApplication.FeeTransaction
-import io.constellationnetwork.json.JsonSerializer
 import io.constellationnetwork.kryo.KryoSerializer
 import io.constellationnetwork.schema.address.Address
 import io.constellationnetwork.schema.balance.Amount
@@ -55,19 +54,18 @@ object data {
     def select(ordinal: SnapshotOrdinal): HashLogic = JsonHash
   }
 
-  def incrementalGlobalSnapshot[F[_]: Parallel: Async: HasherSelector: JsonSerializer](
-    ordinal: NonNegLong,
-    height: NonNegLong,
-    subHeight: NonNegLong,
-    lastSnapshot: Hash,
-    hash: Hash,
-    globalSnapshotInfo: GlobalSnapshotInfo = GlobalSnapshotInfo.empty,
-    blocks: SortedSet[BlockAsActiveTip] = SortedSet.empty,
-    rewards: SortedSet[RewardTransaction] = SortedSet.empty
-  ): F[Hashed[GlobalIncrementalSnapshot]] = {
+  def incrementalGlobalSnapshot[F[_]: Parallel: Sync: HasherSelector](
+                                                                       ordinal: NonNegLong,
+                                                                       height: NonNegLong,
+                                                                       subHeight: NonNegLong,
+                                                                       lastSnapshot: Hash,
+                                                                       hash: Hash,
+                                                                       globalSnapshotInfo: GlobalSnapshotInfo = GlobalSnapshotInfo.empty,
+                                                                       blocks: SortedSet[BlockAsActiveTip] = SortedSet.empty,
+                                                                       rewards: SortedSet[RewardTransaction] = SortedSet.empty
+                                                                     ): F[Hashed[GlobalIncrementalSnapshot]] = {
     implicit val hasher = HasherSelector[F].getCurrent
-    implicit val gsps: GlobalStateProofSelector =
-      GlobalStateProofSelector(SnapshotOrdinal.MinValue)
+
     globalSnapshotInfo.stateProof(SnapshotOrdinal(ordinal)).map { sp =>
       Hashed(
         Signed(
@@ -111,11 +109,11 @@ object data {
     addresses.map(address => address -> Balance(1000L)).toMap.toSortedMap
 
   def applyTransactions(
-    balances: SortedMap[Address, Balance],
-    txs: List[Signed[Transaction]],
-    rewards: List[RewardTransaction],
-    feeTxs: List[Signed[FeeTransaction]]
-  ): SortedMap[Address, Balance] = {
+                         balances: SortedMap[Address, Balance],
+                         txs: List[Signed[Transaction]],
+                         rewards: List[RewardTransaction],
+                         feeTxs: List[Signed[FeeTransaction]]
+                       ): SortedMap[Address, Balance] = {
     val txApplied = txs.foldLeft(balances.view.mapValues(_.value.toLong).toMap) { case (acc, tx) =>
       acc
         .updatedWith(tx.source)(existing => (existing.getOrElse(0L) - tx.amount.value).some)
@@ -142,9 +140,9 @@ object data {
     addresses.map(address => RewardTransaction(address, TransactionAmount(1000L))).toSortedSet
 
   def createBlocksWithTransactions[F[_]: Async: KryoSerializer: HasherSelector: SecurityProvider](
-    keyToSign: KeyPair,
-    transactionsForBlock: NonEmptySet[Signed[Transaction]]*
-  ) = {
+                                                                                                   keyToSign: KeyPair,
+                                                                                                   transactionsForBlock: NonEmptySet[Signed[Transaction]]*
+                                                                                                 ) = {
     implicit val hasher: Hasher[F] = HasherSelector[F].getCurrent
     val parent = BlockReference(Height(4L), ProofsHash("parent"))
     transactionsForBlock
@@ -157,11 +155,11 @@ object data {
   }
 
   def createTxn[F[_]: Async: KryoSerializer: HasherSelector: SecurityProvider](
-    src: Address,
-    srcKey: KeyPair,
-    dst: Address,
-    amount: TransactionAmount = TransactionAmount(1L)
-  ): F[Signed[Transaction]] = {
+                                                                                src: Address,
+                                                                                srcKey: KeyPair,
+                                                                                dst: Address,
+                                                                                amount: TransactionAmount = TransactionAmount(1L)
+                                                                              ): F[Signed[Transaction]] = {
     implicit val hasher: Hasher[F] = HasherSelector[F].getCurrent
 
     forAsyncHasher[F, Transaction](
@@ -178,10 +176,10 @@ object data {
   }
 
   def createFeeTxn[F[_]: Async: KryoSerializer: HasherSelector: SecurityProvider](
-    src: Address,
-    srcKey: KeyPair,
-    dst: Address
-  ): F[Signed[FeeTransaction]] = {
+                                                                                   src: Address,
+                                                                                   srcKey: KeyPair,
+                                                                                   dst: Address
+                                                                                 ): F[Signed[FeeTransaction]] = {
     implicit val hasher: Hasher[F] = HasherSelector[F].getCurrent
 
     forAsyncHasher[F, FeeTransaction](
@@ -195,20 +193,19 @@ object data {
     )
   }
 
-  def incrementalCurrencySnapshot[F[_]: Parallel: Async: HasherSelector: JsonSerializer](
-    ordinal: NonNegLong,
-    height: NonNegLong,
-    subHeight: NonNegLong,
-    lastSnapshot: Hash,
-    hash: Hash,
-    currencySnapshotInfo: CurrencySnapshotInfo = emptyCurrencySnapshotInfo,
-    blocks: SortedSet[BlockAsActiveTip] = SortedSet.empty,
-    rewards: SortedSet[RewardTransaction] = SortedSet.empty,
-    feeTransactions: Option[SortedSet[Signed[FeeTransaction]]] = None
-  ): F[Hashed[CurrencyIncrementalSnapshot]] = {
+  def incrementalCurrencySnapshot[F[_]: Parallel: Sync: HasherSelector](
+                                                                         ordinal: NonNegLong,
+                                                                         height: NonNegLong,
+                                                                         subHeight: NonNegLong,
+                                                                         lastSnapshot: Hash,
+                                                                         hash: Hash,
+                                                                         currencySnapshotInfo: CurrencySnapshotInfo = emptyCurrencySnapshotInfo,
+                                                                         blocks: SortedSet[BlockAsActiveTip] = SortedSet.empty,
+                                                                         rewards: SortedSet[RewardTransaction] = SortedSet.empty,
+                                                                         feeTransactions: Option[SortedSet[Signed[FeeTransaction]]] = None
+                                                                       ): F[Hashed[CurrencyIncrementalSnapshot]] = {
     implicit val hasher = HasherSelector[F].getCurrent
-    implicit val gsps: GlobalStateProofSelector =
-      GlobalStateProofSelector(SnapshotOrdinal.MinValue)
+
     currencySnapshotInfo.stateProof(SnapshotOrdinal(ordinal)).map { sp =>
       Hashed(
         Signed(

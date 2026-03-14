@@ -24,63 +24,31 @@ import org.constellation.snapshotstreaming.data.incrementalGlobalSnapshot
 import weaver.MutableIOSuite
 import io.constellationnetwork.security.Hasher
 import io.constellationnetwork.json.JsonSerializer
-import io.constellationnetwork.schema.mpt.{GlobalStateKey, MptStore}
-import io.constellationnetwork.schema.mpt.GlobalStateConverter.syntax.GlobalSnapshotInfoMptOps
 import io.constellationnetwork.security.HasherSelector
-import io.constellationnetwork.security.mpt.producer.InMemoryMerklePatriciaProducer
 import org.constellation.snapshotstreaming.schema.kryoRegistrar
 
 object FileBasedLastGlobalIncrementalSnapshotStorageSuite extends MutableIOSuite {
 
-  type Res = (KryoSerializer[IO], HasherSelector[IO], JsonSerializer[IO])
-  type StorageWithMptStore = (LastSnapshotStorage[IO, GlobalIncrementalSnapshot, GlobalSnapshotInfo], MptStore[IO, GlobalStateKey])
+  type Res = (KryoSerializer[IO], HasherSelector[IO])
 
   override def sharedResource: Resource[IO, Res] =
     KryoSerializer.forAsync[IO](sharedKryoRegistrar ++ kryoRegistrar).flatMap { implicit ks =>
-      JsonSerializer.forAsync[IO].asResource.map { implicit jsonSerializer =>
-        (ks, HasherSelector.forSync[IO](Hasher.forJson[IO], Hasher.forKryo[IO], hashSelect), jsonSerializer)
+      JsonSerializer.forSync[IO].asResource.map { implicit jsonSerializer =>
+        (ks, HasherSelector.forSync[IO](Hasher.forJson[IO], Hasher.forKryo[IO], hashSelect))
       }
     }
 
   def fileBasedStorage(implicit
-                       ks: KryoSerializer[IO],
-                       h: HasherSelector[IO]
-  ): Resource[IO, StorageWithMptStore] = {
+    ks: KryoSerializer[IO],
+    h: HasherSelector[IO]
+  ): Resource[IO, LastSnapshotStorage[IO, GlobalIncrementalSnapshot, GlobalSnapshotInfo]] =
     Random.scalaUtilRandom.asResource.flatMap { rnd =>
-      Resource.eval(rnd.nextLong).map(l => Path(l.toString)).flatMap { path =>
-        implicit val gsps: GlobalStateProofSelector =
-          GlobalStateProofSelector(SnapshotOrdinal.MinValue)
-        implicit val hasher: Hasher[IO] = HasherSelector[IO].getCurrent
-        JsonSerializer.forAsync[IO].asResource.flatMap { implicit js =>
-          Resource.eval(InMemoryMerklePatriciaProducer.make[IO]()).flatMap { mptProducer =>
-            Resource.eval(MptStore.make[IO, GlobalStateKey](
-              mptProducer,
-              GlobalStateKey.toHex[IO]
-            )).flatMap { mptStore =>
-            Resource.make(
-              FileBasedLastGlobalIncrementalSnapshotStorage.make(path, mptStore).map(storage => (storage, mptStore))
-            )(_ => Files[IO].deleteIfExists(path).as(()))
-            }
-          }
-        }
+      rnd.nextLong.asResource.map(l => Path(l.toString)).flatMap { path =>
+        Resource.make(
+          FileBasedLastGlobalIncrementalSnapshotStorage.make(path)
+        )(_ => Files[IO].deleteIfExists(path).as(()))
       }
     }
-  }
-
-  /** Initialize the MPT store with state entries */
-  private def initMptStore(
-    mptStore: MptStore[IO, GlobalStateKey],
-    state: GlobalSnapshotInfo,
-    ordinal: SnapshotOrdinal
-  )(implicit h: HasherSelector[IO], js: JsonSerializer[IO]): IO[Unit] = {
-    implicit val gsps: GlobalStateProofSelector = GlobalStateProofSelector(SnapshotOrdinal.MinValue)
-    h.withCurrent { implicit hasher =>
-      state.allStateEntries[IO]
-    }.flatMap { kvPairs =>
-      mptStore.syncFull(kvPairs, ordinal)
-    }
-  }
-
 
   private val address = Address("DAG2AUdecqFwEGcgAcH1ac2wrsg8acrgGwrQojzw")
 
@@ -104,34 +72,33 @@ object FileBasedLastGlobalIncrementalSnapshotStorageSuite extends MutableIOSuite
     None
   )
 
-  private def mkInitialSnapshot()(implicit ks: KryoSerializer[IO], h: HasherSelector[IO], jsonSerializer: JsonSerializer[IO]) =
+  private def mkInitialSnapshot()(implicit ks: KryoSerializer[IO], h: HasherSelector[IO]) =
     incrementalGlobalSnapshot[IO](100L, 10L, 20L, Hash("abc"), Hash("def"), snapshotInfo)
 
   test("get should return None before initial snapshot is set") { res =>
-    implicit val (ks, h, js) = res
+    implicit val (ks, h) = res
 
-    fileBasedStorage.use { case (storage, _) =>
+    fileBasedStorage.use { storage =>
       storage.get
         .map(expect.same(None, _))
     }
   }
 
   test("getCombined should return None before initial snapshot is set") { res =>
-    implicit val (ks, h, js) = res
+    implicit val (ks, h) = res
 
-    fileBasedStorage.use { case (storage, _) =>
+    fileBasedStorage.use { storage =>
       storage.get
         .map(expect.same(None, _))
     }
   }
 
   test("get should return last snapshot after it's set") { res =>
-    implicit val (ks, h, js) = res
+    implicit val (ks, h) = res
 
-    fileBasedStorage.use { case (storage, mptStore) =>
+    fileBasedStorage.use { storage =>
       mkInitialSnapshot().flatMap { initial =>
-        initMptStore(mptStore, snapshotInfo, initial.ordinal) >>
-          storage.setInitial(initial, snapshotInfo) >>
+        storage.setInitial(initial, snapshotInfo) >>
           storage.get
             .map(expect.same(Some(initial), _))
       }
@@ -139,12 +106,11 @@ object FileBasedLastGlobalIncrementalSnapshotStorageSuite extends MutableIOSuite
   }
 
   test("getCombined should return last snapshot after it's set") { res =>
-    implicit val (ks, h, js) = res
+    implicit val (ks, h) = res
 
-    fileBasedStorage.use { case (storage, mptStore) =>
+    fileBasedStorage.use { storage =>
       mkInitialSnapshot().flatMap { initial =>
-        initMptStore(mptStore, snapshotInfo, initial.ordinal) >>
-          storage.setInitial(initial, snapshotInfo) >>
+        storage.setInitial(initial, snapshotInfo) >>
           storage.getCombined
             .map(expect.same(Some((initial, snapshotInfo)), _))
       }
@@ -152,21 +118,20 @@ object FileBasedLastGlobalIncrementalSnapshotStorageSuite extends MutableIOSuite
   }
 
   test("getOrdinal should return None before initial snapshot is set") { res =>
-    implicit val (ks, h, js) = res
+    implicit val (ks, h) = res
 
-    fileBasedStorage.use { case (storage, _) =>
+    fileBasedStorage.use { storage =>
       storage.getOrdinal
         .map(expect.same(None, _))
     }
   }
 
   test("getOrdinal should return last snapshot's ordinal after it's set") { res =>
-    implicit val (ks, h, js) = res
+    implicit val (ks, h) = res
 
-    fileBasedStorage.use { case (storage, mptStore) =>
+    fileBasedStorage.use { storage =>
       mkInitialSnapshot().flatMap { initial =>
-        initMptStore(mptStore, snapshotInfo, initial.ordinal) >>
-          storage.setInitial(initial, snapshotInfo) >>
+        storage.setInitial(initial, snapshotInfo) >>
           storage.getOrdinal
             .map(expect.same(SnapshotOrdinal(100L), _))
       }
@@ -174,80 +139,81 @@ object FileBasedLastGlobalIncrementalSnapshotStorageSuite extends MutableIOSuite
   }
 
   test("getHeight should return None before initial snapshot is set") { res =>
-    implicit val (ks, h, js) = res
+    implicit val (ks, h) = res
 
-    fileBasedStorage.use { case (storage, _) =>
+    fileBasedStorage.use { storage =>
       storage.getHeight
         .map(expect.same(None, _))
     }
   }
 
   test("getHeight should return last snapshot's height after it's set") { res =>
-    implicit val (ks, h, js) = res
+    implicit val (ks, h) = res
 
-    fileBasedStorage.use { case (storage, mptStore) =>
+    fileBasedStorage.use { storage =>
       mkInitialSnapshot.flatMap { initial =>
-        initMptStore(mptStore, snapshotInfo, initial.ordinal) >>
-          storage.setInitial(initial, snapshotInfo) >>
+        storage.setInitial(initial, snapshotInfo) >>
           storage.getHeight
             .map(expect.same(Height(10L).some, _))
       }
     }
   }
 
-  test("set should call setInitial when no initial snapshot exists") { res =>
-    implicit val (ks, h, js) = res
+  test("set should fail when we try to set snapshot before the initial snapshot is set") { res =>
+    implicit val (ks, h) = res
 
-    fileBasedStorage.use { case (storage, mptStore) =>
+    fileBasedStorage.use { storage =>
       mkInitialSnapshot.flatMap { initial =>
-        initMptStore(mptStore, snapshotInfo, initial.ordinal) >>
-          storage
-            .set(initial, snapshotInfo)
-            .map(expect.same((), _))
+        storage
+          .set(initial, snapshotInfo)
+          .map(_ => none[Throwable])
+          .handleError(_.some)
+          .map(maybeError => verify(maybeError.isDefined, maybeError.fold("none")(_.getMessage)))
       }
     }
   }
 
-  test("set should succeed even when ordinal is not sequential (no validation)") { res =>
-    implicit val (ks, h, js) = res
+  test("set should fail when we try to set a snapshot that's not the next one") { res =>
+    implicit val (ks, h) = res
 
-    fileBasedStorage.use { case (storage, mptStore) =>
+    fileBasedStorage.use { storage =>
       mkInitialSnapshot.flatMap { initial =>
         incrementalGlobalSnapshot[IO](102L, 10L, 22L, Hash("ghi"), Hash("jkl"), snapshotInfo).flatMap { nextWrong =>
-          initMptStore(mptStore, snapshotInfo, initial.ordinal) >>
-            storage.setInitial(initial, snapshotInfo) >>
+          storage.setInitial(initial, snapshotInfo) >>
             storage
               .set(nextWrong, snapshotInfo)
-              .map(expect.same((), _))
+              .map(_ => none[Throwable])
+              .handleError(_.some)
+              .map(maybeError => verify(maybeError.isDefined, maybeError.fold("none")(_.getMessage)))
         }
       }
     }
   }
 
-  test("set should succeed even with different state (no state validation in set)") { res =>
-    implicit val (ks, h, js) = res
+  test("set should fail when we try to set a snapshot with not matching state") { res =>
+    implicit val (ks, h) = res
 
-    fileBasedStorage.use { case (storage, mptStore) =>
+    fileBasedStorage.use { storage =>
       mkInitialSnapshot.flatMap { initial =>
         incrementalGlobalSnapshot[IO](101L, 10L, 21L, Hash("def"), Hash("ghi"), snapshotInfo).flatMap { nextCorrect =>
-          initMptStore(mptStore, snapshotInfo, initial.ordinal) >>
-            storage.setInitial(initial, snapshotInfo) >>
+          storage.setInitial(initial, snapshotInfo) >>
             storage
               .set(nextCorrect, GlobalSnapshotInfo.empty)
-              .map(expect.same((), _))
+              .map(_ => none[Throwable])
+              .handleError(_.some)
+              .map(maybeError => verify(maybeError.isDefined, maybeError.fold("none")(_.getMessage)))
         }
       }
     }
   }
 
   test("set should successfully set a snapshot if it is the next one") { res =>
-    implicit val (ks, h, js) = res
+    implicit val (ks, h) = res
 
-    fileBasedStorage.use { case (storage, mptStore) =>
+    fileBasedStorage.use { storage =>
       mkInitialSnapshot.flatMap { initial =>
         incrementalGlobalSnapshot[IO](101L, 10L, 21L, Hash("def"), Hash("ghi"), snapshotInfo).flatMap { nextCorrect =>
-          initMptStore(mptStore, snapshotInfo, initial.ordinal) >>
-            storage.setInitial(initial, snapshotInfo) >>
+          storage.setInitial(initial, snapshotInfo) >>
             storage
               .set(nextCorrect, snapshotInfo)
               .map(expect.same((), _))
@@ -257,12 +223,11 @@ object FileBasedLastGlobalIncrementalSnapshotStorageSuite extends MutableIOSuite
   }
 
   test("setInitial should fail if the initial snapshot already exists") { res =>
-    implicit val (ks, h, js) = res
+    implicit val (ks, h) = res
 
-    fileBasedStorage.use { case (storage, mptStore) =>
+    fileBasedStorage.use { storage =>
       mkInitialSnapshot.flatMap { initial =>
-        initMptStore(mptStore, snapshotInfo, initial.ordinal) >>
-          storage.setInitial(initial, snapshotInfo) >>
+        storage.setInitial(initial, snapshotInfo) >>
           storage
             .setInitial(initial, snapshotInfo)
             .map(_ => none[Throwable])
@@ -273,29 +238,27 @@ object FileBasedLastGlobalIncrementalSnapshotStorageSuite extends MutableIOSuite
   }
 
   test("setInitial should fail when we try to set initial snapshot with not matching state") { res =>
-    implicit val (ks, h, js) = res
+    implicit val (ks, h) = res
 
-    fileBasedStorage.use { case (storage, mptStore) =>
+    fileBasedStorage.use { storage =>
       mkInitialSnapshot.flatMap { initial =>
-        initMptStore(mptStore, snapshotInfo, initial.ordinal) >>
-          storage
-            .setInitial(initial, GlobalSnapshotInfo.empty)
-            .map(_ => none[Throwable])
-            .handleError(_.some)
-            .map(maybeError => verify(maybeError.isDefined, maybeError.fold("none")(_.getMessage)))
+        storage
+          .setInitial(initial, GlobalSnapshotInfo.empty)
+          .map(_ => none[Throwable])
+          .handleError(_.some)
+          .map(maybeError => verify(maybeError.isDefined, maybeError.fold("none")(_.getMessage)))
       }
     }
   }
 
   test("setInitial should successfully set initial snapshot if it not yet exists") { res =>
-    implicit val (ks, h, js) = res
+    implicit val (ks, h) = res
 
-    fileBasedStorage.use { case (storage, mptStore) =>
+    fileBasedStorage.use { storage =>
       mkInitialSnapshot.flatMap { initial =>
-        initMptStore(mptStore, snapshotInfo, initial.ordinal) >>
-          storage
-            .setInitial(initial, snapshotInfo)
-            .map(expect.same((), _))
+        storage
+          .setInitial(initial, snapshotInfo)
+          .map(expect.same((), _))
       }
     }
   }
