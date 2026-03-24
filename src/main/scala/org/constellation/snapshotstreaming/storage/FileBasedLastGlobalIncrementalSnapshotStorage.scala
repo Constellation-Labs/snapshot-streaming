@@ -117,6 +117,12 @@ object FileBasedLastGlobalIncrementalSnapshotStorage {
 
       def getHeight: F[Option[Height]] = get.map(_.map(_.height))
 
+      def setForRecovery(snapshot: Hashed[GlobalIncrementalSnapshot], state: GlobalSnapshotInfo): F[Unit] =
+        set(snapshot, state)
+
+      def clear: F[Unit] =
+        cachedSnapshot.set(None)
+
     }
 
 }
