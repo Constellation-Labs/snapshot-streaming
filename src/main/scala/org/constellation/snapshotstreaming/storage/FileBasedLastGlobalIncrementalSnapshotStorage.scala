@@ -115,6 +115,14 @@ object FileBasedLastGlobalIncrementalSnapshotStorage {
 
       def getOrdinal: F[Option[SnapshotOrdinal]] = get.map(_.map(_.ordinal))
 
+      def setForRecovery(snapshot: Hashed[GlobalIncrementalSnapshot], state: GlobalSnapshotInfo): F[Unit] =
+        logger.info(s"[FileBasedLastGlobalIncrementalSnapshotStorage] Recovery reset at ordinal=${snapshot.ordinal}") >>
+          set(snapshot, state)
+
+      def clear: F[Unit] =
+        logger.info("[FileBasedLastGlobalIncrementalSnapshotStorage] Clearing for recovery download") >>
+          cachedSnapshot.set(None)
+
       def getHeight: F[Option[Height]] = get.map(_.map(_.height))
 
       def setForRecovery(snapshot: Hashed[GlobalIncrementalSnapshot], state: GlobalSnapshotInfo): F[Unit] = {
