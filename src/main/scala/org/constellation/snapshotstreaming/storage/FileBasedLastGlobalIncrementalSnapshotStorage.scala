@@ -117,11 +117,20 @@ object FileBasedLastGlobalIncrementalSnapshotStorage {
 
       def getHeight: F[Option[Height]] = get.map(_.map(_.height))
 
-      def setForRecovery(snapshot: Hashed[GlobalIncrementalSnapshot], state: GlobalSnapshotInfo): F[Unit] =
-        set(snapshot, state)
+      def setForRecovery(snapshot: Hashed[GlobalIncrementalSnapshot], state: GlobalSnapshotInfo): F[Unit] = {
+        val snapshotWithState = SnapshotWithState(snapshot, state)
+        saveSnapshotWithStateJson(path, snapshotWithState) >> cachedSnapshot.set(Some(snapshotWithState))
+      }
 
-      def clear: F[Unit] =
-        cachedSnapshot.set(None)
+      def clear: F[Unit] = {
+        val backupPath = Path(path.toString + ".bk")
+        val deleteFile = (p: Path) =>
+          Files[F].deleteIfExists(p).void.handleErrorWith {
+            case _: java.nio.file.NoSuchFileException => Async[F].unit
+            case e                                    => Async[F].raiseError(e)
+          }
+        cachedSnapshot.set(None) >> deleteFile(path) >> deleteFile(backupPath)
+      }
 
     }
 
