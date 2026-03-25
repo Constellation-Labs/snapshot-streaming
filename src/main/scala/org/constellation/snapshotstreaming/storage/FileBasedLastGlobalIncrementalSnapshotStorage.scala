@@ -115,6 +115,7 @@ object FileBasedLastGlobalIncrementalSnapshotStorage {
 
       def getOrdinal: F[Option[SnapshotOrdinal]] = get.map(_.map(_.ordinal))
 
+      def getHeight: F[Option[Height]] = get.map(_.map(_.height))
 
       def setForRecovery(snapshot: Hashed[GlobalIncrementalSnapshot], state: GlobalSnapshotInfo): F[Unit] = {
         val snapshotWithState = SnapshotWithState(snapshot, state)
