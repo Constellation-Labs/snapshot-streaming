@@ -35,7 +35,16 @@ final case class DbConfig(
 )
 
 final case class S3ApiConfig(endpoint: Option[String], region: Option[String], pathStyleEnabled: Option[Boolean])
-final case class S3Config(bucketRegion: String, bucketName: String, bucketDir: String, api: S3ApiConfig, uploadEnabled: Boolean)
+final case class S3Config(
+  bucketRegion: String,
+  bucketName: String,
+  bucketDir: String,
+  api: S3ApiConfig,
+  uploadEnabled: Boolean,
+  uploadStateEnabled: Boolean,
+  uploadCombinedEnabled: Boolean,
+  retentionCount: Int
+)
 
 final case class OpenSearchConfig(uri: Uri, bulkSize: Int, indexes: IndexesConfig)
 

@@ -150,10 +150,34 @@ object SnapshotProcessor {
             .handleErrorWith(s => logger.error(s)("Error in database layer") >> s.raiseError[F, Unit])
       }
 
-    private def storeInS3(globalSnapshotWithState: GlobalSnapshotWithState, hasher: Hasher[F]) =
-      s3DAO
-        .uploadSnapshot(globalSnapshotWithState.snapshot, hasher.getLogic(globalSnapshotWithState.snapshot.ordinal))
-        .void
+    private def storeInS3(globalSnapshotWithState: GlobalSnapshotWithState, hasher: Hasher[F]): F[Unit] = {
+      val s3Cfg = configuration.s3
+      val snapshot = globalSnapshotWithState.snapshot
+      val state = globalSnapshotWithState.snapshotInfo
+      val ordinal = snapshot.ordinal
+      val retention = s3Cfg.retentionCount.toLong
+      val expireOrdinal: Option[SnapshotOrdinal] =
+        if (retention > 0L && ordinal.value.value > retention) SnapshotOrdinal(ordinal.value.value - retention)
+        else None
+
+      val uploadSnapshotF = s3DAO
+        .uploadSnapshot(snapshot, hasher.getLogic(ordinal))
+        .whenA(s3Cfg.uploadEnabled)
+      val uploadStateF = s3DAO.uploadState(snapshot, state).whenA(s3Cfg.uploadStateEnabled)
+      val uploadCombinedF = s3DAO
+        .uploadCombined(SnapshotWithState(snapshot, state))
+        .whenA(s3Cfg.uploadCombinedEnabled)
+
+      val pruneStateF = expireOrdinal
+        .traverse_(s3DAO.pruneStatesAtOrdinal)
+        .whenA(s3Cfg.uploadStateEnabled)
+      val pruneCombinedF = expireOrdinal
+        .traverse_(s3DAO.pruneCombinedAtOrdinal)
+        .whenA(s3Cfg.uploadCombinedEnabled)
+
+      (uploadSnapshotF, uploadStateF, uploadCombinedF).parTupled.void >>
+        (pruneStateF, pruneCombinedF).parTupled.void
+    }
 
     private def splitData(globalSnapshotWithState: GlobalSnapshotWithState, d: LocalDateTime, hasher: Hasher[F]) = (
       globalMapper.mapGlobalSnapshot(globalSnapshotWithState, d, txHasher, hasher),
@@ -161,7 +185,7 @@ object SnapshotProcessor {
     ).tupled
 
     private def store(globalSnapshotWithState: GlobalSnapshotWithState, hasher: Hasher[F]): F[Unit] =
-      storeInS3(globalSnapshotWithState, hasher).whenA(configuration.s3.uploadEnabled) >> Clock[F].realTime.map { d =>
+      storeInS3(globalSnapshotWithState, hasher) >> Clock[F].realTime.map { d =>
           val instant = Instant.ofEpochMilli(d.toMillis)
           LocalDateTime.ofInstant(instant, ZoneId.systemDefault())
         }.flatMap(splitData(globalSnapshotWithState, _, hasher))
