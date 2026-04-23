@@ -171,9 +171,11 @@ object SnapshotProcessor {
       val pruneStateF = expireOrdinal
         .traverse_(s3DAO.pruneStatesAtOrdinal)
         .whenA(s3Cfg.uploadStateEnabled)
+        .handleErrorWith(e => logger.warn(e)("S3 state prune failed; continuing."))
       val pruneCombinedF = expireOrdinal
         .traverse_(s3DAO.pruneCombinedAtOrdinal)
         .whenA(s3Cfg.uploadCombinedEnabled)
+        .handleErrorWith(e => logger.warn(e)("S3 combined prune failed; continuing."))
 
       (uploadSnapshotF, uploadStateF, uploadCombinedF).parTupled.void >>
         (pruneStateF, pruneCombinedF).parTupled.void
