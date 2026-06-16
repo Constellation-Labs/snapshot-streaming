@@ -92,9 +92,10 @@ object SnapshotDAO {
         ordinal,
         block_hash,
         snapshot_hash,
+        snapshot_ordinal,
         transaction_original,
         created_at
-      ) VALUES ($varchar, $varchar, $varchar, $int8, $int8, $int8, $int8, $varchar, $int8, $varchar, $varchar, $jsonb, $timestamp)
+      ) VALUES ($varchar, $varchar, $varchar, $int8, $int8, $int8, $int8, $varchar, $int8, $varchar, $varchar, $int8, $jsonb, $timestamp)
       ON CONFLICT (hash) DO NOTHING;
     """.command.contramap { tx: STransaction =>
       (
@@ -109,6 +110,7 @@ object SnapshotDAO {
         tx.ordinal,
         tx.blockHash,
         tx.snapshotHash,
+        tx.snapshotOrdinal,
         tx.transactionOriginal,
         tx.timestamp
       )
