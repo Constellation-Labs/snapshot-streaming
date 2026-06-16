@@ -90,7 +90,7 @@ object data {
             artifacts = None,
             activeDelegatedStakes = None,
             delegatedStakesWithdrawals = None,
-            delegateRewards = SortedMap.empty[PeerId, Map[Address, Amount]].some,
+            delegateRewards = SortedMap.empty[PeerId, SortedMap[Address, Amount]].some,
             activeNodeCollaterals = None,
             nodeCollateralWithdrawals = None,
           ),

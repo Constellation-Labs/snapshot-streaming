@@ -116,7 +116,6 @@ object Configuration {
       c.priorityPeerIds.get(env),
       c.snapshot.size,
       c.feeConfigs.get(env).map(SortedMap.from(_)).getOrElse(SortedMap.empty),
-      c.forkInfoStorage,
       c.lastKryoHashOrdinal,
       c.lastLegacyStateProofOrdinal,
       c.incrementalDelegatedStakingStartingOrdinal,
@@ -131,7 +130,6 @@ object Configuration {
       c.priceOracle.getOrElse(env, PriceOracleConfig.default),
       c.snapshotBinarySenderTimeouts,
       c.snapshot.timeouts,
-      c.combinedRouteRateLimiter,
       c.clickHouseConfig,
       c.snapshot.mptSnapshotInfoPath
     )
