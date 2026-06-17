@@ -124,7 +124,9 @@ object TessellationServices {
             stateChannelManager,
             currencySnapshotContextFns,
             feeCalculator,
-            mptStore
+            mptStore,
+            configuration.fieldsAddedOrdinals,
+            env
           )
         val priceOracle = configuration.priceOracle.getOrElse(env, PriceOracleConfig.default)
         val globalSnapshotAcceptanceManager: GlobalSnapshotAcceptanceManager[F] = GlobalSnapshotAcceptanceManager.make(
