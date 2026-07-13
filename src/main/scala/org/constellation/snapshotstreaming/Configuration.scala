@@ -125,7 +125,6 @@ object Configuration {
       c.priorityPeerIds.get(env),
       c.snapshot.size,
       c.feeConfigs.get(env).map(SortedMap.from(_)).getOrElse(SortedMap.empty),
-      c.forkInfoStorage,
       c.lastKryoHashOrdinal,
       c.lastLegacyStateProofOrdinal,
       c.incrementalDelegatedStakingStartingOrdinal,
