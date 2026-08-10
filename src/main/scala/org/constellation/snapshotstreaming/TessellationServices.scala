@@ -107,7 +107,7 @@ object TessellationServices {
                 validationErrorStorage
               )
             val currencySnapshotValidator = CurrencySnapshotValidator
-              .make[F](tessellation3Migration, currencySnapshotCreator, SignedValidator.make[F], None, None)
+              .make[F](currencySnapshotCreator, SignedValidator.make[F], None, None)
             CurrencySnapshotContextFunctions.make(currencySnapshotValidator)
           }
         }
@@ -123,7 +123,10 @@ object TessellationServices {
             validators.stateChannelValidator,
             stateChannelManager,
             currencySnapshotContextFns,
-            feeCalculator
+            feeCalculator,
+            mptStore,
+            configuration.fieldsAddedOrdinals,
+            env
           )
         val priceOracle = configuration.priceOracle.getOrElse(env, PriceOracleConfig.default)
         val globalSnapshotAcceptanceManager: GlobalSnapshotAcceptanceManager[F] = GlobalSnapshotAcceptanceManager.make(

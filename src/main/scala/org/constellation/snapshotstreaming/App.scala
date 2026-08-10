@@ -31,8 +31,30 @@ object App extends IOApp {
             KryoSerializer.forAsync[IO](shared.sharedKryoRegistrar).use { implicit ks =>
               JsonSerializer.forAsync[IO].asResource.use { implicit jsonSerializer =>
                 val hashSelect = makeHashSelect(appConfig, sharedCfg)
+                // `subTrieRootsActivationOrdinal` MUST be passed. It defaults to MaxValue (sub-trie
+                // roots OFF), and `sub-trie-roots` is the only fields-added gate that changes the
+                // SIGNED GlobalSnapshotStateProof, which this indexer independently re-derives and
+                // validates. With gl0 signing roots ON and this selector OFF, every post-activation
+                // ordinal fails `StateProof Broken` on the sub-trie fields and nothing is indexed.
+                // Mirrors gl0's own construction in TessellationIOApp.
+                // Resolved into named vals so the values LOGGED are byte-identical to the values
+                // USED -- a diagnostic that recomputes them can disagree with the selector.
+                val ssEnv = appConfig.snapshotStreaming.environment
+                val lastLegacyOrd =
+                  sharedCfg.lastLegacyStateProofOrdinal.getOrElse(ssEnv, SnapshotOrdinal.MinValue)
+                val subTrieOrd =
+                  sharedCfg.fieldsAddedOrdinals.subTrieRoots.getOrElse(ssEnv, SnapshotOrdinal.MaxValue)
+                // println, not the IO logger: these are plain vals outside the IO chain, so an
+                // unsequenced logger.info would never run. stdout is captured by journald.
+                println(
+                  s"[STATE-PROOF-SELECTOR] env=$ssEnv " +
+                    s"lastLegacyStateProofOrdinal=${lastLegacyOrd.value.value} " +
+                    s"subTrieRootsActivationOrdinal=${subTrieOrd.value.value} " +
+                    s"subTrieRootsKeys=${sharedCfg.fieldsAddedOrdinals.subTrieRoots.keys.mkString(",")} " +
+                    s"lastLegacyKeys=${sharedCfg.lastLegacyStateProofOrdinal.keys.mkString(",")}"
+                )
                 implicit val gsps: GlobalStateProofSelector =
-                  GlobalStateProofSelector(sharedCfg.lastLegacyStateProofOrdinal.getOrElse(appConfig.snapshotStreaming.environment, SnapshotOrdinal.MinValue))
+                  GlobalStateProofSelector(lastLegacyOrd, subTrieOrd)
                 implicit val csps: CurrencyStateProofSelector = CurrencyStateProofSelector.instance
                 implicit val hasherSelector =
                   HasherSelector.forSync[IO](Hasher.forJson[IO], Hasher.forKryo[IO], hashSelect)

@@ -34,8 +34,16 @@ object AppS3 extends IOApp {
                 val hashSelect = makeHashSelect(appConfig, sharedCfg)
                 implicit val hasherSelector =
                   HasherSelector.forSync[IO](Hasher.forJson[IO], Hasher.forKryo[IO], hashSelect)
+                // Must pass `subTrieRootsActivationOrdinal` -- it defaults to MaxValue (OFF), and
+                // `sub-trie-roots` changes the SIGNED GlobalSnapshotStateProof this indexer
+                // re-derives. Kept identical to App.scala so the two entry points cannot drift.
                 implicit val gsps: GlobalStateProofSelector =
-                  GlobalStateProofSelector(sharedCfg.lastLegacyStateProofOrdinal.getOrElse(appConfig.snapshotStreaming.environment, SnapshotOrdinal.MinValue))
+                  GlobalStateProofSelector(
+                    sharedCfg.lastLegacyStateProofOrdinal
+                      .getOrElse(appConfig.snapshotStreaming.environment, SnapshotOrdinal.MinValue),
+                    sharedCfg.fieldsAddedOrdinals.subTrieRoots
+                      .getOrElse(appConfig.snapshotStreaming.environment, SnapshotOrdinal.MaxValue)
+                  )
                 implicit val csps: CurrencyStateProofSelector = CurrencyStateProofSelector.instance
                 val txHasher = Hasher.forKryo[IO]
 
