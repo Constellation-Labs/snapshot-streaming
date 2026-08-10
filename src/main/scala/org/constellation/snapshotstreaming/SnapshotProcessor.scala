@@ -22,13 +22,12 @@ import io.constellationnetwork.node.shared.http.p2p.clients.L0GlobalSnapshotClie
 import io.constellationnetwork.node.shared.infrastructure.cluster.storage.L0ClusterStorage
 import io.constellationnetwork.schema.SnapshotReference.{fromHashedSnapshot => getSnapshotReference}
 import io.constellationnetwork.schema.address.Address
-import io.constellationnetwork.schema.{CurrencyStateProofSelector, GlobalIncrementalSnapshot, GlobalSnapshot, GlobalSnapshotInfo, GlobalSnapshotInfoV2, GlobalSnapshotStateProof, GlobalStateProofSelector, SnapshotOrdinal}
+import io.constellationnetwork.schema.{CurrencyStateProofSelector, GlobalIncrementalSnapshot, GlobalSnapshot, GlobalSnapshotInfo, GlobalSnapshotInfoV2, GlobalStateProofSelector, SnapshotOrdinal}
 import io.constellationnetwork.security._
 import io.constellationnetwork.security.signature.Signed
 import io.constellationnetwork.statechannel.StateChannelSnapshotBinary
 import io.constellationnetwork.schema.mpt.GlobalStateConverter.syntax.GlobalSnapshotInfoMptOps
 import io.constellationnetwork.schema.mpt.{GlobalStateKey, MptStore}
-import io.constellationnetwork.security.hash.Hash
 import io.constellationnetwork.security.mpt.MptRoot
 import io.constellationnetwork.security.mpt.producer.FileSystemMerklePatriciaProducer
 import io.constellationnetwork.validator.StateProofValidator
@@ -210,30 +209,25 @@ object SnapshotProcessor {
               )
 
               result <- if( snapshot.ordinal > sharedConfigReader.lastLegacyStateProofOrdinal.getOrElse(configuration.environment, SnapshotOrdinal.MinValue)){
-                val stateProof = GlobalSnapshotStateProof
-                  .apply(
-                    Hash.empty,
-                    Hash.empty,
-                    Hash.empty,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    Some(mptRoot.value)
-                  )
-                logger.info(
-                  s"Validating mptProof for ordinal ${snapshot.ordinal.value.value}"
-                ) >>
-                StateProofValidator.validateProof(snapshot, stateProof)
+                // Use the SDK's assembly instead of hand-building the proof. This branch previously
+                // built an mptRoot-only literal (Hash.empty x3, None x13, Some(mptRoot)). That was
+                // correct while an MPT-format proof WAS mptRoot-only, but `sub-trie-roots` makes gl0
+                // sign per-field sub-trie roots in the otherwise-None fields, so the literal
+                // mismatches every post-activation ordinal on 16 of 17 fields (only mptRoot agreed)
+                // -> `StateProof Broken` chain-wide and 0 snapshots indexed.
+                //
+                // `assembleMptProof` is EXACTLY equivalent pre-activation -- its else-branch is that
+                // same literal. Post-activation it derives the sub-trie roots from `snapshotInfo`,
+                // honoring `GlobalStateProofSelector.subTrieRootsEnabled`. mptRoot still comes from
+                // the pre-built producer trie via `mptRoot`, unchanged.
+                GlobalSnapshotInfo
+                  .assembleMptProof[F](snapshotInfo, snapshot.ordinal, mptRoot.value)
+                  .flatMap { stateProof =>
+                    logger.info(
+                      s"Validating mptProof for ordinal ${snapshot.ordinal.value.value}"
+                    ) >>
+                      StateProofValidator.validateProof(snapshot, stateProof)
+                  }
               } else {
                 validator.validate(snapshot, snapshotInfo)
               }
