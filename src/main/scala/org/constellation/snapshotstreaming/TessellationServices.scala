@@ -41,6 +41,7 @@ object TessellationServices {
       _ <- Async[F].unit
       nodeConfig = Configuration.nodeSharedConfig(env, configuration)
       tessellation3Migration = configuration.fieldsAddedOrdinals.tessellation3Migration.getOrElse(env, SnapshotOrdinal.MinValue)
+      fixingAllowSpendDestinationCredit = configuration.fieldsAddedOrdinals.fixingAllowSpendDestinationCredit.getOrElse(env, SnapshotOrdinal.MinValue)
       txHasher = Hasher.forKryo
       validators = hasherSelector.withCurrent { implicit hasher =>
         SharedValidators.make[F](
@@ -96,7 +97,7 @@ object TessellationServices {
                 validationErrorStorage
               )
             val currencySnapshotValidator = CurrencySnapshotValidator
-              .make[F](tessellation3Migration, currencySnapshotCreator, SignedValidator.make[F], None, None)
+              .make[F](tessellation3Migration, currencySnapshotCreator, SignedValidator.make[F], None, None, fixingAllowSpendDestinationCredit)
             CurrencySnapshotContextFunctions.make(currencySnapshotValidator)
           }
         }
@@ -138,6 +139,7 @@ object TessellationServices {
           updateDelegatedStakeAcceptanceManager,
           configuration.delegatedStaking.withdrawalTimeLimit.getOrElse(env, EpochProgress.MinValue),
           tessellation3Migration,
+          fixingAllowSpendDestinationCredit,
         )
 
         GlobalSnapshotContextService.make(globalSnapshotStateChannelEventsProcessor, globalSnapshotContextFns, lastNGlobalSnapshotStorage, lastGlobalSnapshotStorage)
